@@ -27,7 +27,8 @@ static func occupy(occupied: Dictionary, footprint: Vector2i, origin: Vector2i) 
 		for dx in range(footprint.x):
 			occupied[Vector2i(origin.x + dx, origin.y + dy)] = true
 
-static func free(occupied: Dictionary, footprint: Vector2i, origin: Vector2i) -> void:
+static func free_footprint(occupied: Dictionary, footprint: Vector2i, origin: Vector2i) -> void:
 	for dy in range(footprint.y):
 		for dx in range(footprint.x):
 			occupied.erase(Vector2i(origin.x + dx, origin.y + dy))
+

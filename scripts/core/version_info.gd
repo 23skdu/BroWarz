@@ -18,5 +18,3 @@ static func commit_sha() -> String:
 	if parsed is Dictionary:
 		return str(parsed.get("commit_sha", "dev"))
 	return "dev"
-EOF
-echo done

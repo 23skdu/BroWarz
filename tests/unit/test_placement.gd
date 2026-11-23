@@ -28,5 +28,6 @@ func test_free():
 	var m = MapData.new(8, 8)
 	var occ = {}
 	Placement.occupy(occ, Vector2i(2,2), Vector2i(0,0))
-	Placement.free(occ, Vector2i(2,2), Vector2i(0,0))
+	Placement.free_footprint(occ, Vector2i(2,2), Vector2i(0,0))
 	assert_true(Placement.can_place(m, Vector2i(2,2), Vector2i(0,0), occ))
+

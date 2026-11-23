@@ -7,5 +7,3 @@ func test_version():
 func test_commit_sha_type():
 	var sha = VersionInfo.commit_sha()
 	assert_true(sha is String)
-EOF
-echo done

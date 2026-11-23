@@ -2,11 +2,11 @@
 
 **Real-time networked peer-to-peer strategy game — Godot 4.7.2**
 
-BroWarz is a combined-arms RTS set in 2030 where rival corporations fight for control of oil, iron, geothermal, and food. Command infantry robots, sappers, stealth units, tanks, mechanized infantry, sea drones, submarines, aerial drones, orbital lasers, nuclear missiles, and large killer robots across a 128×128 battlefield. Maps vary with swamps, rivers, seas, and more — and players can build their own.
+BroWarz is a combined-arms RTS set in 2030 where rival corporations fight for control of oil, iron, geothermal, and food. Command infantry robots, sappers, stealth units, tanks, mechanized infantry, sea drones, submarines, aerial drones, orbital lasers, nuclear missiles, and large killer robots across a 128×128 battlefield. Play solo against a tactical Skirmish AI (Easy, Normal, Hard) or over peer-to-peer multiplayer.
 
 ## Status
 
-Pre-production / design phase. See [`docs/design.md`](docs/design.md) for the game design document and [`docs/roadmap.md`](docs/roadmap.md) for the 20-part roadmap to a playable version.
+Playable v0.1.0 build with Single Player vs AI Skirmish mode and P2P Multiplayer. See [`docs/design.md`](docs/design.md) for the game design document and [`docs/roadmap.md`](docs/roadmap.md) for the 20-part roadmap.
 
 ## Requirements
 
@@ -27,6 +27,18 @@ make run           # launch the game
 
 Open in editor: `make editor`
 
+## Controls (In-Match)
+
+- **WASD / Arrow Keys**: Pan camera
+- **Left Click / Drag Box**: Select friendly units (`Shift` to add)
+- **Right Click**: Move / Attack-Move in grid formation
+- **1–6**: Train units (`1` Riflebot, `2` Rocketbot, `3` Stealthbot, `4` MBT, `5` AA Vehicle, `6` Fighter Drone)
+- **B / V**: Build Resource Extractor (`B`) or Defense Turret (`V`)
+- **T**: Upgrade Corporation Tech Tier (T1 → T4)
+- **L**: Fire Orbital Laser Strike
+- **N**: Launch Strategic Nuclear Missile
+- **H**: Hold position
+
 ## Development
 
 Common targets (see `make help`):
@@ -38,14 +50,14 @@ Common targets (see `make help`):
 
 ## Project Layout
 
-- `docs/` — design document and roadmap
-- `scenes/`, `scripts/`, `resources/`, `assets/` — game content (created per roadmap)
+- `docs/` — design document and 20-part roadmap
+- `scenes/`, `scripts/`, `resources/`, `assets/` — game scenes, core logic, autoloads, and assets
 - `tests/` — GUT unit/integration/fuzz/regression tests
 - `addons/` — Godot addons (GUT)
 
 ## Networking
 
-Peer-to-peer via Godot's HighLevelMultiplayerAPI (ENet on desktop, WebRTC on web). See design doc §16.
+Peer-to-peer via Godot's HighLevelMultiplayerAPI (ENet on desktop, WebRTC on web) with deterministic lockstep command buffering and state checksums. See design doc §16.
 
 ## License
 

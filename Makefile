@@ -1,4 +1,4 @@
-# Klaxxxon - Godot 4.7.2 Project Makefile
+# BroWarz - Godot 4.7.2 Project Makefile
 # Build, test, lint, asset verification, and release automation.
 
 SHELL := /bin/bash
@@ -56,7 +56,7 @@ all: check
 
 ## help: Print available targets and descriptions
 help:
-	@echo "Klaxxxon (Godot $(GODOT_VERSION)) - Makefile Targets"
+	@echo "BroWarz (Godot $(GODOT_VERSION)) - Makefile Targets"
 	@echo ""
 	@echo "Setup & Dependencies:"
 	@echo "  check-godot       Verify Godot binary is installed and print version"
@@ -330,7 +330,7 @@ install-hooks:
 
 check: check-godot deps-python lint lint-docs check-layout deadcode check-coverage check-assets test-python test-fuzz test-regression check-orphans
 	@echo "=========================================================="
-	@echo "  Klaxxxon local verification passed!"
+	@echo "  BroWarz local verification passed!"
 	@echo "=========================================================="
 
 ci: check
@@ -353,27 +353,27 @@ build-web: check-godot templates prep-build import
 
 build-linux: check-godot templates prep-build import
 	@mkdir -p "$(LINUX_DIR)"
-	"$(GODOT)" --headless --export-release "Linux" "$(LINUX_DIR)/Klaxxxon.x86_64"
+	"$(GODOT)" --headless --export-release "Linux" "$(LINUX_DIR)/BroWarz.x86_64"
 	@echo "Linux build exported to $(LINUX_DIR)/"
 
 build-windows: check-godot templates prep-build import
 	@mkdir -p "$(WINDOWS_DIR)"
-	"$(GODOT)" --headless --export-release "Windows Desktop" "$(WINDOWS_DIR)/Klaxxxon.exe"
+	"$(GODOT)" --headless --export-release "Windows Desktop" "$(WINDOWS_DIR)/BroWarz.exe"
 	@echo "Windows build exported to $(WINDOWS_DIR)/"
 
 build-macos: check-godot templates prep-build import
 	@mkdir -p "$(MACOS_DIR)"
-	"$(GODOT)" --headless --export-release "macOS" "$(MACOS_DIR)/Klaxxxon.zip"
+	"$(GODOT)" --headless --export-release "macOS" "$(MACOS_DIR)/BroWarz.zip"
 	@echo "macOS build exported to $(MACOS_DIR)/"
 
 build-android: check-godot templates prep-build import
 	@mkdir -p "$(ANDROID_DIR)"
-	"$(GODOT)" --headless --export-release "Android" "$(ANDROID_DIR)/Klaxxxon.apk"
+	"$(GODOT)" --headless --export-release "Android" "$(ANDROID_DIR)/BroWarz.apk"
 	@echo "Android build exported to $(ANDROID_DIR)/"
 
 build-ios: check-godot templates prep-build import
 	@mkdir -p "$(IOS_DIR)"
-	"$(GODOT)" --headless --export-release "iOS" "$(IOS_DIR)/Klaxxxon.ipa"
+	"$(GODOT)" --headless --export-release "iOS" "$(IOS_DIR)/BroWarz.ipa"
 	@echo "iOS build exported to $(IOS_DIR)/"
 
 build-all: build-web build-linux build-windows build-macos
