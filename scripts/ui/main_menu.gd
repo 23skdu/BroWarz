@@ -9,6 +9,8 @@ extends Control
 func _ready():
 	host_btn.pressed.connect(_on_host)
 	join_btn.pressed.connect(_on_join)
+	if has_node("VBox/VersionLabel"):
+		$VBox/VersionLabel.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
 
 func _on_host():
 	var err = NetworkManager.host()
