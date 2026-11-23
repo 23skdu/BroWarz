@@ -18,6 +18,9 @@ func _ready():
 				map_data.set_terrain(x, y, MapData.Terrain.FOREST)
 			elif x % 31 == 0 and y % 31 == 0:
 				map_data.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
+	# spawn HQs
+	_spawn_building(Vector2(80, 80), 0)
+	_spawn_building(Vector2(920, 920), 1)
 	# spawn starting units
 	_spawn_unit(Vector2(100, 100), 0)
 	_spawn_unit(Vector2(120, 100), 0)
@@ -39,6 +42,17 @@ func _spawn_unit(pos: Vector2, team: int) -> void:
 	u.setup(s, team)
 	u.global_position = pos
 	units_container.add_child(u)
+
+func _spawn_building(pos: Vector2, team: int) -> void:
+	var b = preload("res://scenes/building.tscn").instantiate()
+	var s = BuildingStats.new()
+	s.id = "hq"
+	s.display_name = "HQ"
+	s.hp = 500
+	s.is_hq = true
+	b.setup(s, team)
+	b.global_position = pos
+	add_child(b)
 
 func _unhandled_input(event):
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:

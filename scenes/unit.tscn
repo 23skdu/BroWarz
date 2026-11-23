@@ -19,5 +19,3 @@ offset_right = 12.0
 offset_bottom = -12.0
 show_percentage = false
 value = 100.0
-EOF
-echo done

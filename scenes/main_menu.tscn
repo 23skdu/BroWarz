@@ -32,5 +32,3 @@ placeholder_text = "127.0.0.1"
 
 [node name="Status" type="Label" parent="VBox"]
 text = ""
-EOF
-echo done
