@@ -15,6 +15,20 @@ var emp_timer: float = 0.0
 var cloak_timer: float = 0.0
 var focus_target: Node2D = null
 
+# Animation & visual combat state
+var anim_state: int = UnitVisual.AnimState.IDLE
+var anim_elapsed: float = 0.0
+var fire_anim_timer: float = 0.0
+var hit_flash_timer: float = 0.0
+var is_exploding: bool = false
+var explode_timer: float = 0.0
+var facing_angle: float = 0.0
+var turret_angle: float = 0.0
+var last_target_world_pos: Vector2 = Vector2.ZERO
+var explosion_debris: Array[Dictionary] = []
+var sprite_node: Sprite2D = null
+var _frame_cache: Dictionary = {}  # "state:frame" -> ImageTexture
+
 @onready var body = $Body
 @onready var hp_bar = $HpBar
 
@@ -24,47 +38,89 @@ func _ready():
 		if stats.stealth:
 			cloak_timer = 10.0
 	target_pos = global_position
+	facing_angle = 0.0 if team == 0 else PI
+	turret_angle = facing_angle
+	if body:
+		body.visible = false
+	_setup_animated_sprite()
 	add_to_group("units")
 
 func setup(s: UnitStats, t: int) -> void:
 	stats = s
 	team = t
 	hp = s.hp
+	facing_angle = 0.0 if t == 0 else PI
+	turret_angle = facing_angle
 	if s.stealth:
 		cloak_timer = 10.0
+	_frame_cache.clear()
 	_update_visual()
 
-func _update_visual() -> void:
-	if not body:
+func _setup_animated_sprite() -> void:
+	if sprite_node != null:
 		return
-	var base_color := Color(0.2, 0.55, 1.0, 1.0) if team == 0 else Color(0.95, 0.25, 0.25, 1.0)
+	sprite_node = Sprite2D.new()
+	sprite_node.name = "AnimatedUnitSprite"
+	sprite_node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	add_child(sprite_node)
+	_refresh_sprite_texture()
+
+func _team_base_color() -> Color:
+	var c := Color(0.22, 0.58, 1.0, 1.0) if team == 0 else Color(0.96, 0.26, 0.24, 1.0)
 	if stats:
 		match stats.unit_class:
-			1: # vehicle / mech
-				base_color = base_color.darkened(0.15)
-				body.offset_left = -11.0
-				body.offset_top = -11.0
-				body.offset_right = 11.0
-				body.offset_bottom = 11.0
-			2: # naval
-				base_color = base_color.lerp(Color.CYAN, 0.25)
-			3: # air
-				base_color = base_color.lightened(0.25)
-	if is_cloaked():
-		base_color.a = 0.45
-	body.color = base_color
+			1: c = c.darkened(0.1)
+			2: c = c.lerp(Color.CYAN, 0.25)
+			3: c = c.lightened(0.2)
+	return c
+
+func _refresh_sprite_texture() -> void:
+	if sprite_node == null:
+		return
+	var f_idx := UnitVisual.frame_index(anim_state, anim_elapsed, anim_state != UnitVisual.AnimState.EXPLODE)
+	var key := "%d:%d" % [anim_state, f_idx]
+	if not _frame_cache.has(key):
+		var uclass := stats.unit_class if stats else 0
+		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), 32)
+		_frame_cache[key] = ImageTexture.create_from_image(img)
+	sprite_node.texture = _frame_cache[key]
+	sprite_node.rotation = 0.0 if is_exploding else facing_angle
+	var alpha := 0.42 if is_cloaked() else 1.0
+	sprite_node.modulate = Color(1, 1, 1, alpha)
+
+func _update_visual() -> void:
+	if body:
+		body.visible = false
+	_refresh_sprite_texture()
 
 func is_cloaked() -> bool:
-	return stats != null and stats.stealth and Stealth.is_cloaked(cloak_timer)
+	return not is_exploding and stats != null and stats.stealth and Stealth.is_cloaked(cloak_timer)
 
 func apply_emp(duration: float) -> void:
+	if is_exploding:
+		return
 	var ac := stats.armor_class if stats else 0
 	emp_timer = maxf(emp_timer, EMP.disable_duration(duration, ac))
 
 func _physics_process(delta):
+	anim_elapsed += delta
+	fire_anim_timer = maxf(0.0, fire_anim_timer - delta)
+	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+
+	if is_exploding:
+		explode_timer += delta
+		anim_state = UnitVisual.AnimState.EXPLODE
+		_refresh_sprite_texture()
+		queue_redraw()
+		if explode_timer >= UnitVisual.explosion_duration():
+			queue_free()
+		return
+
 	emp_timer = EMP.tick(emp_timer, delta)
 	if EMP.is_disabled(emp_timer):
 		velocity = Vector2.ZERO
+		anim_state = UnitVisual.AnimState.IDLE
+		_refresh_sprite_texture()
 		queue_redraw()
 		return
 
@@ -82,6 +138,7 @@ func _physics_process(delta):
 			if enemy != null:
 				velocity = Vector2.ZERO
 				_perform_attack(enemy)
+				_update_anim_state()
 				queue_redraw()
 				return
 		var dir = (target_pos - global_position)
@@ -89,6 +146,9 @@ func _physics_process(delta):
 			var spd := stats.speed if stats else 100.0
 			var terrain_mult := _terrain_speed_multiplier()
 			velocity = dir.normalized() * spd * terrain_mult
+			facing_angle = lerp_angle(facing_angle, velocity.angle(), minf(1.0, delta * 14.0))
+			if fire_anim_timer <= 0.0:
+				turret_angle = lerp_angle(turret_angle, facing_angle, minf(1.0, delta * 10.0))
 			move_and_slide()
 		else:
 			has_target = false
@@ -97,8 +157,16 @@ func _physics_process(delta):
 	else:
 		velocity = Vector2.ZERO
 		_try_attack()
+
+	_update_anim_state()
 	_update_visual()
 	queue_redraw()
+
+func _update_anim_state() -> void:
+	var next_state := UnitVisual.select_state(is_exploding, fire_anim_timer, hit_flash_timer, velocity.length_squared())
+	if next_state != anim_state:
+		anim_state = next_state
+		anim_elapsed = 0.0
 
 func _terrain_speed_multiplier() -> float:
 	if GameManager.current_map == null or stats == null:
@@ -113,7 +181,7 @@ func _terrain_speed_multiplier() -> float:
 
 func _auto_repair_allies(delta: float) -> void:
 	for u in get_tree().get_nodes_in_group("units"):
-		if u == self or not is_instance_valid(u) or u.team != team:
+		if u == self or not is_instance_valid(u) or u.team != team or u.is_exploding:
 			continue
 		if u.stats and Repair.can_repair(u.hp, u.stats.hp):
 			if global_position.distance_to(u.global_position) <= 100.0:
@@ -126,7 +194,7 @@ func _auto_repair_allies(delta: float) -> void:
 func _try_attack():
 	if attack_timer > 0:
 		return
-	var enemy = focus_target if is_instance_valid(focus_target) else _nearest_enemy()
+	var enemy = focus_target if (is_instance_valid(focus_target) and not ("is_exploding" in focus_target and focus_target.is_exploding)) else _nearest_enemy()
 	if enemy == null:
 		return
 	var rng := stats.range_px if stats else 200.0
@@ -140,6 +208,16 @@ func _try_attack():
 
 func _perform_attack(enemy: Node2D) -> void:
 	attack_timer = attack_cooldown
+	fire_anim_timer = 0.26
+	anim_state = UnitVisual.AnimState.FIRE
+	anim_elapsed = 0.0
+	last_target_world_pos = enemy.global_position
+	var aim_dir := (enemy.global_position - global_position)
+	if aim_dir.length_squared() > 0.01:
+		turret_angle = aim_dir.angle()
+		if stats == null or stats.unit_class != 1:
+			facing_angle = turret_angle
+
 	if stats and stats.stealth and Stealth.break_on_action(true, false, false):
 		cloak_timer = 0.0
 	var base_dmg := float(stats.base_damage if stats else 10)
@@ -156,12 +234,19 @@ func _perform_attack(enemy: Node2D) -> void:
 		var ty := clampi(int(enemy.global_position.y / 16.0), 0, GameManager.current_map.height - 1)
 		cover_mod = Cover.modifier(GameManager.current_map.get_terrain(tx, ty))
 	var final_dmg := Damage.compute(base_dmg, dmg_type, target_armor, 0.0, cover_mod)
-	# Sapper bonus vs buildings
 	if stats and stats.id == "sapperbot" and target_armor == Damage.ArmorClass.STRUCTURE:
 		final_dmg *= 2.5
+
+	# Spawn projectile tracer & muzzle flash in active game scene
+	var scene = get_tree().current_scene
+	if scene and scene.has_method("spawn_combat_tracer"):
+		var muzzle_pos := global_position + Vector2.RIGHT.rotated(turret_angle) * 14.0
+		scene.spawn_combat_tracer(muzzle_pos, enemy.global_position, dmg_type, team)
+
 	enemy.take_damage(final_dmg)
 	if dmg_type == Damage.DamageType.EMP and enemy.has_method("apply_emp"):
 		enemy.apply_emp(2.5)
+	AudioManager.play_sfx("weapon_fire")
 
 func _nearest_enemy_in_range() -> Node2D:
 	var e = _nearest_enemy()
@@ -177,6 +262,8 @@ func _nearest_enemy() -> Node2D:
 	for u in get_tree().get_nodes_in_group("units"):
 		if u == self or not is_instance_valid(u) or u.team == team:
 			continue
+		if "is_exploding" in u and u.is_exploding:
+			continue
 		var d := global_position.distance_to(u.global_position)
 		if u.has_method("is_cloaked") and u.is_cloaked():
 			if not Vision.stealth_detected(sgt, d, true, has_radar):
@@ -187,6 +274,8 @@ func _nearest_enemy() -> Node2D:
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b) or b.team == team:
 			continue
+		if "is_exploding" in b and b.is_exploding:
+			continue
 		var d := global_position.distance_to(b.global_position)
 		if d < best_d:
 			best_d = d
@@ -194,6 +283,8 @@ func _nearest_enemy() -> Node2D:
 	return best
 
 func move_to(pos: Vector2, is_attack_move: bool = false) -> void:
+	if is_exploding:
+		return
 	target_pos = pos
 	has_target = true
 	attack_move = is_attack_move
@@ -206,14 +297,84 @@ func stop_command() -> void:
 	velocity = Vector2.ZERO
 
 func take_damage(amount: float) -> void:
+	if is_exploding:
+		return
 	hp -= int(maxf(1.0, round(amount)))
+	hit_flash_timer = 0.14
 	if hp_bar:
-		hp_bar.value = float(hp) / float(stats.hp if stats else 100) * 100.0
+		hp_bar.value = maxf(0.0, float(hp) / float(stats.hp if stats else 100) * 100.0)
 	if hp <= 0:
-		remove_from_group("units")
-		queue_free()
+		_trigger_explosion()
+
+func _trigger_explosion() -> void:
+	if is_exploding:
+		return
+	is_exploding = true
+	has_target = false
+	selected = false
+	velocity = Vector2.ZERO
+	explode_timer = 0.0
+	anim_state = UnitVisual.AnimState.EXPLODE
+	anim_elapsed = 0.0
+	if hp_bar:
+		hp_bar.visible = false
+	remove_from_group("units")
+	explosion_debris = UnitVisual.generate_Explosion_debris(int(get_instance_id()), 10)
+	var scene = get_tree().current_scene
+	if scene and scene.has_method("spawn_explosion_vfx"):
+		var rad := 26.0 if (stats and stats.unit_class == 1) else 18.0
+		scene.spawn_explosion_vfx(global_position, rad)
+	AudioManager.play_sfx("unit_explode")
 
 func _draw():
+	var uclass := stats.unit_class if stats else 0
+	var kin := UnitVisual.compute_kinematics(anim_state, anim_elapsed, uclass)
+
+	if is_exploding:
+		var prog := float(kin["explosion_progress"])
+		var max_r := 26.0 if uclass == 1 else 18.0
+		# Shockwave ring
+		draw_arc(Vector2.ZERO, lerpf(4.0, max_r * 1.45, prog), 0, TAU, 24, Color(1.0, 0.75, 0.25, 1.0 - prog), 2.5)
+		# Expanding fireball + smoke core
+		draw_circle(Vector2.ZERO, lerpf(6.0, max_r, sin(prog * PI)), Color(1.0, 0.45, 0.1, 0.85 * (1.0 - prog * 0.7)))
+		draw_circle(Vector2.ZERO, lerpf(3.0, max_r * 0.55, sin(prog * PI)), Color(1.0, 0.95, 0.65, 0.9 * (1.0 - prog)))
+		# Flying shrapnel debris
+		for p in explosion_debris:
+			var d_pos: Vector2 = p["dir"] * float(p["speed"]) * explode_timer
+			var c_heat := Color(1.0, 0.65, 0.2, 1.0 - prog).lerp(Color(0.25, 0.25, 0.25, 1.0 - prog), prog)
+			draw_circle(d_pos, float(p["size"]) * (1.0 - prog * 0.5), c_heat)
+		return
+
+	# Moving dust/wake/exhaust puffs
+	if anim_state == UnitVisual.AnimState.MOVE:
+		var back_dir := -Vector2.RIGHT.rotated(facing_angle)
+		var puff_offset := back_dir * (11.0 + absf(float(kin["stride"])) * 5.0)
+		var puff_col := Color(0.75, 0.95, 1.0, 0.45) if uclass == 2 else Color(0.65, 0.62, 0.55, 0.38)
+		draw_circle(puff_offset + Vector2(0, 3), 3.0 + absf(float(kin["stride"])) * 2.0, puff_col)
+		draw_circle(puff_offset - Vector2(0, 3), 2.5 + (1.0 - absf(float(kin["stride"]))) * 2.0, puff_col)
+
+	# Air drone spinning rotor blades
+	if uclass == 3:
+		var r_ang := float(kin["rotor_angle"])
+		var blade := Vector2.RIGHT.rotated(r_ang) * 11.0
+		draw_line(-blade, blade, Color(0.9, 0.95, 1.0, 0.55), 1.8)
+		var blade2 := Vector2.RIGHT.rotated(r_ang + PI * 0.5) * 11.0
+		draw_line(-blade2, blade2, Color(0.9, 0.95, 1.0, 0.55), 1.8)
+
+	# Independent rotating turret & recoil barrel for vehicles/mechs
+	if uclass == 1:
+		var recoil_vec := -Vector2.RIGHT.rotated(turret_angle) * float(kin["recoil"])
+		var barrel_end := Vector2.RIGHT.rotated(turret_angle) * 16.0 + recoil_vec
+		draw_line(recoil_vec, barrel_end, Color(0.82, 0.85, 0.9, 1.0), 3.2)
+
+	# Muzzle flash burst when firing
+	var m_alpha := float(kin["muzzle_alpha"])
+	if m_alpha > 0.05:
+		var muzzle_dir := Vector2.RIGHT.rotated(turret_angle)
+		var muzzle_tip := muzzle_dir * (16.0 - float(kin["recoil"]))
+		draw_circle(muzzle_tip, 5.5 * m_alpha, Color(1.0, 0.65, 0.15, m_alpha))
+		draw_circle(muzzle_tip + muzzle_dir * 3.0, 3.2 * m_alpha, Color(1.0, 0.98, 0.75, m_alpha))
+
 	if selected:
 		draw_arc(Vector2.ZERO, 18, 0, TAU, 24, Color.YELLOW, 2.0)
 	if EMP.is_disabled(emp_timer):

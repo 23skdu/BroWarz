@@ -17,7 +17,9 @@ var drag_start: Vector2 = Vector2.ZERO
 var drag_current: Vector2 = Vector2.ZERO
 var laser_cooldown: float = 0.0
 var nuke_cooldown: float = 0.0
-var active_vfx: Array = []  # Array of Dictionary {type, pos, radius, color, timer}
+var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
+var active_tracers: Array = []  # Array of Dictionary {from, to, color, width, timer, duration}
+var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
 
 @onready var units_container = $Units
 @onready var ui = $UI
@@ -51,6 +53,55 @@ func _generate_map() -> void:
 				map_data.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
 			elif abs(x - y) < 2 and x > 35 and x < 85:
 				map_data.set_terrain(x, y, MapData.Terrain.ROAD)
+
+func spawn_combat_tracer(from_pos: Vector2, to_pos: Vector2, dmg_type: int, _team: int) -> void:
+	var col := Color(1.0, 0.92, 0.4, 0.95)
+	var w := 2.2
+	var dur := 0.14
+	match dmg_type:
+		Damage.DamageType.EXPLOSIVE:
+			col = Color(1.0, 0.55, 0.15, 0.95)
+			w = 3.2
+			dur = 0.22
+		Damage.DamageType.ENERGY:
+			col = Color(0.25, 0.95, 1.0, 0.95)
+			w = 2.8
+			dur = 0.18
+		Damage.DamageType.EMP:
+			col = Color(0.55, 0.8, 1.0, 0.95)
+			w = 2.6
+			dur = 0.2
+		Damage.DamageType.THERMAL:
+			col = Color(1.0, 0.3, 0.1, 0.95)
+			w = 3.6
+			dur = 0.24
+	active_tracers.append({
+		"from": from_pos,
+		"to": to_pos,
+		"color": col,
+		"width": w,
+		"timer": dur,
+		"duration": dur,
+	})
+	queue_redraw()
+
+func spawn_explosion_vfx(world_pos: Vector2, max_radius: float = 24.0) -> void:
+	active_vfx.append({
+		"type": "explosion",
+		"pos": world_pos,
+		"radius": max_radius,
+		"color": Color(1.0, 0.5, 0.12, 0.85),
+		"timer": 0.55,
+		"duration": 0.55,
+	})
+	scorch_marks.append({
+		"pos": world_pos,
+		"radius": max_radius * 0.65,
+		"alpha": 0.45,
+	})
+	if scorch_marks.size() > 64:
+		scorch_marks.pop_front()
+	queue_redraw()
 
 func _setup_hud() -> void:
 	hud_label = Label.new()
@@ -202,13 +253,10 @@ func _complete_selection(start_p: Vector2, end_p: Vector2, additive: bool) -> vo
 			clicked.selected = true
 			if not selected_units.has(clicked):
 				selected_units.append(clicked)
-		elif not additive:
-			# Left click on empty ground also moves currently selected units for convenience
-			pass
 	else:
 		var rect := Rect2(start_p, end_p - start_p).abs()
 		for u in units_container.get_children():
-			if is_instance_valid(u) and u.team == 0 and rect.has_point(u.global_position):
+			if is_instance_valid(u) and not u.is_exploding and u.team == 0 and rect.has_point(u.global_position):
 				u.selected = true
 				if not selected_units.has(u):
 					selected_units.append(u)
@@ -216,7 +264,7 @@ func _complete_selection(start_p: Vector2, end_p: Vector2, additive: bool) -> vo
 func _issue_move_order(target: Vector2, is_attack_move: bool = true) -> void:
 	var valid_units: Array = []
 	for u in selected_units:
-		if is_instance_valid(u):
+		if is_instance_valid(u) and not u.is_exploding:
 			valid_units.append(u)
 	if valid_units.is_empty():
 		return
@@ -265,7 +313,7 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 		return false
 	var producer: Node2D = null
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and b.team == team:
+		if is_instance_valid(b) and not b.is_exploding and b.team == team:
 			if (s.unit_class == 0 and b.stats and b.stats.id == "barracks") or (s.unit_class == 1 and b.stats and b.stats.id == "factory") or (s.unit_class == 3 and b.stats and b.stats.id == "airfield"):
 				producer = b
 				break
@@ -327,7 +375,7 @@ func _player_fire_orbital_laser() -> void:
 		target_pos = enemy.global_position
 	var dmg := Strategic.orbital_laser_damage(180.0, float(wallet.get(Economy.Res.GEOTHERMAL, 0)))
 	_apply_aoe_damage(target_pos, 95.0, dmg, 0)
-	active_vfx.append({"type": "laser", "pos": target_pos, "radius": 95.0, "color": Color(0.2, 0.95, 1.0, 0.75), "timer": 1.2})
+	active_vfx.append({"type": "laser", "pos": target_pos, "radius": 95.0, "color": Color(0.2, 0.95, 1.0, 0.75), "timer": 1.2, "duration": 1.2})
 	AudioManager.play_sfx("orbital_laser")
 
 func _player_fire_nuke() -> void:
@@ -349,20 +397,20 @@ func _player_fire_nuke() -> void:
 		for dy in range(-rad, rad + 1):
 			for dx in range(-rad, rad + 1):
 				map_data.set_terrain(cx + dx, cy + dy, MapData.Terrain.WASTELAND)
-	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": 180.0, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0})
+	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": 180.0, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0, "duration": 2.0})
 	AudioManager.play_sfx("nuclear_launch")
 
 func _apply_aoe_damage(center: Vector2, radius: float, dmg: float, attacker_team: int) -> void:
 	for u in get_tree().get_nodes_in_group("units"):
-		if is_instance_valid(u) and u.team != attacker_team and u.global_position.distance_to(center) <= radius:
+		if is_instance_valid(u) and not u.is_exploding and u.team != attacker_team and u.global_position.distance_to(center) <= radius:
 			u.take_damage(dmg)
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and b.team != attacker_team and b.global_position.distance_to(center) <= radius:
+		if is_instance_valid(b) and not b.is_exploding and b.team != attacker_team and b.global_position.distance_to(center) <= radius:
 			b.take_damage(dmg)
 
 func _find_team_hq(team: int) -> Node2D:
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and b.team == team and b.stats and b.stats.is_hq:
+		if is_instance_valid(b) and not b.is_exploding and b.team == team and b.stats and b.stats.is_hq:
 			return b
 	return null
 
@@ -370,12 +418,12 @@ func _find_priority_target_for_team(attacker_team: int) -> Node2D:
 	var candidates: Array = []
 	var node_map: Dictionary = {}
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and b.team != attacker_team:
+		if is_instance_valid(b) and not b.is_exploding and b.team != attacker_team:
 			var id := b.get_instance_id()
 			node_map[id] = b
 			candidates.append({"id": id, "strength": float(b.hp)})
 	for u in get_tree().get_nodes_in_group("units"):
-		if is_instance_valid(u) and u.team != attacker_team:
+		if is_instance_valid(u) and not u.is_exploding and u.team != attacker_team:
 			var id := u.get_instance_id()
 			node_map[id] = u
 			candidates.append({"id": id, "strength": float(u.hp)})
@@ -384,7 +432,7 @@ func _find_priority_target_for_team(attacker_team: int) -> Node2D:
 
 func _unit_at(pos: Vector2):
 	for u in units_container.get_children():
-		if is_instance_valid(u) and u.global_position.distance_to(pos) < 18:
+		if is_instance_valid(u) and not u.is_exploding and u.global_position.distance_to(pos) < 18:
 			return u
 	return null
 
@@ -393,13 +441,21 @@ func _process(delta):
 	laser_cooldown = maxf(0.0, laser_cooldown - delta)
 	nuke_cooldown = maxf(0.0, nuke_cooldown - delta)
 
-	# Decay VFX
+	var needs_redraw := false
 	for i in range(active_vfx.size() - 1, -1, -1):
 		active_vfx[i]["timer"] = float(active_vfx[i]["timer"]) - delta
+		needs_redraw = true
 		if float(active_vfx[i]["timer"]) <= 0.0:
 			active_vfx.remove_at(i)
-		else:
-			queue_redraw()
+
+	for i in range(active_tracers.size() - 1, -1, -1):
+		active_tracers[i]["timer"] = float(active_tracers[i]["timer"]) - delta
+		needs_redraw = true
+		if float(active_tracers[i]["timer"]) <= 0.0:
+			active_tracers.remove_at(i)
+
+	if needs_redraw:
+		queue_redraw()
 
 	# Economy 1s tick
 	economy_timer += delta
@@ -450,7 +506,7 @@ func _run_skirmish_ai_turn() -> void:
 	if GameManager.ai_difficulty == AI.Difficulty.HARD and ai_units.size() < pop_cap:
 		_train_unit_for_team(1, "riflebot")
 
-	# 4. Tactical squad coordination (defend, harass, attack wave, retreat)
+	# 4. Tactical squad coordination
 	var ai_hq := _find_team_hq(1)
 	var ai_base_pos := ai_hq.global_position if ai_hq != null else Vector2(1100, 900)
 	var enemy_near_base := 0
@@ -500,7 +556,7 @@ func _run_skirmish_ai_turn() -> void:
 func _get_team_units(team: int) -> Array:
 	var res: Array = []
 	for u in units_container.get_children():
-		if is_instance_valid(u) and u.team == team:
+		if is_instance_valid(u) and not u.is_exploding and u.team == team:
 			res.append(u)
 	return res
 
@@ -520,7 +576,7 @@ func _classify_units(unit_list: Array) -> Dictionary:
 func _get_team_building_counts(team: int) -> Dictionary:
 	var d: Dictionary = {}
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and b.team == team and b.stats:
+		if is_instance_valid(b) and not b.is_exploding and b.team == team and b.stats:
 			var bid: String = b.stats.id
 			d[bid] = int(d.get(bid, 0)) + 1
 	return d
@@ -555,10 +611,10 @@ func _check_win():
 		return
 	var teams := {}
 	for u in units_container.get_children():
-		if is_instance_valid(u):
+		if is_instance_valid(u) and not u.is_exploding:
 			teams[u.team] = teams.get(u.team, 0) + 1
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b):
+		if is_instance_valid(b) and not b.is_exploding:
 			teams[b.team] = teams.get(b.team, 0) + 1
 	if teams.size() == 1:
 		var t = teams.keys()[0]
@@ -569,9 +625,37 @@ func _check_win():
 		match_over = true
 
 func _draw():
+	# Scorch marks from blown-up units and buildings
+	for s in scorch_marks:
+		draw_circle(s["pos"], float(s["radius"]), Color(0.1, 0.09, 0.08, float(s["alpha"])))
+
+	# Weapon projectile tracers & impact sparks
+	for tr in active_tracers:
+		var frac := clampf(1.0 - float(tr["timer"]) / maxf(0.01, float(tr["duration"])), 0.0, 1.0)
+		var head: Vector2 = tr["from"].lerp(tr["to"], minf(1.0, frac * 1.35))
+		var tail: Vector2 = tr["from"].lerp(tr["to"], maxf(0.0, frac - 0.35))
+		draw_line(tail, head, tr["color"], float(tr["width"]))
+		draw_circle(head, float(tr["width"]) * 1.15, Color(1.0, 0.98, 0.85, 0.95))
+
+	# Explosions, Orbital Laser Beams, and Nuclear Mushrooms
+	for v in active_vfx:
+		var dur := maxf(0.01, float(v.get("duration", 1.0)))
+		var prog := clampf(1.0 - float(v["timer"]) / dur, 0.0, 1.0)
+		var pos: Vector2 = v["pos"]
+		var rad := float(v["radius"])
+		match String(v.get("type", "explosion")):
+			"laser":
+				draw_line(pos - Vector2(0, 600), pos, Color(0.25, 0.95, 1.0, 1.0 - prog), 12.0 * (1.0 - prog * 0.5))
+				draw_circle(pos, rad * sin(prog * PI), v["color"])
+			"nuke":
+				draw_arc(pos, rad * prog * 1.25, 0, TAU, 36, Color(1.0, 0.85, 0.3, 1.0 - prog), 5.0)
+				draw_circle(pos, rad * sin(prog * PI), v["color"])
+				draw_circle(pos, rad * 0.55 * sin(prog * PI), Color(1.0, 0.96, 0.75, 1.0 - prog))
+			_:
+				draw_arc(pos, rad * prog * 1.35, 0, TAU, 24, Color(1.0, 0.8, 0.3, 1.0 - prog), 2.5)
+				draw_circle(pos, rad * sin(prog * PI), Color(1.0, 0.45, 0.1, 0.75 * (1.0 - prog)))
+
 	if drag_selecting:
 		var r := Rect2(drag_start, drag_current - drag_start).abs()
 		draw_rect(r, Color(0.2, 0.9, 0.3, 0.18), true)
 		draw_rect(r, Color(0.2, 0.95, 0.3, 0.9), false, 2.0)
-	for v in active_vfx:
-		draw_circle(v["pos"], float(v["radius"]), v["color"])

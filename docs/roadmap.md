@@ -299,13 +299,15 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Objective:** Readable, satisfying presentation.
 
-**Deliverables:** VFX rendering, audio manager hooks, team/class color silhouettes, score system.
+**Deliverables:** VFX rendering, animated unit sprites, audio manager hooks, team/class color silhouettes, score system.
 
 **Subtasks:**
-- [x] Team color silhouettes differentiated by unit domain (infantry, armor/mech, naval, air) and stealth transparency.
+- [x] Procedural multi-frame animated pixel-art sprites for every unit domain (`UnitVisual.build_unit_frame_image`: infantry robots, tracked tanks/mechs with rotating turrets, naval hulls with wakes, and aerial drones with spinning rotors).
+- [x] Realistic combat state animations (`UnitVisual.AnimState`: `IDLE`, `MOVE` with stride/dust/wake puffs, `FIRE` with barrel recoil, muzzle flashes, and projectile tracers, `HIT` damage flash, and multi-stage `EXPLODE` fireball, shockwave, flying shrapnel debris, and persistent scorch craters).
 - [x] Visual feedback for selection rings, drag-selection box, EMP disable arcs, orbital laser beams, and nuclear explosions.
 - [x] `AudioManager` SFX and adaptive music state hooks.
 - [x] Military and economic score calculation (`Score`).
+- [x] Unit tests for sprite animation state machine, frame generation, kinematics, and explosion debris (`test_unit_visual.gd`).
 
 ---
 
