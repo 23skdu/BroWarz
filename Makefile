@@ -3,6 +3,10 @@
 
 SHELL := /bin/bash
 
+# Prefer Homebrew-installed tools (macOS/Linuxbrew) when available.
+HOMEBREW_PREFIX ?= $(shell command -v brew >/dev/null 2>&1 && brew --prefix || echo /opt/homebrew)
+export PATH := $(HOMEBREW_PREFIX)/bin:$(HOMEBREW_PREFIX)/sbin:$(PATH)
+
 GODOT        ?= $(shell command -v godot 2>/dev/null || command -v godot4 2>/dev/null || echo godot)
 PYTHON       ?= $(shell if [ -x venv/bin/python3 ]; then echo venv/bin/python3; else command -v python3 2>/dev/null || echo python3; fi)
 CURL         ?= $(shell command -v curl 2>/dev/null || echo curl)
@@ -233,6 +237,17 @@ test-python:
 
 lint: lint-python lint-gd
 
+## analyze: Run static analysis (GDScript, Python, Markdown)
+analyze: lint-python lint-gd lint-docs
+	@echo "Static analysis complete."
+
+## brew-deps: Install useful Homebrew tools for Godot development and static analysis
+brew-deps:
+	@if command -v brew >/dev/null 2>&1; then \
+		brew install gdtoolkit markdownlint-cli python@3.12; \
+	else \
+		echo "Homebrew not found; skipping."; \
+	fi
 lint-python:
 	@echo "Checking Python scripts..."
 	$(PYTHON) -B -m py_compile $(PYTHON_SCRIPTS)
