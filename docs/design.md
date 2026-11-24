@@ -329,5 +329,11 @@ Outstanding gaps (see `docs/roadmap.md`):
 - Aseprite for 2D pixel-art and animation.
 - Automated export via CI to generate mipmaps and atlases.
 
+## 28. Hex Grid & Screenshots
+
+- Units move on a pointy-topped hex grid (size 16) overlaid on the 128×128 tile map.
+- Hex pathfinding respects terrain passability per unit class.
+- Screenshot capture: press F12 in-game to save a PNG to `user://screenshots/`.
+
 ---
 *End of design document.*
