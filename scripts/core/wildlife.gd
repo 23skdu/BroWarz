@@ -93,7 +93,7 @@ static func spawn_ambient_herd(map: MapData, seed_val: int = 1337, max_total: in
 
 	var next_id := 1
 	# Occasional birds on all maps (3-4 birds)
-	var bird_count := mini(4, maxi(2, max_total / 3))
+	var bird_count := mini(4, maxi(2, int(float(max_total) / 3.0)))
 	for i in range(bird_count):
 		var bx := rng.randf_range(160.0, float(map.width * 16 - 160))
 		var by := rng.randf_range(160.0, float(map.height * 16 - 160))

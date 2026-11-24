@@ -64,7 +64,7 @@ static func generate_forest(w: int, h: int, seed: int = 3) -> MapData:
 			else:
 				m.set_terrain(x, y, MapData.Terrain.PLAINS)
 	# river
-	var rx := w / 2
+	var rx := int(float(w) * 0.5)
 	for y in range(h):
 		rx = clampi(rx + rng.randi_range(-1, 1), 5, w - 6)
 		for dx in range(-1, 2):

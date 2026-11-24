@@ -7,7 +7,7 @@ static func grid_offsets(count: int, spacing: float = 32.0) -> Array[Vector2]:
 	var offsets: Array[Vector2] = []
 	var cols = int(ceil(sqrt(float(count))))
 	for i in range(count):
-		var r = i / cols
+		var r = int(float(i) / float(cols))
 		var c = i % cols
 		offsets.append(Vector2(c * spacing, r * spacing))
 	# center
