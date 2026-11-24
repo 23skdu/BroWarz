@@ -1,54 +1,54 @@
 # BroWarz — Units
 
-Representative thumbnails use the AeroDyne color scheme; each corporation recolors units with its own color.
+Each unit has a stylized, high-contrast outlined sprite tailored to its combat role and colored in its owning corporation's primary and accent livery (**AeroDyne Industries**, **FerroCore Heavy**, **Pelagic Systems**, and **Vanguard Robotics**).
 
 ## Infantry Robots
 
-| Unit | Thumbnail | Role |
-|---|---|---|
-| Riflebot | ![Riflebot](thumbnails/riflebot_f0.png) | Line infantry |
-| Heavybot | ![Heavybot](thumbnails/heavybot_f0.png) | Heavy infantry, crosses mountains |
-| Sapperbot | ![Sapperbot](thumbnails/sapperbot_f0.png) | Demolition and construction |
-| Stealthbot | ![Stealthbot](thumbnails/stealthbot_f0.png) | Cloaked recon/ambush |
-| Sniperbot | ![Sniperbot](thumbnails/sniperbot_f0.png) | Long-range precision |
-| Rocketbot | ![Rocketbot](thumbnails/rocketbot_f0.png) | Anti-armor infantry |
-| Medicbot | ![Medicbot](thumbnails/medicbot_f0.png) | Repairs friendly robots |
-| Engineerbot | ![Engineerbot](thumbnails/engineerbot_f0.png) | Builds and repairs structures |
+| Unit | AeroDyne | FerroCore | Pelagic | Vanguard | Role |
+|---|---|---|---|---|---|
+| Riflebot | ![Riflebot](thumbnails/riflebot_f0.png) | ![Riflebot](thumbnails/riflebot_f1.png) | ![Riflebot](thumbnails/riflebot_f2.png) | ![Riflebot](thumbnails/riflebot_f3.png) | Line infantry |
+| Heavybot | ![Heavybot](thumbnails/heavybot_f0.png) | ![Heavybot](thumbnails/heavybot_f1.png) | ![Heavybot](thumbnails/heavybot_f2.png) | ![Heavybot](thumbnails/heavybot_f3.png) | Heavy infantry, crosses mountains |
+| Sapperbot | ![Sapperbot](thumbnails/sapperbot_f0.png) | ![Sapperbot](thumbnails/sapperbot_f1.png) | ![Sapperbot](thumbnails/sapperbot_f2.png) | ![Sapperbot](thumbnails/sapperbot_f3.png) | Demolition and construction |
+| Stealthbot | ![Stealthbot](thumbnails/stealthbot_f0.png) | ![Stealthbot](thumbnails/stealthbot_f1.png) | ![Stealthbot](thumbnails/stealthbot_f2.png) | ![Stealthbot](thumbnails/stealthbot_f3.png) | Cloaked recon/ambush |
+| Sniperbot | ![Sniperbot](thumbnails/sniperbot_f0.png) | ![Sniperbot](thumbnails/sniperbot_f1.png) | ![Sniperbot](thumbnails/sniperbot_f2.png) | ![Sniperbot](thumbnails/sniperbot_f3.png) | Long-range precision |
+| Rocketbot | ![Rocketbot](thumbnails/rocketbot_f0.png) | ![Rocketbot](thumbnails/rocketbot_f1.png) | ![Rocketbot](thumbnails/rocketbot_f2.png) | ![Rocketbot](thumbnails/rocketbot_f3.png) | Anti-armor infantry |
+| Medicbot | ![Medicbot](thumbnails/medicbot_f0.png) | ![Medicbot](thumbnails/medicbot_f1.png) | ![Medicbot](thumbnails/medicbot_f2.png) | ![Medicbot](thumbnails/medicbot_f3.png) | Repairs friendly robots |
+| Engineerbot | ![Engineerbot](thumbnails/engineerbot_f0.png) | ![Engineerbot](thumbnails/engineerbot_f1.png) | ![Engineerbot](thumbnails/engineerbot_f2.png) | ![Engineerbot](thumbnails/engineerbot_f3.png) | Builds and repairs structures |
 
 ## Mechanized & Armor
 
-| Unit | Thumbnail | Role |
-|---|---|---|
-| APC/IFV | ![APC](thumbnails/apc_f0.png) | Transport and light cannon |
-| Light Mech | ![Light Mech](thumbnails/light_mech_f0.png) | Fast skirmisher |
-| Light Tank | ![Light Tank](thumbnails/light_tank_f0.png) | Fast armor |
-| Main Battle Tank | ![MBT](thumbnails/mbt_f0.png) | Standard armor |
-| Heavy Tank | ![Heavy Tank](thumbnails/heavy_tank_f0.png) | Siege armor |
-| Self-Propelled Artillery | ![Artillery](thumbnails/artillery_f0.png) | Indirect fire |
-| Anti-Air Vehicle | ![AA](thumbnails/aa_vehicle_f0.png) | Air defense |
-| Heavy Killer Mech | ![Heavy Mech](thumbnails/heavy_mech_f0.png) | Anti-everything mech |
-| Siege Mech | ![Siege Mech](thumbnails/siege_mech_f0.png) | Long-range bombardment |
+| Unit | AeroDyne | FerroCore | Pelagic | Vanguard | Role |
+|---|---|---|---|---|---|
+| APC/IFV | ![APC](thumbnails/apc_f0.png) | ![APC](thumbnails/apc_f1.png) | ![APC](thumbnails/apc_f2.png) | ![APC](thumbnails/apc_f3.png) | Transport and light cannon |
+| Light Mech | ![Light Mech](thumbnails/light_mech_f0.png) | ![Light Mech](thumbnails/light_mech_f1.png) | ![Light Mech](thumbnails/light_mech_f2.png) | ![Light Mech](thumbnails/light_mech_f3.png) | Fast skirmisher |
+| Light Tank | ![Light Tank](thumbnails/light_tank_f0.png) | ![Light Tank](thumbnails/light_tank_f1.png) | ![Light Tank](thumbnails/light_tank_f2.png) | ![Light Tank](thumbnails/light_tank_f3.png) | Fast armor |
+| Main Battle Tank | ![MBT](thumbnails/mbt_f0.png) | ![MBT](thumbnails/mbt_f1.png) | ![MBT](thumbnails/mbt_f2.png) | ![MBT](thumbnails/mbt_f3.png) | Standard armor |
+| Heavy Tank | ![Heavy Tank](thumbnails/heavy_tank_f0.png) | ![Heavy Tank](thumbnails/heavy_tank_f1.png) | ![Heavy Tank](thumbnails/heavy_tank_f2.png) | ![Heavy Tank](thumbnails/heavy_tank_f3.png) | Siege armor |
+| Self-Propelled Artillery | ![Artillery](thumbnails/artillery_f0.png) | ![Artillery](thumbnails/artillery_f1.png) | ![Artillery](thumbnails/artillery_f2.png) | ![Artillery](thumbnails/artillery_f3.png) | Indirect fire |
+| Anti-Air Vehicle | ![AA](thumbnails/aa_vehicle_f0.png) | ![AA](thumbnails/aa_vehicle_f1.png) | ![AA](thumbnails/aa_vehicle_f2.png) | ![AA](thumbnails/aa_vehicle_f3.png) | Air defense |
+| Heavy Killer Mech | ![Heavy Mech](thumbnails/heavy_mech_f0.png) | ![Heavy Mech](thumbnails/heavy_mech_f1.png) | ![Heavy Mech](thumbnails/heavy_mech_f2.png) | ![Heavy Mech](thumbnails/heavy_mech_f3.png) | Anti-everything mech |
+| Siege Mech | ![Siege Mech](thumbnails/siege_mech_f0.png) | ![Siege Mech](thumbnails/siege_mech_f1.png) | ![Siege Mech](thumbnails/siege_mech_f2.png) | ![Siege Mech](thumbnails/siege_mech_f3.png) | Long-range bombardment |
 
 ## Naval
 
-| Unit | Thumbnail | Role |
-|---|---|---|
-| Patrol Sea Drone | ![Patrol](thumbnails/patrol_boat_f0.png) | Scout and patrol |
-| Missile Corvette | ![Corvette](thumbnails/corvette_f0.png) | Missile combatant |
-| Attack Submarine | ![Attack Sub](thumbnails/attack_sub_f0.png) | Torpedo/subsurface |
-| Ballistic Missile Submarine | ![Ballistic Sub](thumbnails/ballistic_sub_f0.png) | Strategic nuke platform |
-| Landing Craft | ![Landing Craft](thumbnails/landing_craft_f0.png) | Amphibious transport |
-| Hovercraft | ![Hovercraft](thumbnails/hovercraft_f0.png) | Land and sea, eel hazard |
-| Cruiser | ![Cruiser](thumbnails/cruiser_f0.png) | Capital ship |
-| Battleship | ![Battleship](thumbnails/battleship_f0.png) | Heavy naval firepower |
-| Aircraft Carrier | ![Carrier](thumbnails/aircraft_carrier_f0.png) | Air support at sea |
-| Frogman | ![Frogman](thumbnails/frogman_f0.png) | Stealth, takes out capital ships |
+| Unit | AeroDyne | FerroCore | Pelagic | Vanguard | Role |
+|---|---|---|---|---|---|
+| Patrol Sea Drone | ![Patrol](thumbnails/patrol_boat_f0.png) | ![Patrol](thumbnails/patrol_boat_f1.png) | ![Patrol](thumbnails/patrol_boat_f2.png) | ![Patrol](thumbnails/patrol_boat_f3.png) | Scout and patrol |
+| Missile Corvette | ![Corvette](thumbnails/corvette_f0.png) | ![Corvette](thumbnails/corvette_f1.png) | ![Corvette](thumbnails/corvette_f2.png) | ![Corvette](thumbnails/corvette_f3.png) | Missile combatant |
+| Attack Submarine | ![Attack Sub](thumbnails/attack_sub_f0.png) | ![Attack Sub](thumbnails/attack_sub_f1.png) | ![Attack Sub](thumbnails/attack_sub_f2.png) | ![Attack Sub](thumbnails/attack_sub_f3.png) | Torpedo/subsurface |
+| Ballistic Missile Submarine | ![Ballistic Sub](thumbnails/ballistic_sub_f0.png) | ![Ballistic Sub](thumbnails/ballistic_sub_f1.png) | ![Ballistic Sub](thumbnails/ballistic_sub_f2.png) | ![Ballistic Sub](thumbnails/ballistic_sub_f3.png) | Strategic nuke platform |
+| Landing Craft | ![Landing Craft](thumbnails/landing_craft_f0.png) | ![Landing Craft](thumbnails/landing_craft_f1.png) | ![Landing Craft](thumbnails/landing_craft_f2.png) | ![Landing Craft](thumbnails/landing_craft_f3.png) | Amphibious transport |
+| Hovercraft | ![Hovercraft](thumbnails/hovercraft_f0.png) | ![Hovercraft](thumbnails/hovercraft_f1.png) | ![Hovercraft](thumbnails/hovercraft_f2.png) | ![Hovercraft](thumbnails/hovercraft_f3.png) | Land and sea, eel hazard |
+| Cruiser | ![Cruiser](thumbnails/cruiser_f0.png) | ![Cruiser](thumbnails/cruiser_f1.png) | ![Cruiser](thumbnails/cruiser_f2.png) | ![Cruiser](thumbnails/cruiser_f3.png) | Capital ship |
+| Battleship | ![Battleship](thumbnails/battleship_f0.png) | ![Battleship](thumbnails/battleship_f1.png) | ![Battleship](thumbnails/battleship_f2.png) | ![Battleship](thumbnails/battleship_f3.png) | Heavy naval firepower |
+| Aircraft Carrier | ![Carrier](thumbnails/aircraft_carrier_f0.png) | ![Carrier](thumbnails/aircraft_carrier_f1.png) | ![Carrier](thumbnails/aircraft_carrier_f2.png) | ![Carrier](thumbnails/aircraft_carrier_f3.png) | Air support at sea |
+| Frogman | ![Frogman](thumbnails/frogman_f0.png) | ![Frogman](thumbnails/frogman_f1.png) | ![Frogman](thumbnails/frogman_f2.png) | ![Frogman](thumbnails/frogman_f3.png) | Stealth, takes out capital ships |
 
 ## Air
 
-| Unit | Thumbnail | Role |
-|---|---|---|
-| Scout Aerial Drone | ![Scout](thumbnails/scout_drone_f0.png) | Recon |
-| Fighter Drone | ![Fighter](thumbnails/fighter_drone_f0.png) | Air superiority |
-| Bomber Drone | ![Bomber](thumbnails/bomber_drone_f0.png) | Ground attack |
-| AWACS Radar Drone | ![AWACS](thumbnails/awacs_f0.png) | Vision and radar |
+| Unit | AeroDyne | FerroCore | Pelagic | Vanguard | Role |
+|---|---|---|---|---|---|
+| Scout Aerial Drone | ![Scout](thumbnails/scout_drone_f0.png) | ![Scout](thumbnails/scout_drone_f1.png) | ![Scout](thumbnails/scout_drone_f2.png) | ![Scout](thumbnails/scout_drone_f3.png) | Recon |
+| Fighter Drone | ![Fighter](thumbnails/fighter_drone_f0.png) | ![Fighter](thumbnails/fighter_drone_f1.png) | ![Fighter](thumbnails/fighter_drone_f2.png) | ![Fighter](thumbnails/fighter_drone_f3.png) | Air superiority |
+| Bomber Drone | ![Bomber](thumbnails/bomber_drone_f0.png) | ![Bomber](thumbnails/bomber_drone_f1.png) | ![Bomber](thumbnails/bomber_drone_f2.png) | ![Bomber](thumbnails/bomber_drone_f3.png) | Ground attack |
+| AWACS Radar Drone | ![AWACS](thumbnails/awacs_f0.png) | ![AWACS](thumbnails/awacs_f1.png) | ![AWACS](thumbnails/awacs_f2.png) | ![AWACS](thumbnails/awacs_f3.png) | Vision and radar |
