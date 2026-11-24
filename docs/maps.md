@@ -21,15 +21,17 @@
 
 ### Forest
 ![Forest](map_thumbnails/forest.png)
-- Mix of plains, forest, swamp, mountains, and a winding river.
-- Rivers block most land units (except hovercraft and frogmen).
+- Mix of plains, forest, hills, swamp, mountains, and a winding river.
+- Rivers block most land units (except hovercraft and frogbots).
 - Swamps slow infantry and block vehicles.
 
 ## Terrain & Passability
 
-| Terrain | Infantry | Vehicle/Mech | Naval | Air | Hovercraft | Frogman |
+| Terrain | Infantry | Vehicle/Mech | Naval | Air | Hovercraft | Frogbot |
 |---|---|---|---|---|---|---|
 | Plains | Yes | Yes | No | Yes | Yes | Yes |
+| Desert | Yes | Yes | No | Yes | Yes | Yes |
+| Hills | Yes (cover) | Slow | No | Yes | Slow | Slow |
 | Forest | Yes (slow) | Slow | No | Yes | Yes (slow) | Yes (slow) |
 | Swamp | Yes (slow) | No | No | Yes | Yes (slow) | Yes (slow) |
 | River | No | No | Yes | Yes | Yes | Yes |

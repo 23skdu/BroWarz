@@ -98,7 +98,7 @@ Units are grouped by domain. Each has a role, hard counters, and a cost in resou
 
 ### 6.4 Naval
 
-- Patrol boat, missile boat, corvette, submarine (attack), ballistic-missile submarine (strategic), landing craft, hovercraft (amphibious), frogmen (stealth), cruiser, battleship, aircraft carrier.
+- Patrol boat, missile boat, corvette, submarine (attack), ballistic-missile submarine (strategic), landing craft, hovercraft (amphibious), frogbots (stealth), cruiser, battleship, aircraft carrier.
 
 ### 6.5 Air
 
@@ -179,7 +179,7 @@ Economy rules:
 ## 11. Base Building & Production
 
 - **Placement:** Grid-aligned, with footprint and collision; cannot overlap resources/terrain impassable.
-- **Buildings:** HQ, Barracks (infantry), Factory (vehicles/mechs), Shipyard (naval), Airfield (air), Refinery, Power Plant, Research Lab, Radar, Turret, Wall, Mine/Extractor, Farm, Silo (nukes), Orbital Uplink.
+- **Buildings:** HQ, Docks, Mech Factory 1 (smaller bots/light mechs), Mech Factory 2 (medium armor & advanced construction bots), Mech Factory 3 (heavy tanks/killer mechs, built only by advanced construction bots), Shipyard, Advanced Shipyard, Aeries Level 1 (scout/fighter drones), Aeries Level 2 (bomber/AWACS drones), Refinery/Extractor, Power Plant, Research Lab, Radar, Turret, Missile Tower, Wall, Barbed Wire, Farm, Silo (nukes), Orbital Uplink. See [`docs/factories.md`](factories.md).
 - **Production chain:** Every player starts with an HQ and a Barracks. Barracks produce infantry (including Sappers). Sappers construct additional Barracks and Factories. Factories produce tanks and construction vehicles. Construction vehicles construct Airfields (air units) and Shipyards/Docks on shorelines (naval units). Extractors are built on resource deposits.
 - **Queue:** Production queue per building; rally points.
 - **Cancellation:** Refunds partial cost.

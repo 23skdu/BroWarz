@@ -13,7 +13,8 @@ Every unit has a large, detailed 48×48 pixel-art sprite (rendered below at 64×
 | Sniperbot | ![Sniperbot](thumbnails/sniperbot_f0.png) | ![Sniperbot](thumbnails/sniperbot_f1.png) | ![Sniperbot](thumbnails/sniperbot_f2.png) | ![Sniperbot](thumbnails/sniperbot_f3.png) | Long-range precision |
 | Rocketbot | ![Rocketbot](thumbnails/rocketbot_f0.png) | ![Rocketbot](thumbnails/rocketbot_f1.png) | ![Rocketbot](thumbnails/rocketbot_f2.png) | ![Rocketbot](thumbnails/rocketbot_f3.png) | Anti-armor infantry |
 | Medicbot | ![Medicbot](thumbnails/medicbot_f0.png) | ![Medicbot](thumbnails/medicbot_f1.png) | ![Medicbot](thumbnails/medicbot_f2.png) | ![Medicbot](thumbnails/medicbot_f3.png) | Repairs friendly robots |
-| Engineerbot | ![Engineerbot](thumbnails/engineerbot_f0.png) | ![Engineerbot](thumbnails/engineerbot_f1.png) | ![Engineerbot](thumbnails/engineerbot_f2.png) | ![Engineerbot](thumbnails/engineerbot_f3.png) | Builds and repairs structures |
+| Engineerbot | ![Engineerbot](thumbnails/engineerbot_f0.png) | ![Engineerbot](thumbnails/engineerbot_f1.png) | ![Engineerbot](thumbnails/engineerbot_f2.png) | ![Engineerbot](thumbnails/engineerbot_f3.png) | Builds and repairs T1/T2 structures |
+| Advanced Construction Bot | ![Adv Engineer](thumbnails/adv_engineerbot_f0.png) | ![Adv Engineer](thumbnails/adv_engineerbot_f1.png) | ![Adv Engineer](thumbnails/adv_engineerbot_f2.png) | ![Adv Engineer](thumbnails/adv_engineerbot_f3.png) | Built at Mech Factory 2; constructs Mech Factory 3, Advanced Shipyard, and Aeries Level 2 |
 
 ## Mechanized & Armor
 
@@ -42,7 +43,7 @@ Every unit has a large, detailed 48×48 pixel-art sprite (rendered below at 64×
 | Cruiser | ![Cruiser](thumbnails/cruiser_f0.png) | ![Cruiser](thumbnails/cruiser_f1.png) | ![Cruiser](thumbnails/cruiser_f2.png) | ![Cruiser](thumbnails/cruiser_f3.png) | Capital ship |
 | Battleship | ![Battleship](thumbnails/battleship_f0.png) | ![Battleship](thumbnails/battleship_f1.png) | ![Battleship](thumbnails/battleship_f2.png) | ![Battleship](thumbnails/battleship_f3.png) | Heavy naval firepower |
 | Aircraft Carrier | ![Carrier](thumbnails/aircraft_carrier_f0.png) | ![Carrier](thumbnails/aircraft_carrier_f1.png) | ![Carrier](thumbnails/aircraft_carrier_f2.png) | ![Carrier](thumbnails/aircraft_carrier_f3.png) | Air support at sea |
-| Frogman | ![Frogman](thumbnails/frogman_f0.png) | ![Frogman](thumbnails/frogman_f1.png) | ![Frogman](thumbnails/frogman_f2.png) | ![Frogman](thumbnails/frogman_f3.png) | Stealth, takes out capital ships |
+| Frogbot | ![Frogbot](thumbnails/frogbot_f0.png) | ![Frogbot](thumbnails/frogbot_f1.png) | ![Frogbot](thumbnails/frogbot_f2.png) | ![Frogbot](thumbnails/frogbot_f3.png) | Amphibious stealth bot, takes out capital ships |
 
 ## Air
 

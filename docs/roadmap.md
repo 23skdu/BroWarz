@@ -15,7 +15,8 @@ Completed roadmap items have been removed. The items below are the verified gaps
 - [x] Sapper fortifications (barrier walls, barbed wire, missile towers) blocking ground pathfinding (`Fortification`).
 
 ## Part 10 — Naval Expansion
-- [x] Register ballistic-missile submarine, landing craft, cruiser, battleship, aircraft carrier, hovercraft, and stealth frogman in `UnitRegistry` with 48×48 detailed uniform sprites.
+- [x] Register ballistic-missile submarine, landing craft, cruiser, battleship, aircraft carrier, hovercraft, and stealth frogbot in `UnitRegistry` with 48×48 detailed uniform sprites.
+- [x] Document and register tiered production facilities (`hq`, `docks`, `mech_factory_1..3`, `shipyard`, `advanced_shipyard`, `aeries_1..2`) and `adv_engineerbot` in `UnitRegistry` and `docs/factories.md`.
 - [ ] Add dedicated amphibious unit embark/disembark UI commands.
 
 ## Part 19 — Audio, Visuals & Polish

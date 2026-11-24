@@ -34,3 +34,12 @@ func test_air_always_passable():
 func test_index_roundtrip():
 	var m = MapData.new(8, 8)
 	assert_eq(m.index(3, 4), 4*8+3)
+
+func test_desert_and_hills_terrains():
+	assert_eq(MapData.terrain_name(MapData.Terrain.DESERT), "Desert")
+	assert_eq(MapData.terrain_name(MapData.Terrain.HILLS), "Hills")
+	assert_true(MapData.is_passable(MapData.Terrain.DESERT, 0))
+	assert_true(MapData.is_passable(MapData.Terrain.HILLS, 1))
+	assert_true(MapData.movement_cost(MapData.Terrain.HILLS, 1) > MapData.movement_cost(MapData.Terrain.PLAINS, 1))
+	assert_true(Cover.provides_cover(MapData.Terrain.HILLS))
+

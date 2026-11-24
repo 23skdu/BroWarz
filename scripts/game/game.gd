@@ -78,6 +78,14 @@ func _ready():
 	AudioManager.set_music("battle")
 
 func _generate_map(map_type: int = 2) -> void:
+	if map_type == 3:
+		if GameManager.current_map != null:
+			map_data = GameManager.current_map
+			return
+		var loaded := MapSerializer.load_from_file("user://custom_map.bwm")
+		if loaded != null:
+			map_data = loaded
+			return
 	var gen := TerrainGenerator.generate_forest(128, 128, GameManager.match_seed)
 	match map_type:
 		0:
@@ -700,7 +708,11 @@ func _check_win():
 	# Primary victory: capture/destroy all enemy production buildings
 	# (barracks, factories, airfields, shipyards). Units alone cannot
 	# sustain a faction once production is gone.
-	var production_ids := ["barracks", "factory", "airfield", "shipyard"]
+	var production_ids := [
+		"barracks", "factory", "airfield", "shipyard",
+		"docks", "mech_factory_1", "mech_factory_2", "mech_factory_3",
+		"advanced_shipyard", "aeries_1", "aeries_2",
+	]
 	var alive_teams := {}
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding:
@@ -813,6 +825,8 @@ func _terrain_color(t: int) -> Color:
 		MapData.Terrain.ROAD: return Color(0.6, 0.55, 0.4)
 		MapData.Terrain.BRIDGE: return Color(0.6, 0.5, 0.3)
 		MapData.Terrain.WASTELAND: return Color(0.35, 0.2, 0.15)
+		MapData.Terrain.DESERT: return Color(0.76, 0.65, 0.38)
+		MapData.Terrain.HILLS: return Color(0.45, 0.50, 0.28)
 	return Color(0.3, 0.3, 0.3)
 
 func _update_terrain_image() -> void:

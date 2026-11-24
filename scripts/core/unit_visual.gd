@@ -125,6 +125,10 @@ static func terrain_base_color(terrain: int, variation: float = 0.0) -> Color:
 			c = Color(0.56, 0.47, 0.33, 1.0)
 		MapData.Terrain.WASTELAND:
 			c = Color(0.33, 0.23, 0.17, 1.0)
+		MapData.Terrain.DESERT:
+			c = Color(0.76, 0.65, 0.38, 1.0)
+		MapData.Terrain.HILLS:
+			c = Color(0.45, 0.50, 0.28, 1.0)
 	if variation >= 0.0:
 		return c.lightened(clampf(variation * 0.08, 0.0, 0.11))
 	return c.darkened(clampf(-variation * 0.08, 0.0, 0.11))
@@ -154,6 +158,14 @@ static func build_terrain_map_image(map: MapData, px_per_tile: int = 4) -> Image
 				var ridge_c := Color(0.62, 0.61, 0.58, 1.0)
 				img.set_pixel(bx + 1, by + 1, ridge_c)
 				img.set_pixel(bx + 2, by + 2, ridge_c.darkened(0.25))
+			elif t == MapData.Terrain.HILLS and ppt >= 4:
+				var hill_crest := base_c.lightened(0.18)
+				var hill_shadow := base_c.darkened(0.16)
+				img.set_pixel(bx + 1, by + 1, hill_crest)
+				img.set_pixel(bx + 2, by + 1, hill_crest)
+				img.set_pixel(bx + 2, by + 2, hill_shadow)
+			elif t == MapData.Terrain.DESERT and ppt >= 4 and ((tx + ty) % 2 == 0):
+				img.set_pixel(bx + 1, by + 2, base_c.lightened(0.12))
 	return img
 
 static func build_unit_frame_image(
@@ -296,7 +308,7 @@ static func _draw_detailed_unit(
 			_fill_rect(img, c - 6, c - 2, 12, 4, Color(0.96, 0.99, 0.98, 1.0))
 			_fill_rect(img, c + 6 - recoil, c - 3, 8, 6, outline)
 			_fill_rect(img, c + 7 - recoil, c - 2, 6, 4, trim)
-		"engineerbot":
+		"engineerbot", "adv_engineerbot":
 			# Construction & capture droid with gantry frame, hazard beacon & welding arm
 			_fill_rect(img, c - 11, c - 12, 22, 24, outline)
 			_fill_rect(img, c - 9, c - 10, 18, 20, dark)
@@ -304,6 +316,9 @@ static func _draw_detailed_unit(
 			_fill_rect(img, c - 4, c - 4, 8, 8, Color(0.98, 0.78, 0.16, 1.0))
 			_fill_rect(img, c + 5 - recoil, c - 6, 11, 4, steel)
 			_fill_rect(img, c + 5 - recoil, c + 2, 11, 4, steel)
+			if unit_id == "adv_engineerbot":
+				_fill_rect(img, c - 6, c - 11, 10, 3, trim)
+				_fill_rect(img, c - 6, c + 8, 10, 3, trim)
 		"apc":
 			# 6x6 Armored Personnel Carrier with Troop Compartment & roof autocannon
 			_fill_rect(img, c - 16, c - 12, 32, 24, outline)
@@ -489,8 +504,8 @@ static func _draw_detailed_unit(
 			_fill_rect(img, c - 6, c - 10, 14, 4, mid)
 			_fill_rect(img, c - 4, c - 10, 8, 2, trim)
 			_fill_rect(img, c - 16, c + 6, 32, 2, mid)
-		"frogman":
-			# Elite combat diver with twin rebreather tanks, dive fins & limpet demolition mine
+		"frogbot", "frogman":
+			# Elite amphibious stealth frogbot with twin hydro-thruster tanks, dive fins & limpet demolition mine
 			_fill_rect(img, c - 10, c - 9, 20, 18, outline)
 			_fill_rect(img, c - 11 + leg_shift, c - 7, 5, 4, trim)
 			_fill_rect(img, c - 11 - leg_shift, c + 3, 5, 4, trim)

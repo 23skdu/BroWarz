@@ -3,8 +3,8 @@ extends GutTest
 
 func test_movement_cost_finite_or_inf_fuzz():
 	for i in range(300):
-		var t = randi() % 10
-		var uc = randi() % 4
+		var t = randi() % 12
+		var uc = randi() % 6
 		var c = MapData.movement_cost(t, uc)
 		assert_true(c > 0.0)
 

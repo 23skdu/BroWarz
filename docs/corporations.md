@@ -29,7 +29,7 @@ Each playable corporation has a unique identity: motto, background, distinctive 
 - **Color:** Teal `#26CCC0`
 - **Strengths:** Naval superiority, submarine stealth, cheaper sea drones.
 - **Weaknesses:** Weaker land armor, limited air force.
-- **Preferred units:** Patrol boats, corvettes, submarines, frogmen, shipyards.
+- **Preferred units:** Patrol boats, corvettes, submarines, frogbots, shipyards.
 - **Signature:** Submarines start cloaked; cheaper sea drones.
 
 ## Vanguard Robotics

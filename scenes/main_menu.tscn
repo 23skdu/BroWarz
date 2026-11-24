@@ -34,6 +34,9 @@ text = "AI Difficulty: Normal"
 [node name="FactionButton" type="Button" parent="VBox"]
 text = "Corporation: AeroDyne Industries"
 
+[node name="MapButton" type="Button" parent="VBox"]
+text = "Map: Forest"
+
 [node name="HostButton" type="Button" parent="VBox"]
 text = "Host P2P Multiplayer"
 

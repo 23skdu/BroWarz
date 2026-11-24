@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dh0f5hj2jhmjp"
-path="res://.godot/imported/frogman_f2.png-ce5eba205cf6ce0287002bd76a622d86.ctex"
+uid="uid://dibju6asx64x4"
+path="res://.godot/imported/adv_engineerbot_f1.png-120d19c4456d8ea3d48eabbcf250c923.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://docs/thumbnails/frogman_f2.png"
-dest_files=["res://.godot/imported/frogman_f2.png-ce5eba205cf6ce0287002bd76a622d86.ctex"]
+source_file="res://docs/thumbnails/adv_engineerbot_f1.png"
+dest_files=["res://.godot/imported/adv_engineerbot_f1.png-120d19c4456d8ea3d48eabbcf250c923.ctex"]
 
 [params]
 

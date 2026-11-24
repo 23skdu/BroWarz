@@ -2,7 +2,7 @@
 class_name MapData
 extends Resource
 
-enum Terrain { PLAINS, FOREST, SWAMP, RIVER, SEA, MOUNTAIN, URBAN, ROAD, BRIDGE, WASTELAND }
+enum Terrain { PLAINS, FOREST, SWAMP, RIVER, SEA, MOUNTAIN, URBAN, ROAD, BRIDGE, WASTELAND, DESERT, HILLS }
 
 @export var width: int = 128
 @export var height: int = 128
@@ -16,6 +16,22 @@ func _init(w: int = 128, h: int = 128) -> void:
 	tiles.resize(w * h)
 	for i in range(tiles.size()):
 		tiles[i] = Terrain.PLAINS
+
+static func terrain_name(t: int) -> String:
+	match t:
+		Terrain.PLAINS: return "Plains"
+		Terrain.FOREST: return "Forest"
+		Terrain.SWAMP: return "Swamp"
+		Terrain.RIVER: return "Water (River)"
+		Terrain.SEA: return "Water (Sea)"
+		Terrain.MOUNTAIN: return "Mountain"
+		Terrain.URBAN: return "Urban"
+		Terrain.ROAD: return "Road"
+		Terrain.BRIDGE: return "Bridge"
+		Terrain.WASTELAND: return "Wasteland"
+		Terrain.DESERT: return "Desert"
+		Terrain.HILLS: return "Hills"
+		_: return "Unknown"
 
 func index(x: int, y: int) -> int:
 	if x < 0 or y < 0 or x >= width or y >= height:
@@ -54,6 +70,8 @@ static func movement_cost(terrain: int, unit_class: int, heavy: bool = false) ->
 		1: # vehicle (1) or heavy mech (7)
 			match terrain:
 				Terrain.PLAINS, Terrain.ROAD: return 1.0
+				Terrain.DESERT: return 1.15
+				Terrain.HILLS: return 1.45
 				Terrain.URBAN: return 1.3
 				Terrain.FOREST: return 1.6
 				Terrain.SWAMP: return INF
@@ -66,6 +84,8 @@ static func movement_cost(terrain: int, unit_class: int, heavy: bool = false) ->
 		_: # infantry (0) or heavy infantry (6)
 			match terrain:
 				Terrain.PLAINS, Terrain.ROAD: return 1.0
+				Terrain.DESERT: return 1.15
+				Terrain.HILLS: return 1.3
 				Terrain.URBAN: return 0.9
 				Terrain.FOREST: return 1.2
 				Terrain.SWAMP: return 1.6
@@ -79,6 +99,8 @@ static func movement_cost(terrain: int, unit_class: int, heavy: bool = false) ->
 		4: # hovercraft (land + sea)
 			match terrain:
 				Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
+				Terrain.HILLS: return 1.4
+				Terrain.DESERT: return 1.0
 				Terrain.SWAMP: return 1.3
 				Terrain.FOREST: return 1.3
 				Terrain.RIVER, Terrain.SEA: return 1.1
@@ -86,7 +108,8 @@ static func movement_cost(terrain: int, unit_class: int, heavy: bool = false) ->
 		5: # amphibious (frogmen): land + water, slower on land
 			match terrain:
 				Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
-				Terrain.PLAINS, Terrain.ROAD: return 1.2
+				Terrain.PLAINS, Terrain.ROAD, Terrain.DESERT: return 1.2
+				Terrain.HILLS: return 1.35
 				Terrain.URBAN: return 1.1
 				Terrain.FOREST: return 1.4
 				Terrain.SWAMP: return 1.5

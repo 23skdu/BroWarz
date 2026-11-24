@@ -2,6 +2,8 @@
 class_name TerrainGenerator
 extends RefCounted
 
+const MapDataRef := preload("res://scripts/core/map_data.gd")
+
 static func generate_desert(w: int, h: int, rng_seed: int = 1) -> MapData:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = rng_seed
@@ -11,11 +13,13 @@ static func generate_desert(w: int, h: int, rng_seed: int = 1) -> MapData:
 		for x in range(w):
 			var r := rng.randf()
 			if r < 0.05:
-				m.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
-			elif r < 0.15:
-				m.set_terrain(x, y, MapData.Terrain.ROAD)
+				m.set_terrain(x, y, MapDataRef.Terrain.MOUNTAIN)
+			elif r < 0.14:
+				m.set_terrain(x, y, MapDataRef.Terrain.HILLS)
+			elif r < 0.22:
+				m.set_terrain(x, y, MapDataRef.Terrain.ROAD)
 			else:
-				m.set_terrain(x, y, MapData.Terrain.PLAINS)
+				m.set_terrain(x, y, MapDataRef.Terrain.DESERT)
 	return m
 
 static func generate_islands(w: int, h: int, rng_seed: int = 2) -> MapData:
@@ -26,7 +30,7 @@ static func generate_islands(w: int, h: int, rng_seed: int = 2) -> MapData:
 	# base sea
 	for y in range(h):
 		for x in range(w):
-			m.set_terrain(x, y, MapData.Terrain.SEA)
+			m.set_terrain(x, y, MapDataRef.Terrain.SEA)
 	# random islands
 	var islands := 6 + rng.randi() % 5
 	for i in range(islands):
@@ -39,12 +43,18 @@ static func generate_islands(w: int, h: int, rng_seed: int = 2) -> MapData:
 					var x := cx + dx
 					var y := cy + dy
 					if m.in_bounds(x, y):
-						m.set_terrain(x, y, MapData.Terrain.PLAINS)
-	# mountains on larger islands
+						m.set_terrain(x, y, MapDataRef.Terrain.PLAINS)
+	# mountains and hills on larger islands
 	for y in range(h):
 		for x in range(w):
-			if m.get_terrain(x, y) == MapData.Terrain.PLAINS and rng.randf() < 0.03:
-				m.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
+			if m.get_terrain(x, y) == MapDataRef.Terrain.PLAINS:
+				var r := rng.randf()
+				if r < 0.03:
+					m.set_terrain(x, y, MapDataRef.Terrain.MOUNTAIN)
+				elif r < 0.09:
+					m.set_terrain(x, y, MapDataRef.Terrain.HILLS)
+				elif r < 0.16:
+					m.set_terrain(x, y, MapDataRef.Terrain.FOREST)
 	return m
 
 static func generate_forest(w: int, h: int, rng_seed: int = 3) -> MapData:
@@ -56,13 +66,15 @@ static func generate_forest(w: int, h: int, rng_seed: int = 3) -> MapData:
 		for x in range(w):
 			var r := rng.randf()
 			if r < 0.12:
-				m.set_terrain(x, y, MapData.Terrain.FOREST)
+				m.set_terrain(x, y, MapDataRef.Terrain.FOREST)
 			elif r < 0.18:
-				m.set_terrain(x, y, MapData.Terrain.SWAMP)
+				m.set_terrain(x, y, MapDataRef.Terrain.SWAMP)
 			elif r < 0.22:
-				m.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
+				m.set_terrain(x, y, MapDataRef.Terrain.MOUNTAIN)
+			elif r < 0.28:
+				m.set_terrain(x, y, MapDataRef.Terrain.HILLS)
 			else:
-				m.set_terrain(x, y, MapData.Terrain.PLAINS)
+				m.set_terrain(x, y, MapDataRef.Terrain.PLAINS)
 	# river
 	var rx := int(float(w) * 0.5)
 	for y in range(h):
@@ -70,5 +82,5 @@ static func generate_forest(w: int, h: int, rng_seed: int = 3) -> MapData:
 		for dx in range(-1, 2):
 			var x := rx + dx
 			if m.in_bounds(x, y):
-				m.set_terrain(x, y, MapData.Terrain.RIVER)
+				m.set_terrain(x, y, MapDataRef.Terrain.RIVER)
 	return m

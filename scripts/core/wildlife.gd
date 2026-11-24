@@ -55,7 +55,13 @@ static func is_valid_terrain(kind: int, terrain: int) -> bool:
 		Domain.SEA:
 			return terrain == MapData.Terrain.SEA or terrain == MapData.Terrain.RIVER
 		_:
-			return terrain == MapData.Terrain.PLAINS or terrain == MapData.Terrain.FOREST or terrain == MapData.Terrain.SWAMP
+			return (
+				terrain == MapData.Terrain.PLAINS
+				or terrain == MapData.Terrain.FOREST
+				or terrain == MapData.Terrain.SWAMP
+				or terrain == MapData.Terrain.HILLS
+				or terrain == MapData.Terrain.DESERT
+			)
 
 static func create_critter(id: int, kind: int, pos: Vector2, seed_val: int = 1) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
