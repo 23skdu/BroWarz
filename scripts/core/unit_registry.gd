@@ -76,7 +76,11 @@ func populate_defaults() -> void:
 	_add_b("silo", "Nuclear Missile Silo", 900, 250, 400, 300, 80, Vector2i(3, 3), "", 14.0, false)
 	_add_b("orbital_uplink", "Orbital Laser Uplink", 850, 200, 350, 280, 60, Vector2i(2, 2), "", 12.0, false)
 
-func _add_u(id: String, dname: String, hp_v: int, spd: float, armor: int, dmg_t: int, dmg: int, rng: float, sgt: float, oil: int, iron: int, geo: int, food: int, btime: float, uclass: int, stl: bool, bld: bool) -> void:
+func _add_u(
+	id: String, dname: String, hp_v: int, spd: float, armor: int, dmg_t: int, dmg: int,
+	rng: float, sgt: float, oil: int, iron: int, geo: int, food: int, btime: float,
+	uclass: int, stl: bool, bld: bool
+) -> void:
 	var s := UnitStats.new()
 	s.id = id
 	s.display_name = dname

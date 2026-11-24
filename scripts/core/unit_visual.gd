@@ -87,7 +87,7 @@ static func compute_kinematics(state: int, elapsed: float, unit_class: int) -> D
 		"explosion_progress": exp_prog,
 	}
 
-static func generate_Explosion_debris(seed_val: int, count: int = 8) -> Array[Dictionary]:
+static func generate_explosion_debris(seed_val: int, count: int = 8) -> Array[Dictionary]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	var particles: Array[Dictionary] = []
@@ -181,7 +181,11 @@ static func _fill_circle(img: Image, cx: int, cy: int, radius: int, col: Color) 
 			if dx * dx + dy * dy <= r2:
 				img.set_pixel(x, y, col)
 
-static func _draw_unit_id(img: Image, unit_id: String, state: int, frame: int, c: int, dark: Color, mid: Color, bright: Color, steel: Color, recoil: int, leg_shift: int) -> bool:
+static func _draw_unit_id(
+	img: Image, unit_id: String, state: int, frame: int, c: int,
+	dark: Color, mid: Color, bright: Color, steel: Color,
+	recoil: int, leg_shift: int
+) -> bool:
 	match unit_id:
 		"riflebot":
 			_fill_rect(img, c - 4 + leg_shift, c - 7, 5, 4, Color(0.22,0.25,0.28,1))

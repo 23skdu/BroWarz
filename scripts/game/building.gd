@@ -114,7 +114,7 @@ func _trigger_destruction() -> void:
 	if hp_bar:
 		hp_bar.visible = false
 	remove_from_group("buildings")
-	explosion_debris = UnitVisual.generate_Explosion_debris(int(get_instance_id()), 14)
+	explosion_debris = UnitVisual.generate_explosion_debris(int(get_instance_id()), 14)
 	var scene = get_tree().current_scene
 	if scene and scene.has_method("spawn_explosion_vfx"):
 		scene.spawn_explosion_vfx(global_position, 42.0)

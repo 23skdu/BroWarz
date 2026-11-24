@@ -144,7 +144,10 @@ func _setup_hud() -> void:
 	help_label = Label.new()
 	help_label.name = "HelpLabel"
 	help_label.position = Vector2(20, 110)
-	help_label.text = "[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-6] Train (Rifle/Rocket/Stealth/Tank/AA/Fighter) | [B] Build Extractor | [T] Tech Up | [L] Orbital Laser | [N] Launch Nuke"
+	help_label.text = (
+		"[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-6] Train (Rifle/Rocket/Stealth/Tank/AA/Fighter) | "
+		+ "[B] Build Extractor | [T] Tech Up | [L] Orbital Laser | [N] Launch Nuke"
+	)
 	ui.add_child(help_label)
 
 	var btn_bar := HBoxContainer.new()
@@ -350,7 +353,16 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	var producer: Node2D = null
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding and b.team == team:
-			if (s.unit_class == 0 and b.stats and b.stats.id == "barracks") or (s.unit_class == 1 and b.stats and b.stats.id == "factory") or (s.unit_class == 2 and b.stats and b.stats.id == "shipyard") or (s.unit_class == 3 and b.stats and b.stats.id == "airfield"):
+			var ok_producer := false
+			if s.unit_class == 0 and b.stats and b.stats.id == "barracks":
+				ok_producer = true
+			elif s.unit_class == 1 and b.stats and b.stats.id == "factory":
+				ok_producer = true
+			elif s.unit_class == 2 and b.stats and b.stats.id == "shipyard":
+				ok_producer = true
+			elif s.unit_class == 3 and b.stats and b.stats.id == "airfield":
+				ok_producer = true
+			if ok_producer:
 				producer = b
 				break
 			if producer == null and b.stats and b.stats.is_hq:
@@ -647,7 +659,10 @@ func _update_hud() -> void:
 		]
 	if is_instance_valid(ai_status_label):
 		var ai_units := _get_team_units(1).size()
-		var mode_str := "Single Player vs %s AI (%s)" % [AI.difficulty_name(GameManager.ai_difficulty), Faction.name_of(GameManager.ai_faction)] if GameManager.match_mode == GameManager.Mode.SINGLE_PLAYER else "Multiplayer P2P"
+		var mode_str := "Single Player vs %s AI (%s)" % [
+			AI.difficulty_name(GameManager.ai_difficulty),
+			Faction.name_of(GameManager.ai_faction),
+		] if GameManager.match_mode == GameManager.Mode.SINGLE_PLAYER else "Multiplayer P2P"
 		ai_status_label.text = "%s | AI Posture: %s | AI Units: %d | AI Tech: T%d" % [
 			mode_str, ai_tactical_state.to_upper(), ai_units, ai_tech_tier
 		]

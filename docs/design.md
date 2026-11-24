@@ -304,5 +304,28 @@ Outstanding gaps (see `docs/roadmap.md`):
 - Audio content (music/SFX) beyond stubs.
 - Additional polish/performance passes.
 
+## 27. High-Resolution Graphics Plan
+
+### Unit Graphics
+- Source art at 128×128 (4× current 32×32) with 2×/4× export variants.
+- Use nearest-neighbor scaling for pixel-art, or bilinear for high-res 3D sprites.
+- AnimatedSprite2D frame sets: idle, move, fire, hit, explode (8 frames each).
+- Per-corporation color palettes applied via shader uniforms.
+- LOD: switch to 32×32 icon sprites when zoomed out beyond threshold.
+- Normal maps for lighting on high-res sprites.
+
+### Terrain Graphics
+- Tile size 16 world units; source tiles at 64×64 (4×).
+- Terrain atlas with 8 variants per biome for variety.
+- Animated tiles for water (waves), lava, etc.
+- Height/parallax for mountains and cliffs.
+- Decals for scorch marks, roads, and resource nodes.
+- Dynamic weather overlays (rain, snow) as full-screen shaders.
+
+### Pipeline
+- Blender/MagicaVoxel for 3D unit renders → sprite sheets.
+- Aseprite for 2D pixel-art and animation.
+- Automated export via CI to generate mipmaps and atlases.
+
 ---
 *End of design document.*

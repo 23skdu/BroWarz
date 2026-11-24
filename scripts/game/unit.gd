@@ -336,7 +336,7 @@ func _trigger_explosion() -> void:
 	if hp_bar:
 		hp_bar.visible = false
 	remove_from_group("units")
-	explosion_debris = UnitVisual.generate_Explosion_debris(int(get_instance_id()), 10)
+	explosion_debris = UnitVisual.generate_explosion_debris(int(get_instance_id()), 10)
 	var scene = get_tree().current_scene
 	if scene and scene.has_method("spawn_explosion_vfx"):
 		var rad := 26.0 if (stats and stats.unit_class == 1) else 18.0

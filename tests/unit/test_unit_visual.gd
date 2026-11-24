@@ -26,7 +26,7 @@ func test_kinematics_and_debris():
 	var k_exp := UnitVisual.compute_kinematics(UnitVisual.AnimState.EXPLODE, UnitVisual.explosion_duration() * 0.5, 1)
 	assert_almost_eq(float(k_exp["explosion_progress"]), 0.5, 0.05)
 
-	var debris := UnitVisual.generate_Explosion_debris(42, 10)
+	var debris := UnitVisual.generate_explosion_debris(42, 10)
 	assert_eq(debris.size(), 10)
 	assert_true(float(debris[0]["speed"]) >= 28.0)
 
