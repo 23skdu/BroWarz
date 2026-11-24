@@ -351,7 +351,7 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	var producer: Node2D = null
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding and b.team == team:
-			if (s.unit_class == 0 and b.stats and b.stats.id == "barracks") or (s.unit_class == 1 and b.stats and b.stats.id == "factory") or (s.unit_class == 3 and b.stats and b.stats.id == "airfield"):
+			if (s.unit_class == 0 and b.stats and b.stats.id == "barracks") or (s.unit_class == 1 and b.stats and b.stats.id == "factory") or (s.unit_class == 2 and b.stats and b.stats.id == "shipyard") or (s.unit_class == 3 and b.stats and b.stats.id == "airfield"):
 				producer = b
 				break
 			if producer == null and b.stats and b.stats.is_hq:

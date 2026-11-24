@@ -50,6 +50,11 @@ func populate_defaults() -> void:
 	_add_u("ballistic_sub", "Ballistic Missile Submarine", 420, 100.0, Damage.ArmorClass.SUBMERGED, Damage.DamageType.EXPLOSIVE, 80, 320.0, 300.0, 180, 260, 120, 35, 12.0, 2, true, false)
 	_add_u("landing_craft", "Landing Craft", 260, 135.0, Damage.ArmorClass.NAVAL, Damage.DamageType.KINETIC, 12, 180.0, 290.0, 40, 100, 0, 15, 5.0, 2, false, false)
 	_add_u("hovercraft", "Eel-Prone Hovercraft", 220, 160.0, Damage.ArmorClass.LIGHT, Damage.DamageType.KINETIC, 18, 210.0, 320.0, 60, 90, 0, 20, 5.0, 4, false, false)
+	# Naval capital ships + frogmen
+	_add_u("cruiser", "Cruiser", 620, 110.0, Damage.ArmorClass.NAVAL, Damage.DamageType.KINETIC, 48, 320.0, 340.0, 150, 260, 40, 30, 9.0, 2, false, false)
+	_add_u("battleship", "Battleship", 980, 85.0, Damage.ArmorClass.NAVAL, Damage.DamageType.EXPLOSIVE, 95, 420.0, 360.0, 220, 380, 120, 45, 14.0, 2, false, false)
+	_add_u("aircraft_carrier", "Aircraft Carrier", 880, 90.0, Damage.ArmorClass.NAVAL, Damage.DamageType.KINETIC, 35, 300.0, 400.0, 200, 360, 140, 40, 13.0, 2, false, false)
+	_add_u("frogman", "Frogman (Stealth)", 130, 120.0, Damage.ArmorClass.UNARMORED, Damage.DamageType.EXPLOSIVE, 75, 120.0, 260.0, 40, 80, 30, 20, 5.5, 2, true, false)
 	# Air & Orbital (Part 11)
 	_add_u("scout_drone", "Scout Aerial Drone", 120, 220.0, Damage.ArmorClass.AIR, Damage.DamageType.KINETIC, 10, 190.0, 460.0, 40, 60, 10, 10, 3.5, 3, false, false)
 	_add_u("fighter_drone", "Fighter Drone", 210, 200.0, Damage.ArmorClass.AIR, Damage.DamageType.KINETIC, 32, 260.0, 380.0, 80, 120, 30, 15, 5.5, 3, false, false)

@@ -98,7 +98,7 @@ Units are grouped by domain. Each has a role, hard counters, and a cost in resou
 
 ### 6.4 Naval
 
-- Patrol boat, missile boat, corvette, submarine (attack), ballistic-missile submarine (strategic), landing craft.
+- Patrol boat, missile boat, corvette, submarine (attack), ballistic-missile submarine (strategic), landing craft, hovercraft (amphibious), frogmen (stealth), cruiser, battleship, aircraft carrier.
 
 ### 6.5 Air
 
