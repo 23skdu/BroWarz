@@ -197,6 +197,10 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 		s.id = uid
 		s.display_name = uid.capitalize()
 	u.setup(s, team)
+	var uf = GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var body = u.get_node_or_null("Body")
+	if body:
+		body.color = Faction.color_of(uf)
 	u.global_position = pos
 	units_container.add_child(u)
 	return u
@@ -213,6 +217,10 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 		s.display_name = bid.capitalize()
 		s.is_hq = (bid == "hq")
 	b.setup(s, team)
+	var bf = GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var bbody = b.get_node_or_null("Body")
+	if bbody:
+		bbody.color = Faction.color_of(bf)
 	b.global_position = pos
 	add_child(b)
 	return b

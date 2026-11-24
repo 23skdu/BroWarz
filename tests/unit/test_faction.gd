@@ -12,3 +12,13 @@ func test_modifiers():
 func test_unknown():
 	assert_eq(Faction.name_of(999), "Unknown")
 	assert_eq(Faction.modifiers(999), {})
+
+func test_color():
+	var c = Faction.color_of(Faction.Id.AERODYNE)
+	assert_true(c is Color)
+
+func test_motto():
+	assert_ne(Faction.motto_of(Faction.Id.FERROCORE), "")
+
+func test_background():
+	assert_ne(Faction.background_of(Faction.Id.PELAGIC), "")
