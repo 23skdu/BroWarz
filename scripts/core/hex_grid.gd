@@ -83,4 +83,3 @@ func hex_path(start: Vector2i, goal: Vector2i, passable: Callable) -> Array[Vect
 				if not open.has(nb):
 					open.append(nb)
 	return []
-GD

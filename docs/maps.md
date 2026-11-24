@@ -8,16 +8,19 @@
 ## Built-in Maps
 
 ### Desert
+![Desert](map_thumbnails/desert.png)
 - No water (no rivers or seas).
 - Plains, roads, occasional mountains.
 - Land units move freely; naval units cannot operate.
 
 ### Island Chain
+![Islands](map_thumbnails/islands.png)
 - Sea base with random islands.
 - Naval units dominate; land units only on islands.
 - Mountains on larger islands.
 
 ### Forest
+![Forest](map_thumbnails/forest.png)
 - Mix of plains, forest, swamp, mountains, and a winding river.
 - Rivers block most land units (except hovercraft and frogmen).
 - Swamps slow infantry and block vehicles.

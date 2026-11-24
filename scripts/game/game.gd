@@ -260,6 +260,9 @@ func _world_mouse_pos(screen_pos: Vector2) -> Vector2:
 	return screen_pos + camera.position - get_viewport_rect().size / 2.0
 
 func _unhandled_input(event):
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
+		_capture_screenshot()
+		return
 	if event is InputEventMouseButton:
 		var world_pos := _world_mouse_pos(event.position)
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -780,3 +783,14 @@ func _update_terrain_image() -> void:
 			terrain_image.set_pixel(x, y, _terrain_color(map_data.get_terrain(x, y)))
 	if terrain_texture:
 		terrain_texture.update(terrain_image)
+
+func _capture_screenshot() -> void:
+	var img := get_viewport().get_texture().get_image()
+	if img == null:
+		return
+	var dir_path := "user://screenshots"
+	DirAccess.make_dir_recursive_absolute(dir_path)
+	var path := "%s/screenshot_%d.png" % [dir_path, int(Time.get_unix_time_from_system())]
+	var err := img.save_png(path)
+	if err == OK and is_instance_valid(status_label):
+		status_label.text = "Screenshot saved: %s" % path
