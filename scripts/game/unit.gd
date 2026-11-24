@@ -9,6 +9,9 @@ var faction: int = -1
 var target_pos: Vector2 = Vector2.ZERO
 var has_target: bool = false
 var eel_timer: float = 0.0
+var hex_grid: HexGrid = HexGrid.new(16.0)
+var hex_path: Array[Vector2] = []
+var path_index: int = 0
 var attack_move: bool = false
 var hold_position: bool = false
 var attack_timer: float = 0.0
@@ -155,8 +158,10 @@ func _physics_process(delta):
 				_update_anim_state()
 				queue_redraw()
 				return
+		if path_index < hex_path.size():
+			target_pos = hex_path[path_index]
 		var dir = (target_pos - global_position)
-		if dir.length() > 6.0:
+		if dir.length() > 4.0:
 			var spd := stats.speed if stats else 100.0
 			var terrain_mult := _terrain_speed_multiplier()
 			velocity = dir.normalized() * spd * terrain_mult
@@ -165,9 +170,14 @@ func _physics_process(delta):
 				turret_angle = lerp_angle(turret_angle, facing_angle, minf(1.0, delta * 10.0))
 			move_and_slide()
 		else:
-			has_target = false
-			attack_move = false
-			velocity = Vector2.ZERO
+			path_index += 1
+			if path_index >= hex_path.size():
+				has_target = false
+				attack_move = false
+				velocity = Vector2.ZERO
+				hex_path.clear()
+			else:
+				target_pos = hex_path[path_index]
 	else:
 		velocity = Vector2.ZERO
 		_try_attack()
@@ -299,14 +309,43 @@ func _nearest_enemy() -> Node2D:
 func move_to(pos: Vector2, is_attack_move: bool = false) -> void:
 	if is_exploding:
 		return
-	target_pos = pos
 	has_target = true
 	attack_move = is_attack_move
 	hold_position = false
+	_build_hex_path(pos)
+	if hex_path.size() > 0:
+		path_index = 0
+		target_pos = hex_path[0]
+	else:
+		target_pos = hex_grid.hex_to_world(hex_grid.world_to_hex(pos))
+
+func _build_hex_path(goal_world: Vector2) -> void:
+	hex_path.clear()
+	path_index = 0
+	if GameManager.current_map == null:
+		hex_path.append(hex_grid.hex_to_world(hex_grid.world_to_hex(goal_world)))
+		return
+	var heavy := stats != null and (stats.unit_class == 6 or stats.unit_class == 7)
+	var start_hex := hex_grid.world_to_hex(global_position)
+	var goal_hex := hex_grid.world_to_hex(goal_world)
+	var passable := func(h: Vector2i) -> bool:
+		var wpos := hex_grid.hex_to_world(h)
+		var tx := int(wpos.x / 16.0)
+		var ty := int(wpos.y / 16.0)
+		if not GameManager.current_map.in_bounds(tx, ty):
+			return false
+		return MapData.is_passable(GameManager.current_map.get_terrain(tx, ty), stats.unit_class if stats else 0, heavy)
+	var hexes := hex_grid.hex_path(start_hex, goal_hex, passable)
+	for h in hexes:
+		hex_path.append(hex_grid.hex_to_world(h))
+	if hex_path.is_empty():
+		hex_path.append(hex_grid.hex_to_world(goal_hex))
 
 func stop_command() -> void:
 	has_target = false
 	attack_move = false
+	hex_path.clear()
+	path_index = 0
 	focus_target = null
 	velocity = Vector2.ZERO
 

@@ -121,6 +121,8 @@ Units are grouped by domain. Each has a role, hard counters, and a cost in resou
 
 ## 7. Terrain & Maps
 
+Inspired by grid-based tactics games such as *Tiny Attack*: terrain types impose movement costs and passability, and capturing production buildings is central to victory.
+
 - **Grid:** 128×128 tiles, each tile 2 world units (256×256 m battlefield). Tile size configurable for editor preview.
 - **Terrain types:** Plains, Forest, Swamp, River, Sea, Mountain, Urban Ruins, Road, Bridge, Wasteland (fallout).
 - **Effects:**
