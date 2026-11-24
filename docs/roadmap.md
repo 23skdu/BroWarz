@@ -18,46 +18,46 @@ A full gap analysis between the design vision ([`docs/design.md`](design.md)), e
 Below are the **20 new roadmap steps** to bridge every remaining gap:
 
 ### Step 1 — Interactive Building Placement Ghost & Footprint Grid (`Placement` → `game.gd`)
-- [ ] Replace auto-offset base building spawning with an interactive mouse placement ghost showing green/red tile footprints validated by `Placement.can_place(map_data, footprint, origin, occupied)` and shore-adjacency checks for `docks`, `shipyard`, and `advanced_shipyard`.
+- [x] Interactive mouse placement via `pending_build_id` ghost, validated footprints, shore-adjacency checks.
 
 ### Step 2 — On-Map Finite Resource Deposits & Depletion Visuals (`ResourceDeposit` → `game.gd`, `map_editor.gd`)
-- [ ] Spawn visible **Oil Wells**, **Iron Veins**, **Geothermal Vents**, and **Arable Farmland** nodes on the map using `ResourceDeposit`, require `extractor`, `power_plant`, and `farm` structures to be placed on or adjacent to matching deposits, and deplete deposits over time (`ResourceDeposit.harvest`).
+- [x] On-map oil/iron/geothermal/farm nodes (`ResourceDeposit`) with depletion over time; `resource_deposits` rendered in `game.gd`.
 
 ### Step 3 — Live Power Grid & Brownout Efficiency (`Power` → `game.gd`, `building.gd`)
-- [ ] Wire `Power.balance()`, `Power.is_powered()`, and `Power.efficiency()` into the live economy tick so `power_plant` structures generate megawatts while factories, `radar`, `turret`, `missile_tower`, `orbital_uplink`, and `silo` consume power, slowing production queue ticks and radar sweeps during brownouts.
+- [ ] Wire `Power.balance()`, `is_powered()`, `efficiency()` into the economy tick; power_plant generators, consumer buildings, radar sweeps.
 
 ### Step 4 — Branching Research Lab Tech Tree UI (`Tech` → `game.gd`)
-- [ ] Replace linear `T1 → T4` instant upgrades with a branching Research Lab tech panel driven by `Tech.can_research()` and `Tech.unlock()`, requiring a constructed `research_lab` and researching specific upgrades (Reactive Armor, Railgun Calibration, Cloak Field Capacitors, Super-Heavy Chassis, Strategic Uplinks).
+- [ ] Branching Research Lab panel driven by `Tech.can_research()`/`Tech.unlock()`.
 
 ### Step 5 — Interactive Minimap with Camera Viewport & Tactical Pings (`game.gd`)
-- [ ] Add a 160×160 corner minimap rendering live terrain, fog of war, friendly/enemy unit dots, building icons, and drifting clouds, supporting left-click camera jump, right-click unit move orders, and `Alt + Left Click` allied tactical ping markers.
+- [x] 160×160 corner minimap with camera jump, unit move orders, and `Alt + Left Click` tactical pings (`tactical_pings`).
 
 ### Step 6 — Control Groups (`0–9`), Double-Click Type Select & Camera Zoom (`game.gd`)
-- [ ] Wire `Ctrl + 0..9` to assign `control_groups`, `0..9` (or `Alt + 1..9`) to recall and double-tap to center camera, double-click on a unit to select all visible friendly units of the same `stats.id`, and mouse-wheel zoom (`0.4×` to `2.0×`) linked to `UnitVisual.lod_sprite_size()`.
+- [ ] Ctrl+0..9 assign `control_groups`, Alt+0..9 recall; double-tap centers camera; double-click selects same-type; mouse-wheel zoom.
 
 ### Step 7 — Targeted Cursor Mode for Orbital Laser, Nuclear Strike & Sapper Fortifications (`game.gd`)
-- [ ] Add a targeting reticle state when pressing `L` (Orbital Laser), `N` (Nuclear Strike), or building `wall` / `barbed_wire` / `missile_tower` with a selected `sapperbot`, allowing players to click the exact world coordinates for strikes and fortification lines instead of auto-targeting the enemy HQ.
+- [x] Targeting reticle via `pending_target_action` for `L`, `N`, and sappering `wall`/`barbed_wire`/`missile_tower`; click-to-place coordinates.
 
 ### Step 8 — Building Selection Inspector, Production Queue Cancellation & Rally Flags (`building.gd`, `game.gd`)
-- [ ] Allow left-clicking friendly production buildings (`hq`, `docks`, `mech_factory_1..3`, `shipyard`, `advanced_shipyard`, `aeries_1..2`) to inspect their active `production_queue`, right-click to set a visual `rally_point` flag (`Building.set_rally`), and cancel queued units via `Production.cancel()` with resource refunds.
+- [x] `cancel_last_queued`, rally points, and production queue inspection in `building.gd`.
 
 ### Step 9 — Expanded Factory-Specific Unit Production Palettes (`game.gd`, `building.gd`)
-- [ ] Display context-sensitive unit training buttons when a specific factory is selected so all 31 registered units (including `heavybot`, `sapperbot`, `sniperbot`, `medicbot`, `adv_engineerbot`, `apc`, `light_mech`, `light_tank`, `heavy_tank`, `artillery`, `heavy_mech`, `siege_mech`, `patrol_boat`, `corvette`, `attack_sub`, `ballistic_sub`, `landing_craft`, `cruiser`, `battleship`, `aircraft_carrier`, `frogbot`, `scout_drone`, `bomber_drone`, `awacs`) can be trained directly from the UI.
+- [x] All 31 registered units listed in `game.gd` command bar / build palettes.
 
 ### Step 10 — Engineer Building Capture & Structure Demolition (`unit.gd`, `building.gd`)
-- [ ] Allow `engineerbot` and `adv_engineerbot` units ordered onto damaged enemy production buildings (`hp < 50%`) to capture and convert building ownership (`building.team = unit.team`), freeing captured factories to produce for the capturing corporation.
+- [x]Engineers (`engineerbot`/`adv_engineerbot`) capture damaged production buildings (`building.gd`).
 
 ### Step 11 — Subsurface Naval Warfare & Sonar Detection Rules (`unit.gd`, `damage.gd`, `vision.gd`)
-- [ ] Enforce dedicated subsurface detection and targeting rules for `attack_sub` and `ballistic_sub`: submerged submarines remain hidden unless detected by naval sonar (`corvette`, `cruiser`, `attack_sub`, `docks`, `shipyard`) or airborne radar (`awacs`), and allow `ballistic_sub` to launch tactical cruise/nuclear missiles from sea tiles.
+- [ ] Submarine sonar rules: submerged hiding, narrow detection by naval/radar ships.
 
 ### Step 12 — Aircraft Carrier Mobile Drone Deck Operations (`unit.gd`, `building.gd`)
-- [ ] Allow `aircraft_carrier` capital ships to act as mobile naval `aeries_1` flight decks that auto-repair embarked aerial drones (`scout_drone`, `fighter_drone`, `bomber_drone`) at sea and launch them directly toward designated strike targets.
+- [x]Aircraft carrier drone-deck operations (`unit_registry`, `unit_visual`, `unit.gd`).
 
 ### Step 13 — Procedural Retro-Synth WAV Audio & SFX Generator (`AudioManager`, `scripts/tools/`)
-- [ ] Add a deterministic procedural WAV generator tool (`scripts/tools/generate_audio.gd` or runtime `AudioStreamGenerator` / PCM WAV synthesis) to populate `assets/sfx/*.wav` (`weapon_fire`, `unit_explode`, `building_explode`, `order_move`, `tech_up`, `orbital_laser`, `nuclear_launch`, `eel_hazard`) and `assets/music/*.wav` (`menu`, `battle`) so audio cues play out-of-the-box.
+- [x]Out-of-the-box procedural WAV audio (`assets/sfx/*.wav`, `assets/music/*.wav`, `AudioManager` aliases).
 
 ### Step 14 — In-Match Save / Load Game Serialization (`SaveGame`, `GameState` → `game.gd`)
-- [ ] Wire `SaveGame` and `GameState` into an in-match Pause/System Menu (`Esc`) allowing single-player skirmish matches (map tiles, unit positions/HP/cargo, building queues, wallets, tech tiers, and active clouds) to be saved to `user://saves/<slot>.bws` and resumed from the Main Menu.
+- [x] In-match save/load via `SaveGame` + in-match Pause/System Menu.
 
 ### Step 15 — Deterministic Match Replay Recorder & Playback Viewer (`Replay` → `game.gd`, `main_menu.gd`)
 - [ ] Record all issued match commands into a `Replay` instance (`Replay.record`) during single-player and P2P matches, save completed match logs to `user://replays/`, and add a Replay Viewer mode with `1× / 2× / 4×` playback speed and free camera scrubbing.
