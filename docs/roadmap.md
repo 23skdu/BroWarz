@@ -9,7 +9,6 @@ Completed roadmap items have been removed. The items below are the verified gaps
 - [ ] Add networked match settings (map, teams, fog of war).
 
 ## Part 4 — Map Rendering & Terrain Visuals
-- [ ] Render terrain tiles (plains, forest, swamp, river, sea, mountain, urban, road).
 - [ ] Bake navigation regions per map and update for dynamic buildings.
 - [ ] Add terrain-based movement and line-of-sight visuals.
 
