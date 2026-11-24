@@ -175,6 +175,7 @@ Economy rules:
 
 - **Placement:** Grid-aligned, with footprint and collision; cannot overlap resources/terrain impassable.
 - **Buildings:** HQ, Barracks (infantry), Factory (vehicles/mechs), Shipyard (naval), Airfield (air), Refinery, Power Plant, Research Lab, Radar, Turret, Wall, Mine/Extractor, Farm, Silo (nukes), Orbital Uplink.
+- **Production chain:** Every player starts with an HQ and a Barracks. Barracks produce infantry (including Sappers). Sappers construct additional Barracks and Factories. Factories produce tanks and construction vehicles. Construction vehicles construct Airfields (air units) and Shipyards/Docks on shorelines (naval units). Extractors are built on resource deposits.
 - **Queue:** Production queue per building; rally points.
 - **Cancellation:** Refunds partial cost.
 - **Repairs:** Engineerbots or auto-repair near depot.
