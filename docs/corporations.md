@@ -3,6 +3,7 @@
 Each playable corporation has a unique identity: motto, background, distinctive color, and gameplay modifiers. Units and buildings use the corporation color for quick identification.
 
 ## AeroDyne Industries
+![AeroDyne Banner](../assets/banners/aerodyne.png)
 - **Motto:** "Dominion of the Skies"
 - **Background:** An aerospace megacorp dominating orbital and aerial warfare. Founded from a satellite network conglomerate, AeroDyne controls the high ground.
 - **Color:** Sky Blue `#3FBFFF`
@@ -12,6 +13,7 @@ Each playable corporation has a unique identity: motto, background, distinctive 
 - **Signature:** Cheaper aerial drones; orbital laser cooldown −15%.
 
 ## FerroCore Heavy
+![FerroCore Banner](../assets/banners/ferrocore.png)
 - **Motto:** "Iron Will, Iron Fist"
 - **Background:** A heavy-industry giant specializing in armor and siege. FerroCore builds the thickest armor and biggest guns.
 - **Color:** Amber `#FF8C26`
@@ -21,6 +23,7 @@ Each playable corporation has a unique identity: motto, background, distinctive 
 - **Signature:** Heavier tanks; sappers destroy fortifications faster.
 
 ## Pelagic Systems
+![Pelagic Banner](../assets/banners/pelagic.png)
 - **Motto:** "Depths of Power"
 - **Background:** A naval conglomerate ruling the seas and depths. Pelagic controls shipping lanes and submarine warfare.
 - **Color:** Teal `#26CCC0`
@@ -30,6 +33,7 @@ Each playable corporation has a unique identity: motto, background, distinctive 
 - **Signature:** Submarines start cloaked; cheaper sea drones.
 
 ## Vanguard Robotics
+![Vanguard Banner](../assets/banners/vanguard.png)
 - **Motto:** "Unseen, Unstoppable"
 - **Background:** A stealth and infantry specialist of covert operations. Vanguard excels at ambush and rapid infantry deployment.
 - **Color:** Violet `#BF59F2`
