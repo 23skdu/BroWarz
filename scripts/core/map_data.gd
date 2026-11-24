@@ -41,8 +41,9 @@ func in_bounds(x: int, y: int) -> bool:
 func tile_count() -> int:
 	return width * height
 
-static func movement_cost(terrain: int, unit_class: int) -> float:
-	# unit_class: 0 infantry, 1 vehicle, 2 naval, 3 air, 4 hovercraft
+static func movement_cost(terrain: int, unit_class: int, heavy: bool = false) -> float:
+	# unit_class: 0 infantry, 1 vehicle, 2 naval, 3 air, 4 hovercraft, 5 amphibious (frogmen)
+	# heavy: heavy infantry or large mechs that can cross mountains
 	match unit_class:
 		3: # air
 			return 1.0
@@ -50,21 +51,29 @@ static func movement_cost(terrain: int, unit_class: int) -> float:
 			if terrain == Terrain.SEA or terrain == Terrain.RIVER:
 				return 1.0
 			return INF
-		1: # vehicle
+		1: # vehicle (1) or heavy mech (7)
 			match terrain:
 				Terrain.PLAINS, Terrain.ROAD: return 1.0
 				Terrain.URBAN: return 1.3
 				Terrain.FOREST: return 1.6
 				Terrain.SWAMP: return INF
-				Terrain.RIVER, Terrain.SEA, Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
+				Terrain.RIVER, Terrain.SEA, Terrain.WASTELAND: return INF
+				Terrain.MOUNTAIN:
+					if heavy or unit_class == 7:
+						return 2.2
+					return INF
 				_: return 1.2
-		_: # infantry
+		_: # infantry (0) or heavy infantry (6)
 			match terrain:
 				Terrain.PLAINS, Terrain.ROAD: return 1.0
 				Terrain.URBAN: return 0.9
 				Terrain.FOREST: return 1.2
 				Terrain.SWAMP: return 1.6
-				Terrain.RIVER, Terrain.SEA, Terrain.MOUNTAIN: return INF
+				Terrain.RIVER, Terrain.SEA: return INF
+				Terrain.MOUNTAIN:
+					if heavy or unit_class == 6:
+						return 2.0
+					return INF
 				Terrain.WASTELAND: return 1.4
 				_: return 1.1
 		4: # hovercraft (land + sea)
@@ -74,7 +83,16 @@ static func movement_cost(terrain: int, unit_class: int) -> float:
 				Terrain.FOREST: return 1.3
 				Terrain.RIVER, Terrain.SEA: return 1.1
 				_: return 1.0
+		5: # amphibious (frogmen): land + water, slower on land
+			match terrain:
+				Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
+				Terrain.PLAINS, Terrain.ROAD: return 1.2
+				Terrain.URBAN: return 1.1
+				Terrain.FOREST: return 1.4
+				Terrain.SWAMP: return 1.5
+				Terrain.RIVER, Terrain.SEA: return 1.0
+				_: return 1.3
 	return 1.0
 
-static func is_passable(terrain: int, unit_class: int) -> bool:
-	return movement_cost(terrain, unit_class) < INF
+static func is_passable(terrain: int, unit_class: int, heavy: bool = false) -> bool:
+	return movement_cost(terrain, unit_class, heavy) < INF

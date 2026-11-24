@@ -43,7 +43,7 @@ func _ready():
 	if GameManager.registry.units.is_empty():
 		GameManager.registry.populate_defaults()
 	map_data = MapData.new(128, 128)
-	_generate_map()
+	_generate_map(GameManager.map_type)
 	terrain_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	terrain_texture = ImageTexture.create_from_image(terrain_image)
 	terrain_sprite = Sprite2D.new()
@@ -70,17 +70,16 @@ func _ready():
 	GameManager.start_match(map_data)
 	AudioManager.set_music("battle")
 
-func _generate_map() -> void:
-	for y in range(128):
-		for x in range(128):
-			if (x + y) % 17 == 0:
-				map_data.set_terrain(x, y, MapData.Terrain.FOREST)
-			elif (x * 3 + y) % 29 == 0 and x > 15 and x < 105:
-				map_data.set_terrain(x, y, MapData.Terrain.URBAN)
-			elif x % 31 == 0 and y % 31 == 0 and x > 10 and y > 10:
-				map_data.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
-			elif abs(x - y) < 2 and x > 35 and x < 85:
-				map_data.set_terrain(x, y, MapData.Terrain.ROAD)
+func _generate_map(map_type: int = 2) -> void:
+	var gen := TerrainGenerator.generate_forest(128, 128, GameManager.match_seed)
+	match map_type:
+		0:
+			gen = TerrainGenerator.generate_desert(128, 128, GameManager.match_seed)
+		1:
+			gen = TerrainGenerator.generate_islands(128, 128, GameManager.match_seed)
+		_:
+			gen = TerrainGenerator.generate_forest(128, 128, GameManager.match_seed)
+	map_data = gen
 
 func spawn_combat_tracer(from_pos: Vector2, to_pos: Vector2, dmg_type: int, _team: int) -> void:
 	var col := Color(1.0, 0.92, 0.4, 0.95)

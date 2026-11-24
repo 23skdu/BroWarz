@@ -127,7 +127,7 @@ Units are grouped by domain. Each has a role, hard counters, and a cost in resou
   - Swamp: −movement speed for ground units, no vehicles except mechs; infantry unaffected-ish.
   - River: impassable to ground except at bridges/fords; naval passable if deep enough.
   - Sea: naval only; ground blocked.
-  - Mountain: impassable, blocks line of sight.
+  - Mountain: impassable except for heavy infantry, large mechs, and air units; blocks line of sight.
   - Forest: concealment (stealth bonus), slows vehicles.
   - Road: +movement.
   - Urban ruins: cover, vision blockers.

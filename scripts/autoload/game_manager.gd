@@ -11,6 +11,7 @@ var ai_difficulty: int = 1  # 0 Easy, 1 Normal, 2 Hard
 var player_faction: int = 0
 var ai_faction: int = 1
 var match_seed: int = 1337
+var map_type: int = 2  # 0 desert, 1 islands, 2 forest
 var registry: UnitRegistry = UnitRegistry.new()
 
 func _ready() -> void:
