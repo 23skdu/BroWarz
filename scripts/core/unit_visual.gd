@@ -124,7 +124,7 @@ static func build_unit_frame_image(unit_class: int, state: int, frame: int, team
 	var leg_shift := ((frame % 2) * 2 - 1) * 2 if state == AnimState.MOVE else 0
 
 	match unit_class:
-		1: # Vehicle / Tank / Mech chassis with treads + turret
+		1, 4, 7: # Vehicle / Tank / Mech / Hovercraft chassis with treads + turret
 			_fill_rect(img, c - 10, c - 9, 20, 4, Color(0.18, 0.2, 0.22, 1.0))
 			_fill_rect(img, c - 10, c + 5, 20, 4, Color(0.18, 0.2, 0.22, 1.0))
 			_fill_rect(img, c - 8, c - 6, 16, 12, dark)

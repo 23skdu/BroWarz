@@ -5,6 +5,7 @@ var stats: UnitStats
 var team: int = 0
 var hp: int = 100
 var selected: bool = false
+var faction: int = -1
 var target_pos: Vector2 = Vector2.ZERO
 var has_target: bool = false
 var eel_timer: float = 0.0
@@ -46,9 +47,10 @@ func _ready():
 	_setup_animated_sprite()
 	add_to_group("units")
 
-func setup(s: UnitStats, t: int) -> void:
+func setup(s: UnitStats, t: int, f: int = -1) -> void:
 	stats = s
 	team = t
+	faction = f if f >= 0 else (0 if t == 0 else 1)
 	hp = s.hp
 	facing_angle = 0.0 if t == 0 else PI
 	turret_angle = facing_angle
@@ -67,12 +69,13 @@ func _setup_animated_sprite() -> void:
 	_refresh_sprite_texture()
 
 func _team_base_color() -> Color:
-	var c := Color(0.22, 0.58, 1.0, 1.0) if team == 0 else Color(0.96, 0.26, 0.24, 1.0)
+	var c := Faction.color_of(faction) if faction >= 0 else (Color(0.22, 0.58, 1.0, 1.0) if team == 0 else Color(0.96, 0.26, 0.24, 1.0))
 	if stats:
 		match stats.unit_class:
-			1: c = c.darkened(0.1)
+			1, 4, 7: c = c.darkened(0.1)
 			2: c = c.lerp(Color.CYAN, 0.25)
 			3: c = c.lightened(0.2)
+			5: c = c.darkened(0.2)
 	return c
 
 func _refresh_sprite_texture() -> void:
