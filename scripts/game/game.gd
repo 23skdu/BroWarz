@@ -53,7 +53,7 @@ func _ready():
 	terrain_sprite.z_index = -5
 	add_child(terrain_sprite)
 	_update_terrain_image()
-	fog = FogOfWar.new(128, 128)
+	fog = FogOfWar.new(128, 128, map_data)
 	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
 	fog_sprite = Sprite2D.new()
