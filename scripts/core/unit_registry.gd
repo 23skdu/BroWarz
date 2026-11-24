@@ -80,6 +80,14 @@ static func producer_ids_for_unit(unit_id: String, unit_class: int = 0) -> Array
 		_:
 			return ["mech_factory_1", "barracks"]
 
+## Register an alias id that resolves to the sapperbot worker role.
+func _register_alias(alias_id: String) -> void:
+	var base: UnitStats = units.get("sapperbot", null)
+	if base == null:
+		return
+	units[alias_id] = base.duplicate()
+	units[alias_id].id = alias_id
+
 func populate_defaults() -> void:
 	# Infantry & Mechanized (Part 8)
 	_add_u("riflebot", "Riflebot", 100, 130.0, Damage.ArmorClass.UNARMORED, Damage.DamageType.KINETIC, 12, 180.0, 280.0, 0, 50, 0, 25, 3.0, 0, false, false)
@@ -88,9 +96,11 @@ func populate_defaults() -> void:
 	_add_u("stealthbot", "Stealthbot", 85, 150.0, Damage.ArmorClass.UNARMORED, Damage.DamageType.ENERGY, 26, 170.0, 340.0, 30, 75, 20, 30, 4.5, 0, true, false)
 	_add_u("sniperbot", "Sniperbot", 80, 115.0, Damage.ArmorClass.UNARMORED, Damage.DamageType.KINETIC, 40, 340.0, 380.0, 25, 90, 10, 30, 5.0, 0, false, false)
 	_add_u("rocketbot", "Rocketbot", 105, 115.0, Damage.ArmorClass.LIGHT, Damage.DamageType.EXPLOSIVE, 28, 230.0, 280.0, 25, 85, 0, 30, 4.0, 0, false, false)
-	_add_u("medicbot", "Medicbot", 110, 130.0, Damage.ArmorClass.LIGHT, Damage.DamageType.ENERGY, 8, 140.0, 280.0, 20, 60, 15, 30, 3.5, 0, false, false)
-	_add_u("engineerbot", "Engineerbot", 120, 125.0, Damage.ArmorClass.LIGHT, Damage.DamageType.KINETIC, 6, 110.0, 280.0, 10, 60, 0, 25, 3.0, 0, false, true)
-	_add_u("adv_engineerbot", "Advanced Construction Bot", 190, 130.0, Damage.ArmorClass.MEDIUM, Damage.DamageType.KINETIC, 12, 130.0, 310.0, 45, 130, 30, 30, 5.5, 0, false, true)
+	# Sapperbot is the unified worker role (sapper/engineer/medic merged);
+	# engineerbot/medicbot/adv_engineerbot are compatibility aliases.
+	_register_alias("engineerbot")
+	_register_alias("adv_engineerbot")
+	_register_alias("medicbot")
 	_add_u("apc", "APC/IFV", 240, 155.0, Damage.ArmorClass.MEDIUM, Damage.DamageType.KINETIC, 16, 200.0, 300.0, 50, 110, 0, 20, 5.0, 1, false, false)
 	_add_u("light_mech", "Light Mech", 260, 145.0, Damage.ArmorClass.MEDIUM, Damage.DamageType.KINETIC, 22, 210.0, 310.0, 60, 120, 20, 20, 5.5, 1, false, false)
 	# Vehicles & Heavy Mechs (Part 9)

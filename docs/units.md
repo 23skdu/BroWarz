@@ -8,13 +8,10 @@ Every unit has a large, detailed 48×48 pixel-art sprite (rendered below at 64×
 |---|---|---|---|---|---|
 | Riflebot | ![Riflebot](thumbnails/riflebot_f0.png) | ![Riflebot](thumbnails/riflebot_f1.png) | ![Riflebot](thumbnails/riflebot_f2.png) | ![Riflebot](thumbnails/riflebot_f3.png) | Line infantry |
 | Heavybot | ![Heavybot](thumbnails/heavybot_f0.png) | ![Heavybot](thumbnails/heavybot_f1.png) | ![Heavybot](thumbnails/heavybot_f2.png) | ![Heavybot](thumbnails/heavybot_f3.png) | Heavy infantry, crosses mountains |
-| Sapperbot | ![Sapperbot](thumbnails/sapperbot_f0.png) | ![Sapperbot](thumbnails/sapperbot_f1.png) | ![Sapperbot](thumbnails/sapperbot_f2.png) | ![Sapperbot](thumbnails/sapperbot_f3.png) | Demolition and construction |
+| Sapperbot | ![Sapperbot](thumbnails/sapperbot_f0.png) | ![Sapperbot](thumbnails/sapperbot_f1.png) | ![Sapperbot](thumbnails/sapperbot_f2.png) | ![Sapperbot](thumbnails/sapperbot_f3.png) | Unified worker: demolition/breach, construction capture, and field repair (sapper/engineer/medic roles merged; `engineerbot`, `medicbot`, and `adv_engineerbot` are compatibility aliases) |
 | Stealthbot | ![Stealthbot](thumbnails/stealthbot_f0.png) | ![Stealthbot](thumbnails/stealthbot_f1.png) | ![Stealthbot](thumbnails/stealthbot_f2.png) | ![Stealthbot](thumbnails/stealthbot_f3.png) | Cloaked recon/ambush |
 | Sniperbot | ![Sniperbot](thumbnails/sniperbot_f0.png) | ![Sniperbot](thumbnails/sniperbot_f1.png) | ![Sniperbot](thumbnails/sniperbot_f2.png) | ![Sniperbot](thumbnails/sniperbot_f3.png) | Long-range precision |
 | Rocketbot | ![Rocketbot](thumbnails/rocketbot_f0.png) | ![Rocketbot](thumbnails/rocketbot_f1.png) | ![Rocketbot](thumbnails/rocketbot_f2.png) | ![Rocketbot](thumbnails/rocketbot_f3.png) | Anti-armor infantry |
-| Medicbot | ![Medicbot](thumbnails/medicbot_f0.png) | ![Medicbot](thumbnails/medicbot_f1.png) | ![Medicbot](thumbnails/medicbot_f2.png) | ![Medicbot](thumbnails/medicbot_f3.png) | Repairs friendly robots |
-| Engineerbot | ![Engineerbot](thumbnails/engineerbot_f0.png) | ![Engineerbot](thumbnails/engineerbot_f1.png) | ![Engineerbot](thumbnails/engineerbot_f2.png) | ![Engineerbot](thumbnails/engineerbot_f3.png) | Builds and repairs T1/T2 structures |
-| Advanced Construction Bot | ![Adv Engineer](thumbnails/adv_engineerbot_f0.png) | ![Adv Engineer](thumbnails/adv_engineerbot_f1.png) | ![Adv Engineer](thumbnails/adv_engineerbot_f2.png) | ![Adv Engineer](thumbnails/adv_engineerbot_f3.png) | Built at Mech Factory 2; constructs Mech Factory 3, Advanced Shipyard, and Aeries Level 2 |
 
 ## Mechanized & Armor
 

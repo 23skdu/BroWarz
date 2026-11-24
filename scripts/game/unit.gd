@@ -226,10 +226,10 @@ func _physics_process(delta):
 	if stats and stats.stealth and not has_target and attack_timer <= 0.0:
 		cloak_timer = minf(cloak_timer + delta, effective_cloak_duration())
 
-	# Medicbot and Engineerbots auto-repair nearby friendly robots/structures
-	if stats and stats.id in ["medicbot", "engineerbot", "adv_engineerbot"]:
+	# Sapperbot is the unified worker: auto-repair nearby friendly units/structures.
+	if stats and stats.id == "sapperbot":
 		_auto_repair_allies(delta)
-	if stats and stats.id in ["engineerbot", "adv_engineerbot"]:
+	if stats and stats.id == "sapperbot":
 		_try_capture_enemy_building()
 	if stats and stats.id == "aircraft_carrier" and not cargo.is_empty():
 		_repair_carrier_drones(delta)
@@ -294,7 +294,7 @@ func _terrain_speed_multiplier() -> float:
 	return MapData.speed_multiplier(t, stats.unit_class, heavy, false)
 
 func _auto_repair_allies(delta: float) -> void:
-	var rate := 18.0 if (stats and stats.id == "adv_engineerbot") else 12.0
+	var rate := 18.0 if (stats and stats.id == "sapperbot") else 12.0
 	for u in get_tree().get_nodes_in_group("units"):
 		if u == self or not is_instance_valid(u) or u.team != team or u.is_exploding:
 			continue

@@ -351,26 +351,16 @@ static func _draw_detailed_unit(
 			_fill_rect(img, c - 7 - recoil, c + 2, 22, 7, gunmetal)
 			_fill_rect(img, c + 11 - recoil, c + 2, 4, 7, Color(0.95, 0.35, 0.18, 1.0))
 			_fill_rect(img, c - 2 - recoil, c + 3, 8, 3, trim)
-		"medicbot":
-			# Field repair android with high-visibility medical cross & nano-repairemitter
-			_fill_rect(img, c - 10, c - 12, 20, 24, outline)
-			_fill_rect(img, c - 8, c - 10, 16, 20, dark)
-			_fill_rect(img, c - 6, c - 8, 12, 16, mid)
-			_fill_rect(img, c - 2, c - 6, 4, 12, Color(0.96, 0.99, 0.98, 1.0))
-			_fill_rect(img, c - 6, c - 2, 12, 4, Color(0.96, 0.99, 0.98, 1.0))
-			_fill_rect(img, c + 6 - recoil, c - 3, 8, 6, outline)
-			_fill_rect(img, c + 7 - recoil, c - 2, 6, 4, trim)
-		"engineerbot", "adv_engineerbot":
-			# Construction & capture droid with gantry frame, hazard beacon & welding arm
+		"medicbot", "engineerbot", "adv_engineerbot":
+			# Unified worker: hardening gantry frame, hazard beacon, welding arm,
+			# and a high-visibility cross/ledger for field repair, capture and build.
 			_fill_rect(img, c - 11, c - 12, 22, 24, outline)
 			_fill_rect(img, c - 9, c - 10, 18, 20, dark)
 			_fill_rect(img, c - 7, c - 8, 14, 16, mid)
-			_fill_rect(img, c - 4, c - 4, 8, 8, Color(0.98, 0.78, 0.16, 1.0))
-			_fill_rect(img, c + 5 - recoil, c - 6, 11, 4, steel)
-			_fill_rect(img, c + 5 - recoil, c + 2, 11, 4, steel)
-			if unit_id == "adv_engineerbot":
-				_fill_rect(img, c - 6, c - 11, 10, 3, trim)
-				_fill_rect(img, c - 6, c + 8, 10, 3, trim)
+			_fill_rect(img, c - 2, c - 6, 4, 12, Color(0.96, 0.99, 0.98, 1.0))
+			_fill_rect(img, c - 6, c - 2, 12, 4, Color(0.96, 0.99, 0.98, 1.0))
+			_fill_rect(img, c - 6, c - 10, 10, 3, trim)
+			_fill_rect(img, c - 6, c + 8, 10, 3, trim)
 		"apc":
 			# 6x6 Armored Personnel Carrier with Troop Compartment & roof autocannon
 			_fill_rect(img, c - 16, c - 12, 32, 24, outline)

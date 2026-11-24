@@ -258,7 +258,7 @@ func _spawn_starting_bases() -> void:
 	_spawn_unit_by_id("riflebot", Vector2(200, 200), 0)
 	_spawn_unit_by_id("riflebot", Vector2(230, 200), 0)
 	_spawn_unit_by_id("rocketbot", Vector2(200, 230), 0)
-	_spawn_unit_by_id("engineerbot", Vector2(170, 200), 0)
+	_spawn_unit_by_id("sapperbot", Vector2(170, 200), 0)
 
 	# Player 1 (Red / Skirmish AI) bottom-right base
 	_spawn_building_by_id("hq", Vector2(1100, 900), 1)
@@ -268,7 +268,7 @@ func _spawn_starting_bases() -> void:
 	_spawn_unit_by_id("riflebot", Vector2(1020, 820), 1)
 	_spawn_unit_by_id("riflebot", Vector2(1050, 820), 1)
 	_spawn_unit_by_id("rocketbot", Vector2(1020, 850), 1)
-	_spawn_unit_by_id("engineerbot", Vector2(1070, 850), 1)
+	_spawn_unit_by_id("sapperbot", Vector2(1070, 850), 1)
 
 func _spawn_unit(pos: Vector2, team: int) -> void:
 	_spawn_unit_by_id("riflebot", pos, team)
@@ -928,7 +928,7 @@ func _run_skirmish_ai_turn() -> void:
 
 	var combat_units: Array = []
 	for u in ai_units:
-		if u.stats == null or u.stats.id != "engineerbot":
+		if u.stats == null or u.stats.id != "sapperbot":
 			combat_units.append(u)
 
 	var wave_size := AI.attack_wave_threshold(GameManager.ai_difficulty, elapsed_time / 60.0)
