@@ -28,6 +28,10 @@ var ai_tactical_state: String = "rally"
 # Last time (elapsed seconds) each AI unit was ordered to retreat, so damaged
 # units rejoin the fight instead of being re-ordered home on every AI tick.
 var ai_retreat_until: Dictionary = {}
+# Next elapsed times at which the AI may build/train/issue fresh orders.
+var ai_next_build_time: float = 0.0
+var ai_next_train_time: float = 0.0
+var ai_order_until: Dictionary = {}
 var replay_log := Replay.new()  # match command record (Step 15)
 var match_duration: float = 0.0
 var drag_selecting: bool = false
@@ -82,8 +86,8 @@ func _ready():
 	_spawn_resource_deposits()
 	wildlife_herd = WildlifeRef.spawn_ambient_herd(map_data, GameManager.match_seed, 10)
 	GameManager.active_clouds = Cover.spawn_clouds(float(map_data.width) * TILE_SIZE, float(map_data.height) * TILE_SIZE, GameManager.match_seed, 8)
-	fog = FogOfWar.new(128, 128, map_data)
-	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	fog = FogOfWar.new(map_data.width, map_data.height, map_data)
+	fog_image = Image.create(map_data.width, map_data.height, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
 	fog_sprite = Sprite2D.new()
 	fog_sprite.texture = fog_texture
@@ -92,6 +96,7 @@ func _ready():
 	fog_sprite.z_index = 10
 	add_child(fog_sprite)
 	camera = $Camera2D
+	# Final position follows the resolved player HQ in _spawn_starting_bases().
 	camera.position = Vector2(360, 300)
 	_setup_hud()
 	_init_economies()
@@ -101,14 +106,16 @@ func _ready():
 	AudioManager.set_music("battle")
 
 func _generate_map(map_type: int = 2) -> void:
-	if map_type == 3:
-		if GameManager.current_map != null:
-			map_data = GameManager.current_map
+	# Only an explicitly supplied custom map may override generated terrain.
+	# No silent disk fallback: that let an old editor session leak into matches.
+	if map_type == 3 and GameManager.current_map != null:
+		var authored: MapData = GameManager.current_map.duplicate(true)
+		var check: Dictionary = MapData.validate_map(authored)
+		if bool(check.get("ok", false)):
+			map_data = authored
 			return
-		var loaded := MapSerializer.load_from_file("user://custom_map.bwm")
-		if loaded != null:
-			map_data = loaded
-			return
+		if is_instance_valid(status_label):
+			status_label.text = "Custom map invalid (%s); using Forest." % str(check.get("reason", "unknown error"))
 	var gen := TerrainGenerator.generate_forest(128, 128, GameManager.match_seed)
 	match map_type:
 		0:
@@ -237,10 +244,10 @@ func _add_cmd_button(parent: Node, label_text: String, cb: Callable) -> void:
 
 func _init_economies() -> void:
 	var start_res := {
-		Economy.Res.OIL: 300,
-		Economy.Res.IRON: 500,
-		Economy.Res.GEOTHERMAL: 150,
-		Economy.Res.FOOD: 200,
+		Economy.Res.OIL: 200,
+		Economy.Res.IRON: 320,
+		Economy.Res.GEOTHERMAL: 100,
+		Economy.Res.FOOD: 150,
 	}
 	ResourceManager.init_player(0, start_res)
 	ResourceManager.init_player(1, start_res)
@@ -251,58 +258,138 @@ func _init_economies() -> void:
 	ResourceManager.caps[1] = 20
 
 func _set_base_rates(pid: int, mult: float) -> void:
-	ResourceManager.set_rate(pid, Economy.Res.OIL, int(round(18.0 * mult)))
-	ResourceManager.set_rate(pid, Economy.Res.IRON, int(round(32.0 * mult)))
-	ResourceManager.set_rate(pid, Economy.Res.GEOTHERMAL, int(round(10.0 * mult)))
-	ResourceManager.set_rate(pid, Economy.Res.FOOD, int(round(15.0 * mult)))
+	# Slower income gives both sides time to scout and field a first wave.
+	ResourceManager.set_rate(pid, Economy.Res.OIL, int(round(9.0 * mult)))
+	ResourceManager.set_rate(pid, Economy.Res.IRON, int(round(16.0 * mult)))
+	ResourceManager.set_rate(pid, Economy.Res.GEOTHERMAL, int(round(5.0 * mult)))
+	ResourceManager.set_rate(pid, Economy.Res.FOOD, int(round(8.0 * mult)))
+
+const MIN_SPAWN_SEPARATION: int = 24  # tiles; prevents instant base-to-base contact
 
 func _spawn_starting_bases() -> void:
-	# Use map-editor HQ spawns when present; generated maps fall back to the
-	# traditional corners, nudged to the nearest vehicle-passable tile.
-	var player_base := _hq_world_pos(0, Vector2i(8, 8))
-	var ai_base := _hq_world_pos(1, Vector2i(68, 56))
+	var spawns := _resolve_hq_tiles()
+	var player_tile: Vector2i = spawns.get(0, Vector2i(4, 4))
+	var ai_tile: Vector2i = spawns.get(1, Vector2i(maxi(5, map_data.width - 5), maxi(5, map_data.height - 5)))
+	var player_base := _tile_world(player_tile)
+	var ai_base := _tile_world(ai_tile)
+	var starters: Array = []
 
-	# Player 0 (Blue) top-left base
-	_spawn_building_by_id("hq", player_base, 0)
-	_spawn_building_by_id("barracks", player_base + Vector2(80, 0), 0)
-	_spawn_building_by_id("factory", player_base + Vector2(0, 80), 0)
-	_spawn_building_by_id("extractor", player_base + Vector2(-60, 60), 0)
-	_spawn_unit_by_id("riflebot", player_base + Vector2(60, 60), 0)
-	_spawn_unit_by_id("riflebot", player_base + Vector2(90, 60), 0)
-	_spawn_unit_by_id("rocketbot", player_base + Vector2(60, 90), 0)
-	_spawn_unit_by_id("sapperbot", player_base + Vector2(30, 60), 0)
+	# Player 0 (Blue) top-left base.
+	starters.append(_spawn_building_by_id("hq", player_base, 0))
+	starters.append(_spawn_building_by_id("barracks", _tile_world(player_tile + Vector2i(5, 0)), 0))
+	starters.append(_spawn_building_by_id("factory", _tile_world(player_tile + Vector2i(0, 5)), 0))
+	starters.append(_spawn_building_by_id("extractor", _tile_world(player_tile + Vector2i(-4, 4)), 0))
+	_spawn_unit_by_id("riflebot", _tile_world(player_tile + Vector2i(4, 4)), 0)
+	_spawn_unit_by_id("riflebot", _tile_world(player_tile + Vector2i(6, 4)), 0)
+	_spawn_unit_by_id("rocketbot", _tile_world(player_tile + Vector2i(4, 6)), 0)
+	_spawn_unit_by_id("sapperbot", _tile_world(player_tile + Vector2i(2, 4)), 0)
 
-	# Player 1 (Red / Skirmish AI) bottom-right base
-	_spawn_building_by_id("hq", ai_base, 1)
-	_spawn_building_by_id("barracks", ai_base + Vector2(-90, 0), 1)
-	_spawn_building_by_id("factory", ai_base + Vector2(0, -90), 1)
-	_spawn_building_by_id("extractor", ai_base + Vector2(70, -60), 1)
-	_spawn_unit_by_id("riflebot", ai_base + Vector2(-80, -80), 1)
-	_spawn_unit_by_id("riflebot", ai_base + Vector2(-50, -80), 1)
-	_spawn_unit_by_id("rocketbot", ai_base + Vector2(-80, -50), 1)
-	_spawn_unit_by_id("sapperbot", ai_base + Vector2(-30, -50), 1)
+	# Player 1 (Red / Skirmish AI) bottom-right base.
+	starters.append(_spawn_building_by_id("hq", ai_base, 1))
+	starters.append(_spawn_building_by_id("barracks", _tile_world(ai_tile + Vector2i(-5, 0)), 1))
+	starters.append(_spawn_building_by_id("factory", _tile_world(ai_tile + Vector2i(0, -5)), 1))
+	starters.append(_spawn_building_by_id("extractor", _tile_world(ai_tile + Vector2i(4, -4)), 1))
+	_spawn_unit_by_id("riflebot", _tile_world(ai_tile + Vector2i(-4, -4)), 1)
+	_spawn_unit_by_id("riflebot", _tile_world(ai_tile + Vector2i(-6, -4)), 1)
+	_spawn_unit_by_id("rocketbot", _tile_world(ai_tile + Vector2i(-4, -6)), 1)
+	_spawn_unit_by_id("sapperbot", _tile_world(ai_tile + Vector2i(-2, -4)), 1)
 
-func _hq_world_pos(team: int, fallback_tile: Vector2i) -> Vector2:
-	var tile := fallback_tile
+	# Starting buildings occupy their tiles so players cannot build on top of them.
+	for b in starters:
+		if is_instance_valid(b) and b.stats != null:
+			var origin := Vector2i(int(b.global_position.x / TILE_SIZE), int(b.global_position.y / TILE_SIZE))
+			Placement.occupy(occupied_tiles, b.stats.footprint, origin)
+
+	# Open the camera on the player's actual spawn rather than a fixed corner.
+	if camera != null:
+		camera.position = player_base
+
+func _tile_world(tile: Vector2i) -> Vector2:
+	var t := tile
 	if map_data != null:
-		var authored := map_data.get_hq_spawn(team)
-		if authored.x >= 0 and authored.y >= 0:
-			tile = authored
-		tile = _nearest_vehicle_tile(tile)
-	return Vector2((float(tile.x) + 0.5) * TILE_SIZE, (float(tile.y) + 0.5) * TILE_SIZE)
+		t.x = clampi(t.x, 0, map_data.width - 1)
+		t.y = clampi(t.y, 0, map_data.height - 1)
+	return Vector2((float(t.x) + 0.5) * TILE_SIZE, (float(t.y) + 0.5) * TILE_SIZE)
+
+func _resolve_hq_tiles() -> Dictionary:
+	if map_data == null:
+		return {0: Vector2i(4, 4), 1: Vector2i(64, 52)}
+	var player_fallback := Vector2i(4, 4)
+	var ai_fallback := Vector2i(maxi(5, map_data.width - 5), maxi(5, map_data.height - 5))
+	var authored_player := map_data.get_hq_spawn(0)
+	var authored_ai := map_data.get_hq_spawn(1)
+	if authored_player.x >= 0 and authored_player.y >= 0:
+		player_fallback = authored_player
+	if authored_ai.x >= 0 and authored_ai.y >= 0:
+		ai_fallback = authored_ai
+	var player_tile := _nearest_vehicle_tile(player_fallback)
+	var reachable := _reachable_vehicle_tiles(player_tile)
+	var ai_tile := _choose_ai_tile(ai_fallback, player_tile, reachable)
+	return {0: player_tile, 1: ai_tile}
+
+func _choose_ai_tile(preferred: Vector2i, player_tile: Vector2i, reachable: Dictionary) -> Vector2i:
+	# Honour authored spawns when they are already valid and well separated.
+	if reachable.has(preferred) and _tile_separation(preferred, player_tile) >= MIN_SPAWN_SEPARATION:
+		return preferred
+	var pool: Array = []
+	var far_enough := false
+	for tile in reachable.keys():
+		pool.append(tile)
+		if _tile_separation(tile, player_tile) >= MIN_SPAWN_SEPARATION:
+			far_enough = true
+	# Disconnected or tiny passable regions: pick any passable tile far away.
+	if not far_enough and map_data != null:
+		pool.clear()
+		for y in range(map_data.height):
+			for x in range(map_data.width):
+				if MapData.is_passable(map_data.get_terrain(x, y), 1):
+					pool.append(Vector2i(x, y))
+	var best: Vector2i = preferred
+	var best_score := -1.0
+	for tile in pool:
+		var score := float(_tile_separation(tile, player_tile)) - float(_tile_separation(tile, preferred)) * 0.01
+		if score > best_score:
+			best_score = score
+			best = tile
+	return best
+
+func _tile_separation(a: Vector2i, b: Vector2i) -> int:
+	return maxi(absi(a.x - b.x), absi(a.y - b.y))
+
+func _reachable_vehicle_tiles(origin: Vector2i) -> Dictionary:
+	var seen := {}
+	if map_data == null or not _is_vehicle_tile(origin):
+		return seen
+	var queue: Array[Vector2i] = [origin]
+	seen[origin] = true
+	var head := 0
+	var dirs := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	while head < queue.size():
+		var cur: Vector2i = queue[head]
+		head += 1
+		for d in dirs:
+			var nb: Vector2i = cur + d
+			if seen.has(nb) or not _is_vehicle_tile(nb):
+				continue
+			seen[nb] = true
+			queue.append(nb)
+	return seen
+
+func _is_vehicle_tile(tile: Vector2i) -> bool:
+	return map_data != null and map_data.in_bounds(tile.x, tile.y) \
+		and MapData.is_passable(map_data.get_terrain(tile.x, tile.y), 1)
 
 func _nearest_vehicle_tile(origin: Vector2i) -> Vector2i:
 	if map_data == null:
 		return origin
-	for radius in range(0, 25):
+	var max_radius := maxi(map_data.width, map_data.height)
+	for radius in range(0, max_radius):
 		for dy in range(-radius, radius + 1):
 			for dx in range(-radius, radius + 1):
 				if maxi(absi(dx), absi(dy)) != radius:
 					continue
 				var t := origin + Vector2i(dx, dy)
-				if not map_data.in_bounds(t.x, t.y):
-					continue
-				if MapData.is_passable(map_data.get_terrain(t.x, t.y), 1):
+				if _is_vehicle_tile(t):
 					return t
 	return origin
 
@@ -811,6 +898,31 @@ func _find_priority_target_for_team(attacker_team: int) -> Node2D:
 	var picked_id := AI.choose_weakest_target(candidates)
 	return node_map.get(picked_id, null)
 
+## Nearest enemy the team can currently see. Fog of war must not reveal
+## unit/node positions to the AI, and distant weak targets must not override
+## nearby contacts.
+func _find_nearest_visible_enemy(team: int, from_pos: Vector2, max_dist: float) -> Node2D:
+	var best: Node2D = null
+	var best_dist := max_dist
+	var groups := ["units", "buildings"]
+	for group_name in groups:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(node) or node.is_exploding:
+				continue
+			if int(node.get("team")) == team or GameManager.is_allied(team, int(node.get("team"))):
+				continue
+			var pos: Vector2 = node.global_position
+			if GameManager.fog_enabled and fog != null:
+				var tx := int(pos.x / TILE_SIZE)
+				var ty := int(pos.y / TILE_SIZE)
+				if not fog.is_visible(tx, ty):
+					continue
+			var d := from_pos.distance_to(pos)
+			if d < best_dist:
+				best_dist = d
+				best = node
+	return best
+
 func _unit_at(pos: Vector2):
 	for u in units_container.get_children():
 		if is_instance_valid(u) and not u.is_exploding and u.global_position.distance_to(pos) < 18:
@@ -835,16 +947,39 @@ func get_team_power_efficiency(team: int) -> float:
 
 func _spawn_resource_deposits() -> void:
 	resource_deposits.clear()
+	if map_data == null:
+		return
+	# Authored editor deposits take precedence; random deposits are only for
+	# generated maps and must sit on passable tiles.
+	if not map_data.deposits.is_empty():
+		for d in map_data.deposits:
+			var dep := ResourceDeposit.new()
+			dep.type = clampi(int(d.get("type", 0)), 0, 3)
+			dep.amount = maxi(1, int(d.get("amount", 1500)))
+			dep.harvest_rate = maxf(0.1, float(d.get("rate", 10.0)))
+			resource_deposits.append({
+				"pos": _tile_world(Vector2i(int(d.get("x", 0)), int(d.get("y", 0)))),
+				"deposit": dep,
+			})
+		return
 	var rng := RandomNumberGenerator.new()
 	rng.seed = GameManager.match_seed ^ 0x10B4
+	var min_x := mini(6, maxi(1, map_data.width - 2))
+	var max_x := maxi(min_x, map_data.width - 7)
+	var min_y := mini(6, maxi(1, map_data.height - 2))
+	var max_y := maxi(min_y, map_data.height - 7)
 	for i in range(16):
-		var tx := rng.randi_range(6, 120)
-		var ty := rng.randi_range(6, 120)
+		var tx := rng.randi_range(min_x, max_x)
+		var ty := rng.randi_range(min_y, max_y)
+		if not MapData.is_passable(map_data.get_terrain(tx, ty), 1):
+			var alt := _nearest_vehicle_tile(Vector2i(tx, ty))
+			tx = alt.x
+			ty = alt.y
 		var dep := ResourceDeposit.new()
 		dep.type = i % 4
 		dep.amount = 1500
 		dep.harvest_rate = 10.0
-		resource_deposits.append({"pos": Vector2(float(tx) * TILE_SIZE + 8.0, float(ty) * TILE_SIZE + 8.0), "deposit": dep})
+		resource_deposits.append({"pos": _tile_world(Vector2i(tx, ty)), "deposit": dep})
 
 func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 	DirAccess.make_dir_recursive_absolute("user://saves")
@@ -956,8 +1091,10 @@ func _run_skirmish_ai_turn() -> void:
 
 	# 1. Economy & Base Expansion
 	var next_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap)
-	if AI.should_expand(float(ResourceManager.rates[1].get(Economy.Res.IRON, 0)), 20.0):
-		_build_structure_for_team(1, next_bld)
+	if elapsed_time >= ai_next_build_time \
+			and AI.should_expand(float(ResourceManager.rates[1].get(Economy.Res.IRON, 0)), 10.0):
+		if _build_structure_for_team(1, next_bld):
+			ai_next_build_time = elapsed_time + AI.build_interval(GameManager.ai_difficulty)
 
 	# 2. Tech progression
 	if ai_tech_tier < 3 and elapsed_time > 25.0 * ai_tech_tier:
@@ -969,9 +1106,8 @@ func _run_skirmish_ai_turn() -> void:
 	var enemy_comp := _classify_units(player_units)
 	enemy_comp["fortifications"] = _count_team_buildings(0, "turret")
 	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, ai_tech_tier)
-	_train_unit_for_team(1, chosen_uid)
-	if GameManager.ai_difficulty == AI.Difficulty.HARD and ai_units.size() < pop_cap:
-		_train_unit_for_team(1, "riflebot")
+	if elapsed_time >= ai_next_train_time and _train_unit_for_team(1, chosen_uid):
+		ai_next_train_time = elapsed_time + AI.train_interval(GameManager.ai_difficulty)
 
 	# 4. Tactical squad coordination
 	var ai_hq := _find_team_hq(1)
@@ -989,17 +1125,29 @@ func _run_skirmish_ai_turn() -> void:
 			combat_units.append(u)
 
 	var wave_size := AI.attack_wave_threshold(GameManager.ai_difficulty, elapsed_time / 60.0)
-	ai_tactical_state = AI.choose_tactical_state(combat_units.size(), enemy_near_base, wave_size)
-
-	var primary_target_pos := Vector2(160, 160)
-	var weak_target := _find_priority_target_for_team(1)
-	if weak_target != null:
-		primary_target_pos = weak_target.global_position
+	# Opening grace: starting squads hold at the rally point unless attacked.
+	if enemy_near_base == 0 and elapsed_time < AI.rally_grace(GameManager.ai_difficulty):
+		ai_tactical_state = "rally"
+	else:
+		ai_tactical_state = AI.choose_tactical_state(combat_units.size(), enemy_near_base, wave_size)
 
 	# Rally relative to the AI HQ so custom/island maps do not send squads into
 	# a hardcoded corner that may be off-map or underwater.
 	var rally_pos := ai_base_pos + Vector2(-220, -180)
+	# Only engage targets the AI can actually see; no global weakest-unit beeline.
+	var squad_pos := ai_base_pos
+	if not combat_units.is_empty():
+		squad_pos = Vector2.ZERO
+		for u in combat_units:
+			squad_pos += u.global_position
+		squad_pos /= float(combat_units.size())
+	var target := _find_nearest_visible_enemy(1, squad_pos, 900.0)
+	var primary_target_pos := rally_pos
+	if target != null:
+		primary_target_pos = target.global_position
+
 	var offsets := Formation.grid_offsets(combat_units.size(), 30.0)
+	var order_interval := AI.order_interval(GameManager.ai_difficulty)
 	for i in range(combat_units.size()):
 		var u: Node2D = combat_units[i]
 		var max_hp := float(u.stats.hp if u.stats else 100)
@@ -1012,6 +1160,9 @@ func _run_skirmish_ai_turn() -> void:
 				ai_retreat_until[retreat_key] = elapsed_time + 8.0
 			continue
 		ai_retreat_until.erase(retreat_key)
+		var may_order := elapsed_time >= float(ai_order_until.get(retreat_key, 0.0))
+		if not may_order and ai_tactical_state != "defend":
+			continue
 		match ai_tactical_state:
 			"defend":
 				var def_pos := closest_intruder.global_position if closest_intruder != null else ai_base_pos
@@ -1026,6 +1177,7 @@ func _run_skirmish_ai_turn() -> void:
 			_:
 				if not u.has_target:
 					u.move_to(rally_pos + offsets[i], true)
+		ai_order_until[retreat_key] = elapsed_time + order_interval
 
 func _get_team_units(team: int) -> Array:
 	var res: Array = []
@@ -1217,9 +1369,16 @@ func _draw():
 		draw_rect(r, Color(0.2, 0.9, 0.3, 0.18), true)
 		draw_rect(r, Color(0.2, 0.95, 0.3, 0.9), false, 2.0)
 
-	# Drifting cloud formations (affecting only aerial units)
+	# Drifting cloud formations (affecting only aerial units). Weather in
+	# unexplored territory must not reveal the map through the fog overlay.
+	var weather_known := not GameManager.fog_enabled or fog == null
 	for cl in GameManager.active_clouds:
 		var cpos: Vector2 = cl["pos"]
+		if not weather_known:
+			var cx := int(cpos.x / TILE_SIZE)
+			var cy := int(cpos.y / TILE_SIZE)
+			if not fog.is_visible(cx, cy) and not fog.is_explored(cx, cy):
+				continue
 		var rad := float(cl.get("radius", 90.0))
 		var calpha := float(cl.get("alpha", 0.32))
 		# Soft ground shadow + multi-puff cloud canopy
@@ -1275,13 +1434,15 @@ func _update_fog() -> void:
 			var tx := int(b.global_position.x / TILE_SIZE)
 			var ty := int(b.global_position.y / TILE_SIZE)
 			fog.mark_visible(tx, ty, 5)
-	for y in range(128):
-		for x in range(128):
-			var col := Color(0, 0, 0, 0.9)
+	for y in range(fog.height):
+		for x in range(fog.width):
+			# Unexplored tiles must be fully opaque: a translucent veil still
+			# lets terrain, clouds and structures bleed through the fog.
+			var col := Color(0, 0, 0, 1.0)
 			if fog.is_visible(x, y):
 				col = Color(0, 0, 0, 0.0)
 			elif fog.is_explored(x, y):
-				col = Color(0, 0, 0, 0.45)
+				col = Color(0, 0, 0, 0.55)
 			fog_image.set_pixel(x, y, col)
 	fog_texture.update(fog_image)
 	for u in units_container.get_children():
@@ -1292,6 +1453,14 @@ func _update_fog() -> void:
 				var tx := int(u.global_position.x / TILE_SIZE)
 				var ty := int(u.global_position.y / TILE_SIZE)
 				u.visible = fog.is_visible(tx, ty)
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b):
+			if GameManager.is_allied(team, b.team):
+				b.visible = true
+			else:
+				var tx := int(b.global_position.x / TILE_SIZE)
+				var ty := int(b.global_position.y / TILE_SIZE)
+				b.visible = fog.is_visible(tx, ty)
 
 func _terrain_color(t: int) -> Color:
 	match t:

@@ -153,7 +153,7 @@ static func sanitize_filename(raw_name: String) -> String:
 		out = "custom_map"
 	return out.substr(0, 40)
 
-static func save_to_file(map: MapData, path: String = "") -> Error:
+static func save_to_file(map: MapData, path: String = "", update_default: bool = true) -> Error:
 	DirAccess.make_dir_recursive_absolute(MAPS_DIR)
 	var target := path
 	if target.is_empty():
@@ -164,11 +164,13 @@ static func save_to_file(map: MapData, path: String = "") -> Error:
 	var content := JSON.stringify(to_dict(map))
 	f.store_string(content)
 	f.close()
-	# Also keep user://custom_map.bwm in sync as the quick-load default
-	var f_def := FileAccess.open("user://custom_map.bwm", FileAccess.WRITE)
-	if f_def != null:
-		f_def.store_string(content)
-		f_def.close()
+	# Also keep user://custom_map.bwm in sync as the quick-load default,
+	# unless this was a transient test-play write.
+	if update_default:
+		var f_def := FileAccess.open("user://custom_map.bwm", FileAccess.WRITE)
+		if f_def != null:
+			f_def.store_string(content)
+			f_def.close()
 	return OK
 
 static func load_from_file(path: String) -> MapData:

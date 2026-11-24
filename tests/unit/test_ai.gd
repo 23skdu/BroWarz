@@ -28,6 +28,11 @@ func test_difficulty_helpers():
 	assert_true(AI.income_multiplier(AI.Difficulty.HARD) > AI.income_multiplier(AI.Difficulty.EASY))
 	assert_true(AI.decision_interval(AI.Difficulty.HARD) < AI.decision_interval(AI.Difficulty.EASY))
 	assert_true(AI.attack_wave_threshold(AI.Difficulty.HARD, 0.0) < AI.attack_wave_threshold(AI.Difficulty.EASY, 0.0))
+	assert_true(AI.rally_grace(AI.Difficulty.HARD) < AI.rally_grace(AI.Difficulty.NORMAL))
+	assert_true(AI.rally_grace(AI.Difficulty.NORMAL) < AI.rally_grace(AI.Difficulty.EASY))
+	assert_true(AI.build_interval(AI.Difficulty.HARD) < AI.build_interval(AI.Difficulty.EASY))
+	assert_true(AI.train_interval(AI.Difficulty.HARD) < AI.train_interval(AI.Difficulty.EASY))
+	assert_true(AI.order_interval(AI.Difficulty.HARD) < AI.order_interval(AI.Difficulty.EASY))
 
 func test_counter_production_and_tactics():
 	var w = {Economy.Res.OIL: 200, Economy.Res.IRON: 350, Economy.Res.GEOTHERMAL: 150}

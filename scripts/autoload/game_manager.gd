@@ -43,10 +43,13 @@ func next_net_id() -> int:
 func _ready() -> void:
 	registry.populate_defaults()
 
-func start_single_player(difficulty: int = 1, map: MapData = null, p_faction: int = 0, e_faction: int = 1) -> void:
+func start_single_player(difficulty: int = 1, map: MapData = null, p_faction: int = 0, e_faction: int = 1, map_type_value: int = 2) -> void:
 	begin_net_session()
 	match_seed = 1337
 	match_mode = Mode.SINGLE_PLAYER
+	# The map kind is part of the match context. Never inherit it from a prior
+	# map-editor session or from merely browsing the main-menu map button.
+	map_type = clampi(map_type_value, 0, 3)
 	ai_difficulty = clampi(difficulty, 0, 2)
 	player_faction = p_faction
 	ai_faction = e_faction
@@ -98,6 +101,8 @@ func begin_net_session() -> void:
 	fort_blocks.clear()
 	alliances.clear()
 	active_clouds.clear()
+	# A stale editor map must never be reused by the next match scene.
+	current_map = null
 
 # --- Fortification movement blocks ----------------------------------------
 

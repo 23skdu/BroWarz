@@ -66,18 +66,25 @@ func _on_cycle_faction() -> void:
 	_refresh_labels()
 
 func _on_cycle_map() -> void:
+	# Browsing the menu must not change global match state; the skirmish
+	# handler pins the map type when the match actually starts.
 	selected_map_type = (selected_map_type + 1) % MAP_OPTIONS.size()
-	GameManager.map_type = selected_map_type
 	_refresh_labels()
 
 func _on_skirmish() -> void:
 	NetworkManager.leave()
 	var ai_fac := (selected_faction + 1) % 4
-	GameManager.map_type = selected_map_type
 	var custom_map: MapData = null
 	if selected_map_type == 3:
 		custom_map = MapSerializer.load_from_file("user://custom_map.bwm")
-	GameManager.start_single_player(selected_difficulty, custom_map, selected_faction, ai_fac)
+		if custom_map == null:
+			status.text = "No saved custom map found. Save one in the Map Editor first."
+			return
+		var check: Dictionary = MapData.validate_map(custom_map)
+		if not bool(check.get("ok", false)):
+			status.text = "Custom map is invalid: %s" % str(check.get("reason", "unknown error"))
+			return
+	GameManager.start_single_player(selected_difficulty, custom_map, selected_faction, ai_fac, selected_map_type)
 	status.text = "Starting Single Player vs %s AI..." % AI.difficulty_name(selected_difficulty)
 	_start_game()
 

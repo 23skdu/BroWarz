@@ -370,9 +370,13 @@ func _validate_current_map() -> void:
 
 func _test_play_map() -> void:
 	_sync_metadata()
-	MapSerializer.save_to_file(map_data)
-	GameManager.map_type = 3  # Custom map
-	GameManager.start_single_player(GameManager.ai_difficulty, map_data, GameManager.player_faction, GameManager.ai_faction)
+	# Test-play the in-memory map without overwriting the quick-load default
+	# used by the main menu's "Custom Map" option.
+	MapSerializer.save_to_file(map_data, "", false)
+	GameManager.start_single_player(
+		GameManager.ai_difficulty, map_data,
+		GameManager.player_faction, GameManager.ai_faction, 3,
+	)
 	SceneManager.goto_scene("res://scenes/game.tscn")
 
 func _draw() -> void:

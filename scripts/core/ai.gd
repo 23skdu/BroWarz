@@ -117,6 +117,34 @@ static func select_next_building(building_counts: Dictionary, pop_used: int, pop
 		return "turret"
 	return "extractor"
 
+## Opening grace period (seconds) before the AI may leave its rally point.
+## Starting squads must not be thrown across the map on the first AI tick.
+static func rally_grace(diff: int) -> float:
+	match diff:
+		Difficulty.EASY: return 90.0
+		Difficulty.HARD: return 45.0
+		_: return 60.0
+
+## Minimum spacing between AI build/train actions so a fast economy cannot
+## produce a full army in a handful of ticks.
+static func build_interval(diff: int) -> float:
+	match diff:
+		Difficulty.EASY: return 18.0
+		Difficulty.HARD: return 9.0
+		_: return 14.0
+
+static func train_interval(diff: int) -> float:
+	match diff:
+		Difficulty.EASY: return 10.0
+		Difficulty.HARD: return 5.0
+		_: return 7.0
+
+static func order_interval(diff: int) -> float:
+	match diff:
+		Difficulty.EASY: return 6.0
+		Difficulty.HARD: return 3.0
+		_: return 4.0
+
 static func choose_tactical_state(own_combat_count: int, enemy_near_base: int, wave_threshold: int) -> String:
 	if enemy_near_base > 0:
 		return "defend"
