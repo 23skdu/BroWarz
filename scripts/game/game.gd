@@ -609,18 +609,20 @@ func _update_hud() -> void:
 func _check_win():
 	if not is_instance_valid(status_label):
 		return
-	var teams := {}
-	for u in units_container.get_children():
-		if is_instance_valid(u) and not u.is_exploding:
-			teams[u.team] = teams.get(u.team, 0) + 1
+	# Primary victory: capture/destroy all enemy production buildings
+	# (barracks, factories, airfields, shipyards). Units alone cannot
+	# sustain a faction once production is gone.
+	var production_ids := ["barracks", "factory", "airfield", "shipyard"]
+	var alive_teams := {}
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding:
-			teams[b.team] = teams.get(b.team, 0) + 1
-	if teams.size() == 1:
-		var t = teams.keys()[0]
-		status_label.text = "Team %d wins!" % t
+			if b.stats and production_ids.has(b.stats.id):
+				alive_teams[b.team] = alive_teams.get(b.team, 0) + 1
+	if alive_teams.size() == 1:
+		var t = alive_teams.keys()[0]
+		status_label.text = "Team %d wins! (enemy production eliminated)" % t
 		match_over = true
-	elif teams.size() == 0:
+	elif alive_teams.size() == 0:
 		status_label.text = "Draw"
 		match_over = true
 

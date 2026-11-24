@@ -50,9 +50,10 @@ Secondary loops:
 - **Starting conditions:** Each player begins with an HQ, a small worker/robot complement, and a nearby resource cluster.
 - **Fog of war:** On (default); "revealed map" option for casual play.
 - **Win conditions:**
-  1. Destroy all enemy HQs.
-  2. Enemy surrender.
-  3. (Optional) Score/time limit: highest military + economic score.
+  1. Destroy/capture all enemy production buildings (Barracks, Factories, Airfields, Shipyards) — primary victory.
+  2. Destroy all enemy HQs.
+  3. Enemy surrender.
+  4. (Optional) Score/time limit: highest military + economic score.
 - **Defeat:** HQ destroyed or all production + workers lost.
 - **Nuclear victory:** A successful nuclear strike on an enemy HQ counts as destruction.
 
