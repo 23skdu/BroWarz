@@ -285,4 +285,22 @@ P2P cannot fully prevent cheating. v1 mitigations: deterministic lockstep + chec
 - **Cloak:** Stealth state; breaks on attack/movement (unit-dependent).
 
 ---
+## 26. Current Implementation Status
+
+The repository now contains a playable single-player skirmish vertical slice plus extensive core systems. Implemented:
+
+- Project bootstrap, autoloads, 4 corporations with colors/modifiers.
+- Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, game state/replay/save settings, pathfinding, AI heuristics, strategic weapons, formation, alliances, scoring, power, resource deposits.
+- Gameplay: 128×128 map, units across infantry/armor/naval/air, buildings (HQ, barracks, factory, airfield, shipyard, extractor, farm, power, lab, radar, turret, silo, orbital uplink), combat with VFX/tracers, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, skirmish AI, audio stubs.
+- Verification: GUT unit/fuzz/regression suites and `make ci` gate.
+
+Outstanding gaps (see `docs/roadmap.md`):
+
+- Multiplayer P2P match integration (lobby → game).
+- Terrain rendering and map editor UI.
+- Full naval roster (ballistic missile submarine, landing craft).
+- Audio content (music/SFX) beyond stubs.
+- Additional polish/performance passes.
+
+---
 *End of design document.*
