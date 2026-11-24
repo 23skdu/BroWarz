@@ -31,7 +31,7 @@ func setup(s: BuildingStats, t: int) -> void:
 	rally_point = global_position + Vector2(56, 56) if t == 0 else global_position - Vector2(56, 56)
 	if body:
 		var fac_id := GameManager.player_faction if t == 0 else GameManager.ai_faction
-		var base_c := Faction.primary_color(fac_id).darkened(0.12)
+		var base_c := Faction.color_of(fac_id).darkened(0.12)
 		if s.is_hq:
 			base_c = base_c.lightened(0.22)
 		body.color = base_c

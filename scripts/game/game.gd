@@ -1,6 +1,8 @@
 # scripts/game/game.gd
 extends Node2D
 
+const WildlifeRef := preload("res://scripts/core/wildlife.gd")
+
 var map_data: MapData
 var selected_units: Array = []
 var control_groups: Dictionary = {}  # key 0..9 -> Array of Unit
@@ -57,7 +59,7 @@ func _ready():
 	terrain_sprite.z_index = -5
 	add_child(terrain_sprite)
 	_rebuild_forest_decorations()
-	wildlife_herd = Wildlife.spawn_ambient_herd(map_data, GameManager.match_seed, 10)
+	wildlife_herd = WildlifeRef.spawn_ambient_herd(map_data, GameManager.match_seed, 10)
 	fog = FogOfWar.new(128, 128, map_data)
 	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
@@ -124,7 +126,7 @@ func _affect_wildlife_from_fire(from_pos: Vector2, to_pos: Vector2, dmg: float) 
 			continue
 		var cpos: Vector2 = cr["pos"]
 		if cpos.distance_to(to_pos) <= 20.0:
-			var died := Wildlife.apply_damage(cr, dmg, from_pos)
+			var died: bool = WildlifeRef.apply_damage(cr, dmg, from_pos)
 			if died:
 				spawn_explosion_vfx(cpos, 10.0)
 		elif cpos.distance_to(to_pos) <= 130.0 or cpos.distance_to(from_pos) <= 130.0:
@@ -132,7 +134,7 @@ func _affect_wildlife_from_fire(from_pos: Vector2, to_pos: Vector2, dmg: float) 
 			var away := (cpos - to_pos).normalized()
 			if away.length_squared() < 0.01:
 				away = Vector2.RIGHT
-			cr["vel"] = away * Wildlife.flee_speed(int(cr["kind"]))
+			cr["vel"] = away * WildlifeRef.flee_speed(int(cr["kind"]))
 
 func spawn_explosion_vfx(world_pos: Vector2, max_radius: float = 24.0) -> void:
 	active_vfx.append({
@@ -411,7 +413,7 @@ func _build_structure_for_team(team: int, bid: String) -> bool:
 		return false
 	var base_pos := Vector2(160, 160) if team == 0 else Vector2(1080, 880)
 	var count := _count_team_buildings(team, bid)
-	var offset := Vector2((count % 4) * 58.0 - 60.0, int(count / 4) * 58.0 + 75.0)
+	var offset := Vector2((count % 4) * 58.0 - 60.0, floorf(float(count) / 4.0) * 58.0 + 75.0)
 	if team == 1:
 		offset = -offset
 	_spawn_building_by_id(bid, base_pos + offset, team)
@@ -483,7 +485,7 @@ func _apply_aoe_damage(center: Vector2, radius: float, dmg: float, attacker_team
 			b.take_damage(dmg)
 	for cr in wildlife_herd:
 		if bool(cr.get("alive", true)) and Vector2(cr["pos"]).distance_to(center) <= radius:
-			Wildlife.apply_damage(cr, dmg, center)
+			WildlifeRef.apply_damage(cr, dmg, center)
 
 func _find_team_hq(team: int) -> Node2D:
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -518,16 +520,13 @@ func _process(delta):
 	laser_cooldown = maxf(0.0, laser_cooldown - delta)
 	nuke_cooldown = maxf(0.0, nuke_cooldown - delta)
 
-	var needs_redraw := false
 	for i in range(active_vfx.size() - 1, -1, -1):
 		active_vfx[i]["timer"] = float(active_vfx[i]["timer"]) - delta
-		needs_redraw = true
 		if float(active_vfx[i]["timer"]) <= 0.0:
 			active_vfx.remove_at(i)
 
 	for i in range(active_tracers.size() - 1, -1, -1):
 		active_tracers[i]["timer"] = float(active_tracers[i]["timer"]) - delta
-		needs_redraw = true
 		if float(active_tracers[i]["timer"]) <= 0.0:
 			active_tracers.remove_at(i)
 
@@ -737,12 +736,12 @@ func _draw():
 		_draw_wildlife_critter(cr)
 
 	# Weapon projectile tracers & impact sparks
-	for tr in active_tracers:
-		var frac := clampf(1.0 - float(tr["timer"]) / maxf(0.01, float(tr["duration"])), 0.0, 1.0)
-		var head: Vector2 = tr["from"].lerp(tr["to"], minf(1.0, frac * 1.35))
-		var tail: Vector2 = tr["from"].lerp(tr["to"], maxf(0.0, frac - 0.35))
-		draw_line(tail, head, tr["color"], float(tr["width"]))
-		draw_circle(head, float(tr["width"]) * 1.15, Color(1.0, 0.98, 0.85, 0.95))
+	for tracer in active_tracers:
+		var frac := clampf(1.0 - float(tracer["timer"]) / maxf(0.01, float(tracer["duration"])), 0.0, 1.0)
+		var head: Vector2 = tracer["from"].lerp(tracer["to"], minf(1.0, frac * 1.35))
+		var tail: Vector2 = tracer["from"].lerp(tracer["to"], maxf(0.0, frac - 0.35))
+		draw_line(tail, head, tracer["color"], float(tracer["width"]))
+		draw_circle(head, float(tracer["width"]) * 1.15, Color(1.0, 0.98, 0.85, 0.95))
 
 	# Explosions, Orbital Laser Beams, and Nuclear Mushrooms
 	for v in active_vfx:
@@ -850,7 +849,7 @@ func _update_wildlife(delta: float) -> void:
 			threats.append(u.global_position)
 	for i in range(wildlife_herd.size() - 1, -1, -1):
 		var cr: Dictionary = wildlife_herd[i]
-		Wildlife.step_critter(cr, map_data, threats, delta, int(elapsed_time * 10.0) + i)
+		WildlifeRef.step_critter(cr, map_data, threats, delta, int(elapsed_time * 10.0) + i)
 		if not bool(cr.get("alive", true)) and float(cr.get("death_timer", 0.0)) <= 0.0:
 			wildlife_herd.remove_at(i)
 
@@ -861,7 +860,7 @@ func _draw_wildlife_critter(cr: Dictionary) -> void:
 	if fog != null and not fog.is_visible(tx, ty):
 		return
 	var alive := bool(cr.get("alive", true))
-	var kind := int(cr.get("kind", Wildlife.Kind.DEER))
+	var kind := int(cr.get("kind", WildlifeRef.Kind.DEER))
 	var vel: Vector2 = cr.get("vel", Vector2.RIGHT)
 	var dir := vel.normalized() if vel.length_squared() > 0.01 else Vector2.RIGHT
 	var perp := Vector2(-dir.y, dir.x)
@@ -873,23 +872,23 @@ func _draw_wildlife_critter(cr: Dictionary) -> void:
 		return
 
 	match kind:
-		Wildlife.Kind.BIRD:
+		WildlifeRef.Kind.BIRD:
 			var flap := sin(phase * 1.8) * 4.5
 			draw_circle(cpos + Vector2(6, 10), 2.4, Color(0, 0, 0, 0.24))
 			var wing_l := cpos - dir * 2.0 + perp * (6.2 + flap * 0.4)
 			var wing_r := cpos - dir * 2.0 - perp * (6.2 + flap * 0.4)
 			draw_line(wing_l, cpos + dir * 2.5, Color(0.95, 0.96, 0.98, 0.95), 1.8)
 			draw_line(wing_r, cpos + dir * 2.5, Color(0.95, 0.96, 0.98, 0.95), 1.8)
-		Wildlife.Kind.DOLPHIN:
+		WildlifeRef.Kind.DOLPHIN:
 			var breach := sin(phase) * 2.0
 			draw_arc(cpos, 6.0 + absf(breach), 0, TAU, 16, Color(0.75, 0.95, 1.0, 0.45), 1.2)
 			draw_line(cpos - dir * 6.0, cpos + dir * 6.0, Color(0.45, 0.78, 0.92, 0.95), 3.2)
 			draw_circle(cpos + dir * 2.0, 2.2, Color(0.32, 0.62, 0.80, 1.0))
-		Wildlife.Kind.SQUID:
+		WildlifeRef.Kind.SQUID:
 			var pulse := sin(phase * 1.3) * 1.8
 			draw_circle(cpos + dir * 3.0, 3.8, Color(0.88, 0.42, 0.58, 0.92))
 			for t_i in [-1.0, 0.0, 1.0]:
-				var t_end := cpos - dir * (6.5 + pulse) + perp * (t_i * 2.5)
+				var t_end: Vector2 = cpos - dir * (6.5 + pulse) + perp * (float(t_i) * 2.5)
 				draw_line(cpos, t_end, Color(0.92, 0.55, 0.68, 0.85), 1.3)
 		_:
 			var stride := sin(phase * 1.5) * 1.5
