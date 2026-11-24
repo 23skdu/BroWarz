@@ -30,6 +30,10 @@ var match_duration: float = 0.0
 var drag_selecting: bool = false
 var drag_start: Vector2 = Vector2.ZERO
 var drag_current: Vector2 = Vector2.ZERO
+# Spatial hash grid (UnitVisual.build_spatial_grid) over unit world positions,
+# rebuilt per tick so unit.gd combat/repair queries stay O(1)-ish.
+var spatial_unit_positions: Array = []
+var spatial_unit_grid: Dictionary = {}
 var laser_cooldown: float = 0.0
 var nuke_cooldown: float = 0.0
 var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
@@ -845,6 +849,7 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 
 func _process(delta):
 	elapsed_time += delta
+	_rebuild_spatial_grid()
 	laser_cooldown = maxf(0.0, laser_cooldown - delta)
 	nuke_cooldown = maxf(0.0, nuke_cooldown - delta)
 
@@ -1023,6 +1028,27 @@ func _tick_power() -> void:
 			var r := int(ResourceManager.rates.get(t, {}).get(k, 0))
 			if r > 0:
 				ResourceManager.set_rate(t, k, int(maxf(0.0, r * eff)))
+
+## Spatial hash over unit positions for fast radius queries (Step 20).
+func _rebuild_spatial_grid() -> void:
+	spatial_unit_positions = _get_unit_positions()
+	spatial_unit_grid = UnitVisual.build_spatial_grid(spatial_unit_positions)
+
+func _get_unit_positions() -> Array:
+	var out: Array = []
+	for u in units_container.get_children():
+		if is_instance_valid(u) and not u.is_exploding:
+			out.append(u.global_position)
+	return out
+
+## Units within `radius` of `center`, using the spatial grid when it is
+## populated (unit.gd), falling back to a scan.
+func _units_near(center: Vector2, radius: float) -> Array[int]:
+	var idx := UnitVisual.query_spatial_radius(spatial_unit_grid, spatial_unit_positions, center, radius)
+	var out: Array = []
+	for i in idx:
+		out.append(i)
+	return out
 
 func _get_team_building_ids(team: int) -> Array:
 	var out: Array = []

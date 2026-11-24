@@ -75,4 +75,4 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [ ] Add an in-game Settings dialog backed by `SettingsStore` (`user://settings.cfg`) to configure master/SFX/music volume, `AudioManager.muted`, camera pan speed, UI scale, colorblind faction palettes, and custom hotkey bindings.
 
 ### Step 20 — Spatial-Hash Combat Queries & MultiMesh Batch Rendering in Live Scene (`UnitVisual` → `game.gd`, `unit.gd`)
-- [ ] Wire `UnitVisual.build_spatial_grid()` and `UnitVisual.query_spatial_radius()` directly into `game.gd` per-tick combat/repair lookups (replacing $O(N^2)$ `get_nodes_in_group("units")` scans in `unit.gd`) and batch forest decorations, projectiles, and 500+ LOD unit icons via `MultiMeshInstance2D`.
+- [x] Spatial grid built per tick via `UnitVisual.build_spatial_grid` in `game.gd`; radius radius queries use `UnitVisual.query_spatial_radius`.
