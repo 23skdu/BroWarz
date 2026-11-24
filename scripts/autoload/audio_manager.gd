@@ -18,10 +18,20 @@ func play_sfx(sfx_name: String) -> void:
 	if not ResourceLoader.exists(path):
 		return
 	var player := AudioStreamPlayer.new()
-	player.stream = load(path)
+	player.stream = ResourceLoader.load(path, "AudioStreamWAV", ResourceLoader.CACHE_MODE_IGNORE)
 	add_child(player)
 	player.play()
 	player.finished.connect(player.queue_free)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		for child in get_children():
+			if child is AudioStreamPlayer:
+				child.stop()
+				child.stream = null
+				if is_instance_valid(child):
+					child.free()
+		_music_player = null
 
 func set_music(track_name: String) -> void:
 	current_music = track_name
@@ -30,5 +40,5 @@ func set_music(track_name: String) -> void:
 	var path := "res://assets/music/%s.wav" % track_name
 	if not ResourceLoader.exists(path):
 		return
-	_music_player.stream = load(path)
+	_music_player.stream = ResourceLoader.load(path, "AudioStreamWAV", ResourceLoader.CACHE_MODE_IGNORE)
 	_music_player.play()
