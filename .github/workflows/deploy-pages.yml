@@ -42,7 +42,7 @@ jobs:
         run: make build-web GIT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: build/web
 
@@ -57,4 +57,4 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
