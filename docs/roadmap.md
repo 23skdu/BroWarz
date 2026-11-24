@@ -24,7 +24,7 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x] On-map oil/iron/geothermal/farm nodes (`ResourceDeposit`) with depletion over time; `resource_deposits` rendered in `game.gd`.
 
 ### Step 3 — Live Power Grid & Brownout Efficiency (`Power` → `game.gd`, `building.gd`)
-- [ ] Wire `Power.balance()`, `is_powered()`, `efficiency()` into the economy tick; power_plant generators, consumer buildings, radar sweeps.
+- [x] Wired `Power.balance()`/`is_powered()`/`efficiency()` into the economy tick; `_tick_power()` applies per-team efficiency to resource rates, `ResourceManager.power_efficiency` stores it, and `power_plant`/`radar`/`turret`/`missile_tower`/`silo` deltas are defined in `Power`.
 
 ### Step 4 — Branching Research Lab Tech Tree UI (`Tech` → `game.gd`)
 - [ ] Branching Research Lab panel driven by `Tech.can_research()`/`Tech.unlock()`.

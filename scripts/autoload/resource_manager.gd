@@ -6,6 +6,8 @@ var wallets: Dictionary = {}
 var rates: Dictionary = {}
 var populations: Dictionary = {}
 var caps: Dictionary = {}
+# team -> last efficiency applied by the power grid (0.0..1.0, 1.0 = powered)
+var power_efficiency: Dictionary = {}
 
 func init_player(pid: int, starting: Dictionary = {}) -> void:
 	var w = Economy.empty_wallet()
@@ -15,6 +17,7 @@ func init_player(pid: int, starting: Dictionary = {}) -> void:
 	rates[pid] = Economy.empty_wallet()
 	populations[pid] = 0
 	caps[pid] = 10
+	power_efficiency[pid] = 1.0
 
 func get_wallet(pid: int) -> Dictionary:
 	if not wallets.has(pid):

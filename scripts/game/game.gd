@@ -829,6 +829,7 @@ func _process(delta):
 	economy_timer += delta
 	if economy_timer >= 1.0:
 		ResourceManager.tick(1.0)
+		_tick_power()
 		economy_timer -= 1.0
 
 	# Single-player Skirmish AI tick
@@ -960,6 +961,28 @@ func _get_team_building_counts(team: int) -> Dictionary:
 
 func _count_team_buildings(team: int, bid: String) -> int:
 	return int(_get_team_building_counts(team).get(bid, 0))
+
+## Live power grid: each building has a power delta (production/consumption);
+## a deficit applies Power.efficiency() to that team's rates.
+func _tick_power() -> void:
+	for t in GameManager.teams:
+		var bids := _get_team_building_ids(t)
+		var summary := Power.team_power_summary(bids)
+		var eff := Power.efficiency(float(summary["balance"]))
+		ResourceManager.power_efficiency[t] = eff
+		if eff >= 1.0:
+			continue
+		for k in [Economy.Res.OIL, Economy.Res.IRON, Economy.Res.GEOTHERMAL, Economy.Res.FOOD]:
+			var r := int(ResourceManager.rates.get(t, {}).get(k, 0))
+			if r > 0:
+				ResourceManager.set_rate(t, k, int(maxf(0.0, r * eff)))
+
+func _get_team_building_ids(team: int) -> Array:
+	var out: Array = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and b.team == team and b.stats:
+			out.append(str(b.stats.id))
+	return out
 
 func _update_hud() -> void:
 	if is_instance_valid(hud_label):
