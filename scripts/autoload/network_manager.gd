@@ -553,7 +553,7 @@ func _cli_match_ready() -> void:
 	if state != State.HOSTING:
 		return
 	var sender := multiplayer.get_remote_sender_id()
-	if not lobby.has_player(sender) or not lobby.is_connected(sender):
+	if not lobby.has_player(sender) or not lobby.is_peer_connected(sender):
 		return
 	_match_ready[sender] = true
 	_if_all_ready_begin_webrtc_or_finish()
@@ -695,13 +695,13 @@ func _cli_rtc(kind: String, to_id: int, payload: Dictionary) -> void:
 	if state != State.HOSTING:
 		return
 	var sender := multiplayer.get_remote_sender_id()
-	if not lobby.is_connected(sender):
+	if not lobby.is_peer_connected(sender):
 		return
 	if not _rtc_limiter.try_request(sender, _now()):
 		if _rtc_limiter.record_violation(sender):
 			_kick_peer(sender, "signaling flood")
 		return
-	if to_id == sender or not lobby.is_connected(to_id):
+	if to_id == sender or not lobby.is_peer_connected(to_id):
 		return
 	_srv_rtc.rpc_id(to_id, sender, kind, payload)
 
@@ -710,7 +710,7 @@ func _cli_rtc_ready() -> void:
 	if state != State.HOSTING or _rtc == null:
 		return
 	var sender := multiplayer.get_remote_sender_id()
-	if not lobby.is_connected(sender):
+	if not lobby.is_peer_connected(sender):
 		return
 	_rtc_remote_ready[sender] = true
 	_if_all_ready_begin_webrtc_or_finish()
@@ -720,7 +720,7 @@ func _cli_rtc_abort() -> void:
 	if state != State.HOSTING:
 		return
 	var sender := multiplayer.get_remote_sender_id()
-	if not lobby.is_connected(sender):
+	if not lobby.is_peer_connected(sender):
 		return
 	if _rtc != null:
 		_srv_rtc_abort.rpc()
@@ -991,7 +991,7 @@ func _lobby_gate(sender: int) -> bool:
 		if _lobby_limiter.record_violation(sender):
 			_kick_peer(sender, "lobby flood")
 		return false
-	return lobby.has_player(sender) and lobby.is_connected(sender)
+	return lobby.has_player(sender) and lobby.is_peer_connected(sender)
 
 func _from_server() -> bool:
 	return multiplayer.get_remote_sender_id() == 1
