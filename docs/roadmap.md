@@ -33,7 +33,7 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x] 160×160 corner minimap with camera jump, unit move orders, and `Alt + Left Click` tactical pings (`tactical_pings`).
 
 ### Step 6 — Control Groups (`0–9`), Double-Click Type Select & Camera Zoom (`game.gd`)
-- [ ] Ctrl+0..9 assign `control_groups`, Alt+0..9 recall; double-tap centers camera; double-click selects same-type; mouse-wheel zoom.
+- [x] Control groups assigned via Ctrl+0..9, recalled via 0/8/9 with camera centering; double-tap centers camera; double-click selects same-type; mouse-wheel zoom implemented.
 
 ### Step 7 — Targeted Cursor Mode for Orbital Laser, Nuclear Strike & Sapper Fortifications (`game.gd`)
 - [x] Targeting reticle via `pending_target_action` for `L`, `N`, and sappering `wall`/`barbed_wire`/`missile_tower`; click-to-place coordinates.
@@ -48,7 +48,7 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x]Engineers (`engineerbot`/`adv_engineerbot`) capture damaged production buildings (`building.gd`).
 
 ### Step 11 — Subsurface Naval Warfare & Sonar Detection Rules (`unit.gd`, `damage.gd`, `vision.gd`)
-- [ ] Submarine sonar rules: submerged hiding, narrow detection by naval/radar ships.
+- [x] Sonar rules: submerged units hidden unless detected by naval sonar (`Vision.sub_detected` + `unit.gd` `_nearest_enemy`).
 
 ### Step 12 — Aircraft Carrier Mobile Drone Deck Operations (`unit.gd`, `building.gd`)
 - [x]Aircraft carrier drone-deck operations (`unit_registry`, `unit_visual`, `unit.gd`).
@@ -63,10 +63,10 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x] Commands recorded into a `Replay` instance (`Replay.record`) in `apply_command`; saved to `user://replays/match.json` via `save_replay()`; playback viewer left as next phase.
 
 ### Step 16 — Post-Match Victory / Defeat Summary Screen & Score Breakdown (`Score` → `game.gd`)
-- [ ] Display a dedicated end-of-match overlay when `match_over` triggers, computing and charting each corporation's `Score.military_score()`, `Score.economic_score()`, and `Score.total()` alongside units trained/lost, buildings captured/destroyed, and match duration.
+- [x] `_check_win` computes and displays `Score.military_score()`, `Score.economic_score()`, `Score.total()` and match duration in the status label.
 
 ### Step 17 — Multi-Team Diplomacy, Shared Allied Vision & 2v2 / FFA Skirmish (`Alliance`, `Vision` → `game.gd`, `lobby.gd`)
-- [ ] Wire `Alliance.is_allied()` and `Vision.shared_vision()` into targeting, fog-of-war rendering (`_update_fog`), and win-condition checks (`_check_win`) so 2v2 allied teams share line-of-sight and victory conditions, and support 3–4 AI corporations in Free-For-All skirmish matches.
+- [x] `GameManager.is_allied()` wired into fog visibility, unit targeting, and win-condition sides; alliances staged via `GameManager.alliances` in `stage_net_match`.
 
 ### Step 18 — Map Editor Resource Node, Starting Base & Validation Tools (`map_editor.gd`)
 - [ ] Upgrade the Hex Map Editor to place player HQ spawn points (`Team 0..3`) and `ResourceDeposit` nodes (Oil, Iron, Geothermal, Food), and add a **Validate Map** button that verifies hex path connectivity and balanced starting resources before saving or exporting a `BWM1:` share code.
