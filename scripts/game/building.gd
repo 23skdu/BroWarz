@@ -10,6 +10,7 @@ var has_rally: bool = false
 var turret_timer: float = 0.0
 var turret_angle: float = 0.0
 var fire_flash_timer: float = 0.0
+var selected: bool = false
 var is_exploding: bool = false
 var explode_timer: float = 0.0
 var explosion_debris: Array[Dictionary] = []
@@ -49,7 +50,11 @@ func _process(delta):
 			queue_free()
 		return
 
-	var completed = Production.tick(production_queue, delta)
+	var eff := 1.0
+	var scene = get_tree().current_scene
+	if scene and scene.has_method("get_team_power_efficiency"):
+		eff = float(scene.get_team_power_efficiency(team))
+	var completed = Production.tick(production_queue, delta * eff)
 	for uid in completed:
 		_spawn_unit(uid)
 	if stats and (stats.id == "turret" or stats.id == "missile_tower"):
@@ -135,6 +140,11 @@ func enqueue_unit(uid: String, build_time: float = -1.0) -> void:
 		btime = s.build_time if s != null else 4.0
 	Production.enqueue(production_queue, uid, btime)
 
+func cancel_last_queued() -> String:
+	if production_queue.is_empty():
+		return ""
+	return Production.cancel(production_queue, production_queue.size() - 1)
+
 func _draw():
 	if is_exploding:
 		var prog := clampf(explode_timer / 0.75, 0.0, 1.0)
@@ -158,3 +168,8 @@ func _draw():
 	if not production_queue.is_empty():
 		var p := Production.current_progress(production_queue)
 		draw_rect(Rect2(-18, 22, 36.0 * p, 4.0), Color(0.2, 1.0, 0.4, 0.9), true)
+	if selected:
+		draw_rect(Rect2(-24, -24, 48, 48), Color(0.25, 0.95, 1.0, 0.9), false, 2.0)
+		var local_rally := rally_point - global_position
+		draw_line(Vector2.ZERO, local_rally, Color(0.25, 0.95, 1.0, 0.55), 1.5)
+		draw_circle(local_rally, 4.5, Color(0.25, 0.95, 1.0, 0.9))

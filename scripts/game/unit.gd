@@ -229,6 +229,10 @@ func _physics_process(delta):
 	# Medicbot and Engineerbots auto-repair nearby friendly robots/structures
 	if stats and stats.id in ["medicbot", "engineerbot", "adv_engineerbot"]:
 		_auto_repair_allies(delta)
+	if stats and stats.id in ["engineerbot", "adv_engineerbot"]:
+		_try_capture_enemy_building()
+	if stats and stats.id == "aircraft_carrier" and not cargo.is_empty():
+		_repair_carrier_drones(delta)
 
 	if has_target:
 		if attack_move:
@@ -313,6 +317,24 @@ func _auto_repair_allies(delta: float) -> void:
 					b.hp_bar.value = float(b.hp) / float(b.stats.hp) * 100.0
 				return
 
+func _try_capture_enemy_building() -> void:
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b) or b.team == team or ("is_exploding" in b and b.is_exploding):
+			continue
+		if b.stats and b.hp <= int(float(b.stats.hp) * 0.5) and global_position.distance_to(b.global_position) <= 44.0:
+			b.team = team
+			if "body" in b and b.body:
+				var fac := GameManager.player_faction if team == 0 else GameManager.ai_faction
+				b.body.color = Faction.color_of(fac).darkened(0.12)
+			AudioManager.play_sfx("tech_up")
+			return
+
+func _repair_carrier_drones(delta: float) -> void:
+	for p in cargo:
+		if is_instance_valid(p) and p.stats and Repair.can_repair(p.hp, p.stats.hp):
+			var amt := int(ceil(Repair.repair_amount(15.0, delta)))
+			p.hp = mini(p.stats.hp, p.hp + amt)
+
 func _try_attack():
 	if attack_timer > 0:
 		return
@@ -394,13 +416,20 @@ func _nearest_enemy() -> Node2D:
 	var best: Node2D = null
 	var best_d := INF
 	var sgt := stats.sight if stats else 300.0
-	var has_radar := stats != null and (stats.id == "awacs" or stats.id == "scout_drone")
+	var uid := stats.id if stats else ""
+	var has_radar := uid == "awacs" or uid == "scout_drone"
+	var has_sonar := Vision.is_sonar_unit(uid)
 	for u in get_tree().get_nodes_in_group("units"):
 		if u == self or not is_instance_valid(u) or u.team == team:
 			continue
 		if "is_exploding" in u and u.is_exploding:
 			continue
+		if GameManager.is_allied(team, u.team):
+			continue
 		var d := global_position.distance_to(u.global_position)
+		if u.stats and u.stats.armor_class == Damage.ArmorClass.SUBMERGED:
+			if not Vision.sub_detected(sgt, d, has_sonar):
+				continue
 		if u.has_method("is_cloaked") and u.is_cloaked():
 			if not Vision.stealth_detected(sgt, d, true, has_radar):
 				continue
@@ -408,7 +437,7 @@ func _nearest_enemy() -> Node2D:
 			best_d = d
 			best = u
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if not is_instance_valid(b) or b.team == team:
+		if not is_instance_valid(b) or GameManager.is_allied(team, b.team):
 			continue
 		if "is_exploding" in b and b.is_exploding:
 			continue

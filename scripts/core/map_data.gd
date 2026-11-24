@@ -142,3 +142,19 @@ static func speed_multiplier(terrain: int, unit_class: int, heavy: bool = false,
 
 static func is_passable(terrain: int, unit_class: int, heavy: bool = false) -> bool:
 	return movement_cost(terrain, unit_class, heavy) < INF
+
+static func validate_map(map: MapData) -> Dictionary:
+	if map == null or map.width < 16 or map.height < 16:
+		return {"ok": false, "land_tiles": 0, "water_tiles": 0, "reason": "Map too small"}
+	var land := 0
+	var water := 0
+	for y in range(map.height):
+		for x in range(map.width):
+			var t := map.get_terrain(x, y)
+			if t == Terrain.SEA or t == Terrain.RIVER:
+				water += 1
+			elif t != Terrain.MOUNTAIN and t != Terrain.WASTELAND:
+				land += 1
+	if land < 64:
+		return {"ok": false, "land_tiles": land, "water_tiles": water, "reason": "Needs at least 64 passable land tiles"}
+	return {"ok": true, "land_tiles": land, "water_tiles": water, "reason": "Valid playable map"}

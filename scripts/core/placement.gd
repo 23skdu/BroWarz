@@ -31,3 +31,24 @@ static func free_footprint(occupied: Dictionary, footprint: Vector2i, origin: Ve
 	for dy in range(footprint.y):
 		for dx in range(footprint.x):
 			occupied.erase(Vector2i(origin.x + dx, origin.y + dy))
+
+static func can_place_building(map: MapData, building_id: String, footprint: Vector2i, origin: Vector2i, occupied: Dictionary = {}) -> bool:
+	if footprint.x <= 0 or footprint.y <= 0:
+		return false
+	var is_naval := building_id in ["docks", "shipyard", "advanced_shipyard"]
+	if not is_naval:
+		return can_place(map, footprint, origin, occupied)
+	var has_water := false
+	for dy in range(footprint.y):
+		for dx in range(footprint.x):
+			var t := Vector2i(origin.x + dx, origin.y + dy)
+			if not map.in_bounds(t.x, t.y):
+				return false
+			if occupied.get(t, false):
+				return false
+			var terrain := map.get_terrain(t.x, t.y)
+			if terrain == MapData.Terrain.MOUNTAIN or terrain == MapData.Terrain.WASTELAND:
+				return false
+			if terrain == MapData.Terrain.SEA or terrain == MapData.Terrain.RIVER:
+				has_water = true
+	return has_water

@@ -19,6 +19,16 @@ var local_team: int = 0
 var teams: Array = [0, 1]
 var fog_enabled: bool = true
 var net_transport: String = "enet"
+# Alliance graph: team -> Array of allied team ids (defaults to none = FFA).
+var alliances: Dictionary = {}
+
+func is_allied(a: int, b: int) -> bool:
+	if a == b:
+		return true
+	var allies = alliances.get(a, [])
+	if allies is Array:
+		return (allies as Array).has(b)
+	return false
 
 # Sapper fortification movement blocks: Vector2i tile -> {building id: mask}
 var fort_blocks: Dictionary = {}
@@ -66,7 +76,7 @@ func end_match(_winner_id: int) -> void:
 ## setting the simulation must agree on (map, seed, fog, teams, transport).
 func stage_net_match(
 	map_t: int, seed_value: int, fog: bool, transport: String,
-	match_teams: Array, team: int,
+	match_teams: Array, team: int, match_alliances: Dictionary = {},
 ) -> void:
 	match_mode = Mode.MULTIPLAYER
 	map_type = clampi(map_t, 0, 2)
@@ -77,6 +87,7 @@ func stage_net_match(
 	if teams.is_empty():
 		teams = [0, 1]
 	local_team = clampi(team, 0, 7)
+	alliances = match_alliances.duplicate()
 
 ## Fresh per-match state: net ids and fortification blocks must not leak
 ## across matches (deterministic ids for replication + clean pathing).

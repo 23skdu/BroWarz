@@ -179,6 +179,7 @@ Economy rules:
 ## 11. Base Building & Production
 
 - **Placement:** Grid-aligned, with footprint and collision; cannot overlap resources/terrain impassable.
+- **Sapper fortifications:** Sapperbots (and the commander's build orders) construct three defensive structures that register a movement block on the 16 px tile grid: **Wall** (blocks all ground unit classes), **Barbed Wire** (impedes infantry only, class 0/6), **Missile Tower** (anti-air battery — 340 px range, explosive damage, radar sweep; does not block movement). Air (class 3) and naval (class 2) units are never stopped by land fortifications; walls and wire are removed from the block registry when destroyed. The `Fortification` core class is pure and unit-tested.
 - **Buildings:** HQ, Docks, Mech Factory 1 (smaller bots/light mechs), Mech Factory 2 (medium armor & advanced construction bots), Mech Factory 3 (heavy tanks/killer mechs, built only by advanced construction bots), Shipyard, Advanced Shipyard, Aeries Level 1 (scout/fighter drones), Aeries Level 2 (bomber/AWACS drones), Refinery/Extractor, Power Plant, Research Lab, Radar, Turret, Missile Tower, Wall, Barbed Wire, Farm, Silo (nukes), Orbital Uplink. See [`docs/factories.md`](factories.md).
 - **Production chain:** Every player starts with an HQ and a Barracks. Barracks produce infantry (including Sappers). Sappers construct additional Barracks and Factories. Factories produce tanks and construction vehicles. Construction vehicles construct Airfields (air units) and Shipyards/Docks on shorelines (naval units). Extractors are built on resource deposits.
 - **Queue:** Production queue per building; rally points.
@@ -216,16 +217,16 @@ Economy rules:
 
 ## 16. Multiplayer & Networking (P2P)
 
-- **Transport:** Godot `HighLevelMultiplayerAPI` with `ENetMultiplayerPeer` (desktop) and `WebRTCMultiplayerPeer` (web builds) for true P2P.
-- **Topology:** Host-authoritative lobby; gameplay uses **deterministic lockstep**:
-  - Fixed simulation tick (e.g., 20 Hz).
-  - Clients send input commands with tick numbers.
-  - All peers advance only when all inputs for a tick are received (with a small command buffer / delay).
-  - Host coordinates start and handles late join (spectator only in v1).
-- **State sync:** Periodic checksums of simulation state for desync detection; on desync, log and optionally pause.
-- **Reconnect:** Peer may reconnect within grace period; otherwise AI/takeover or defeat.
+- **Transport:** Godot `HighLevelMultiplayerAPI` with `ENetMultiplayerPeer` (desktop) and `WebRTCMultiplayerPeer` (web builds) for true P2P. A lobby scene (`scenes/lobby.tscn`) drives host/join: the host pins map, teams, fog of war and transport from `LobbyState` settings; clients adopt a host snapshot and only send ready/start requests.
+- **Topology:** Host-authoritative lobby and gameplay:
+  - The host is peer id 1. Every client command is sent to the host, which re-validates it (whitelist, ownership, cost) before applying it and relaying the sanitized copy back to all peers. A client never applies a command that the host rejected.
+  - Commands carry only intent (move/train/build/fortify/tech/laser/nuke/hold/stop); the host overwrites `team` from its own lobby record, so a forged payload cannot claim another player's economy.
+  - Teams are assigned round-robin from the lobby's `num_teams` setting (2–4) and reused after host migration.
+- **State sync:** Periodic simulation checksums (`NetworkManager.broadcast_hash`) are throttled (≥ 3 s apart) and relayed to the host for desync detection. On mismatch the host's state is authoritative (resync via the next lobby snapshot).
+- **Reconnect & host migration:** A dropped peer keeps its seat for a 30 s grace window (`LobbyState.sweep`); rejoining proves ownership with a crypto-random resume token issued at admission (token is sent only in the targeted welcome, never in broadcast snapshots). If the host vanishes mid-match, the lowest connected peer is elected successor (`next_host_id`) and re-hosts on the same port, marking the other seats disconnected so they can rejoin with their tokens. WebRTC transport degrades gracefully to ENet if signaling fails.
+- **Match settings (networked):** map type (0–2), number of teams (2–4), fog of war, transport (enet/webrtc), and seed are pinned by the host in `LobbyState.settings` and staged into `GameManager` before scene load; every peer applies the same map, seed and team layout.
+- **Security (see §21):** fail-closed whitelisting (`NetSecurity`), constant-time passcode compare, crypto-random resume tokens, token-bucket rate limiting with strikes→kick, per-peer monotonic sequence anti-replay (`SeqGuard`), protocol-version handshake, masked addresses in logs, and session bans for kicked peers.
 - **NAT:** STUN/TURN fallback documented; web uses signaling server (minimal, out of scope for v1 dedicated infra; LAN/direct IP first).
-- **Security:** P2P is trust-based; v1 targets friendly play. Anti-cheat is best-effort (checksums, command validation). Documented limitation.
 
 ## 17. AI (Skirmish)
 
@@ -257,7 +258,16 @@ Economy rules:
 
 ## 21. Security & Anti-Cheat (Limitations)
 
-P2P cannot fully prevent cheating. v1 mitigations: deterministic lockstep + checksums, command validation, host can kick. Documented as known limitation; ranked play deferred.
+P2P cannot fully prevent cheating, but BroWarz ships a **defense-in-depth** lobby and command pipeline (`NetSecurity`, `RateLimiter`, `SeqGuard`, `LobbyState`) designed for hostile peers on untrusted networks:
+
+- **Fail closed:** every inbound payload is whitelisted and coerced; unknown keys, types and out-of-range values are dropped (`sanitize_name`, `sanitize_settings`, `sanitize_command`, `is_valid_address`). An empty result always means "reject".
+- **Host authority:** the host overwrites `team` from its own lobby record; clients only accept command relays that originate from peer id 1 (`_from_server`). A forged client payload can never touch another player's economy or units.
+- **Access control:** optional lobby passcode compared in constant time; resume tokens are 32-byte crypto-random hex and are issued per seat, sent only in the targeted welcome RPC (never in broadcast snapshots); kicked peers are session-banned by token and address (5 min TTL).
+- **Anti-flood:** per-peer token buckets (handshake, lobby, command, hash, WebRTC signaling) with escalating strikes that kick the offending peer.
+- **Anti-replay:** per-sender monotonic sequence guard (`SeqGuard`); out-of-order or duplicate sequences are dropped and counted as violations.
+- **Handshake:** protocol-version check on connect; hello timeout (5 s) disconnects silent peers; handshake deadline (10 s).
+- **Privacy:** addresses are masked in all logs (`mask_address`).
+- **Limits:** ranked play and server-side authority are deferred; a modified client can still lie about its own inputs within the validated command grammar (e.g., move targets). Documented as a known limitation.
 
 ## 22. Data & Save Formats
 
@@ -301,11 +311,10 @@ The repository now contains a playable single-player skirmish vertical slice and
   - Ambient non-combatant wildlife (Birds on all maps, Dolphins and Squid in sea/river water, and Deer in forests/plains) that wander, flee when chased or shot at, and die when hit.
   - Custom retro-future corporate dystopia main logo (`assets/logo.png`) and minimalist corporation banners (`assets/banners/*.png`).
 - Gameplay: 128×128 maps (Desert, Island Chain, Forest), 31 units across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard), and map editor.
-- Verification: GUT unit/fuzz/regression suites (144 tests, 0 orphans) and `make ci` gate.
+- Verification: GUT unit/fuzz/regression suites (157 tests, 0 orphans) and `make ci` gate.
 
 Outstanding gaps (see `docs/roadmap.md`):
 
-- Multiplayer P2P match integration (lobby → game).
 - Terrain rendering and map editor UI.
 - Full naval roster (ballistic missile submarine, landing craft).
 - Audio content (music/SFX) beyond stubs.

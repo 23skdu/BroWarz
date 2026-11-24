@@ -26,3 +26,14 @@ static func shared_vision(team_vision: Dictionary, observer_team: int, target_te
 	# team_vision maps team -> Array of allied teams
 	var allies: Array = team_vision.get(observer_team, [])
 	return observer_team == target_team or allies.has(target_team)
+
+static func is_sonar_unit(unit_or_building_id: String) -> bool:
+	return unit_or_building_id in [
+		"corvette", "cruiser", "attack_sub", "ballistic_sub",
+		"patrol_boat", "awacs", "docks", "shipyard", "advanced_shipyard",
+	]
+
+static func sub_detected(sight_range: float, distance: float, observer_has_sonar: bool = false) -> bool:
+	if observer_has_sonar and distance <= sight_range:
+		return true
+	return distance <= sight_range * 0.25

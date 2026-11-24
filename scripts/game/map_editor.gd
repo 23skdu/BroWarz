@@ -135,6 +135,11 @@ func _build_ui() -> void:
 	play_btn.pressed.connect(_test_play_map)
 	action_bar.add_child(play_btn)
 
+	var validate_btn := Button.new()
+	validate_btn.text = "Validate Map"
+	validate_btn.pressed.connect(_validate_current_map)
+	action_bar.add_child(validate_btn)
+
 	var menu_btn := Button.new()
 	menu_btn.text = "Main Menu"
 	menu_btn.pressed.connect(func(): SceneManager.goto_scene("res://scenes/main_menu.tscn"))
@@ -276,6 +281,12 @@ func _import_share_code() -> void:
 		_set_status("Imported shared map '%s' by %s!" % [map_data.name, map_data.author])
 	else:
 		_set_status("Invalid share code. Must start with BWM1:...")
+
+func _validate_current_map() -> void:
+	_sync_metadata()
+	var res := MapData.validate_map(map_data)
+	var prefix := "VALID" if bool(res["ok"]) else "INVALID"
+	_set_status("%s: %s (Land: %d, Water: %d)" % [prefix, String(res["reason"]), int(res["land_tiles"]), int(res["water_tiles"])])
 
 func _test_play_map() -> void:
 	_sync_metadata()

@@ -32,6 +32,18 @@ func _ready():
 	join_btn.pressed.connect(_on_join)
 	if is_instance_valid(editor_btn):
 		editor_btn.pressed.connect(_on_editor)
+	var settings_btn := get_node_or_null("VBox/SettingsButton")
+	if settings_btn == null and has_node("VBox"):
+		var sb := Button.new()
+		sb.name = "SettingsButton"
+		sb.text = "Audio: On (Save Settings)"
+		$VBox.add_child(sb)
+		sb.pressed.connect(func():
+			AudioManager.muted = not AudioManager.muted
+			SettingsManager.set_setting("master_volume", 0.0 if AudioManager.muted else 1.0)
+			SettingsManager.save_settings()
+			sb.text = "Audio: %s (Saved)" % ("Muted" if AudioManager.muted else "On")
+		)
 	_refresh_labels()
 	if has_node("VBox/VersionLabel"):
 		$VBox/VersionLabel.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
