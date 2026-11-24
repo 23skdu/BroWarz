@@ -21,7 +21,11 @@ var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_ra
 var active_tracers: Array = []  # Array of Dictionary {from, to, color, width, timer, duration}
 var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
 
-const TILE_SIZE: float = 10.0
+var terrain_image: Image
+var terrain_texture: ImageTexture
+var terrain_sprite: Sprite2D
+
+const TILE_SIZE: float = 16.0
 var fog: FogOfWar
 var fog_image: Image
 var fog_texture: ImageTexture
@@ -40,6 +44,15 @@ func _ready():
 		GameManager.registry.populate_defaults()
 	map_data = MapData.new(128, 128)
 	_generate_map()
+	terrain_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	terrain_texture = ImageTexture.create_from_image(terrain_image)
+	terrain_sprite = Sprite2D.new()
+	terrain_sprite.texture = terrain_texture
+	terrain_sprite.scale = Vector2(TILE_SIZE, TILE_SIZE)
+	terrain_sprite.centered = false
+	terrain_sprite.z_index = -5
+	add_child(terrain_sprite)
+	_update_terrain_image()
 	fog = FogOfWar.new(128, 128)
 	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
@@ -420,6 +433,7 @@ func _player_fire_nuke() -> void:
 		for dy in range(-rad, rad + 1):
 			for dx in range(-rad, rad + 1):
 				map_data.set_terrain(cx + dx, cy + dy, MapData.Terrain.WASTELAND)
+	_update_terrain_image()
 	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": 180.0, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0, "duration": 2.0})
 	AudioManager.play_sfx("nuclear_launch")
 
@@ -720,3 +734,26 @@ func _update_fog() -> void:
 				var tx := int(u.global_position.x / TILE_SIZE)
 				var ty := int(u.global_position.y / TILE_SIZE)
 				u.visible = fog.is_visible(tx, ty)
+
+func _terrain_color(t: int) -> Color:
+	match t:
+		MapData.Terrain.PLAINS: return Color(0.35, 0.55, 0.25)
+		MapData.Terrain.FOREST: return Color(0.18, 0.4, 0.18)
+		MapData.Terrain.SWAMP: return Color(0.3, 0.35, 0.2)
+		MapData.Terrain.RIVER: return Color(0.2, 0.4, 0.75)
+		MapData.Terrain.SEA: return Color(0.1, 0.25, 0.55)
+		MapData.Terrain.MOUNTAIN: return Color(0.5, 0.5, 0.5)
+		MapData.Terrain.URBAN: return Color(0.45, 0.4, 0.35)
+		MapData.Terrain.ROAD: return Color(0.6, 0.55, 0.4)
+		MapData.Terrain.BRIDGE: return Color(0.6, 0.5, 0.3)
+		MapData.Terrain.WASTELAND: return Color(0.35, 0.2, 0.15)
+	return Color(0.3, 0.3, 0.3)
+
+func _update_terrain_image() -> void:
+	if terrain_image == null or map_data == null:
+		return
+	for y in range(map_data.height):
+		for x in range(map_data.width):
+			terrain_image.set_pixel(x, y, _terrain_color(map_data.get_terrain(x, y)))
+	if terrain_texture:
+		terrain_texture.update(terrain_image)
