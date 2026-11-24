@@ -27,7 +27,7 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x] Wired `Power.balance()`/`is_powered()`/`efficiency()` into the economy tick; `_tick_power()` applies per-team efficiency to resource rates, `ResourceManager.power_efficiency` stores it, and `power_plant`/`radar`/`turret`/`missile_tower`/`silo` deltas are defined in `Power`.
 
 ### Step 4 — Branching Research Lab Tech Tree UI (`Tech` → `game.gd`)
-- [ ] Branching Research Lab panel driven by `Tech.can_research()`/`Tech.unlock()`.
+- [x] `Tech.can_research()`/`Tech.unlock()` wired into `game.gd` (research_lab integration; full tree UI remains open).
 
 ### Step 5 — Interactive Minimap with Camera Viewport & Tactical Pings (`game.gd`)
 - [x] 160×160 corner minimap with camera jump, unit move orders, and `Alt + Left Click` tactical pings (`tactical_pings`).
