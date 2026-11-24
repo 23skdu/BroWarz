@@ -2,9 +2,9 @@
 class_name TerrainGenerator
 extends RefCounted
 
-static func generate_desert(w: int, h: int, seed: int = 1) -> MapData:
+static func generate_desert(w: int, h: int, rng_seed: int = 1) -> MapData:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed
+	rng.seed = rng_seed
 	var m := MapData.new(w, h)
 	m.name = "Desert"
 	for y in range(h):
@@ -18,9 +18,9 @@ static func generate_desert(w: int, h: int, seed: int = 1) -> MapData:
 				m.set_terrain(x, y, MapData.Terrain.PLAINS)
 	return m
 
-static func generate_islands(w: int, h: int, seed: int = 2) -> MapData:
+static func generate_islands(w: int, h: int, rng_seed: int = 2) -> MapData:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed
+	rng.seed = rng_seed
 	var m := MapData.new(w, h)
 	m.name = "Island Chain"
 	# base sea
@@ -47,9 +47,9 @@ static func generate_islands(w: int, h: int, seed: int = 2) -> MapData:
 				m.set_terrain(x, y, MapData.Terrain.MOUNTAIN)
 	return m
 
-static func generate_forest(w: int, h: int, seed: int = 3) -> MapData:
+static func generate_forest(w: int, h: int, rng_seed: int = 3) -> MapData:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed
+	rng.seed = rng_seed
 	var m := MapData.new(w, h)
 	m.name = "Forest"
 	for y in range(h):
