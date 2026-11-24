@@ -39,7 +39,7 @@ jobs:
       - name: Build web export
         # The container runs as root, so `git rev-parse` can refuse the
         # checkout as unsafe; pin the commit from the Actions environment.
-        run: make build-web GIT_SHA="${GITHUB_SHA:0:7}"
+        run: make build-web GIT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
