@@ -20,6 +20,17 @@ func test_color():
 	assert_true(a is Color)
 	assert_ne(c, a)
 
+func test_colorblind_and_mirror_colors():
+	var base := Faction.color_of(Faction.Id.AERODYNE)
+	assert_eq(Faction.colorblind_color_of(Faction.Id.AERODYNE, "none"), base)
+	assert_ne(Faction.colorblind_color_of(Faction.Id.AERODYNE, "deuteranopia"), base)
+	assert_ne(Faction.colorblind_color_of(Faction.Id.FERROCORE, "tritanopia"), Faction.color_of(Faction.Id.FERROCORE))
+	# Mirror matches keep chess black/white even with a colorblind palette.
+	assert_eq(Faction.colorblind_color_of(Faction.Id.AERODYNE, "deuteranopia", 1), Faction.color_of(Faction.Id.AERODYNE, 1))
+	assert_eq(Faction.colorblind_color_of(Faction.Id.AERODYNE, "tritanopia", 2), Faction.color_of(Faction.Id.AERODYNE, 2))
+	assert_eq(Faction.color_for_team(Faction.Id.AERODYNE, 0), 0)
+	assert_eq(Faction.color_for_team(Faction.Id.AERODYNE, 1), 2)
+
 func test_motto():
 	assert_ne(Faction.motto_of(Faction.Id.FERROCORE), "")
 

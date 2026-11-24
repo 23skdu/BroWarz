@@ -12,8 +12,18 @@ var brush_radius: int = 1
 var painting: bool = false
 var hover_hex: Vector2i = Vector2i(-1, -1)
 
+enum Tool { TERRAIN, HQ, DEPOSIT, ERASE }
+var selected_tool: int = Tool.TERRAIN
+var selected_team: int = 0
+var selected_resource: int = 0
+
 const TILE_SIZE: float = 16.0
 const TERRAIN_PPT: int = 4
+const RESOURCE_NAMES := ["Oil", "Iron", "Geothermal", "Food"]
+const RESOURCE_COLORS := [
+	Color(0.15, 0.65, 1.0), Color(0.85, 0.85, 0.9),
+	Color(0.35, 0.95, 0.55), Color(1.0, 0.75, 0.25),
+]
 
 var map_name_edit: LineEdit
 var author_edit: LineEdit
@@ -89,6 +99,34 @@ func _build_ui() -> void:
 	fill_btn.pressed.connect(_fill_entire_map)
 	terrain_bar.add_child(fill_btn)
 
+	# Row 1b: HQ spawn points (Team 0..3) and resource deposit markers.
+	var marker_bar := HBoxContainer.new()
+	top_vbox.add_child(marker_bar)
+
+	var terrain_tool_btn := Button.new()
+	terrain_tool_btn.text = "Terrain Brush"
+	terrain_tool_btn.pressed.connect(func(): _select_tool(Tool.TERRAIN, 0, 0))
+	marker_bar.add_child(terrain_tool_btn)
+
+	for team in range(MapData.MAX_TEAMS):
+		var hq_btn := Button.new()
+		hq_btn.text = "HQ Team %d" % team
+		var t: int = team
+		hq_btn.pressed.connect(func(): _select_tool(Tool.HQ, t, 0))
+		marker_bar.add_child(hq_btn)
+
+	for resource in range(RESOURCE_NAMES.size()):
+		var dep_btn := Button.new()
+		dep_btn.text = "%s Deposit" % RESOURCE_NAMES[resource]
+		var r: int = resource
+		dep_btn.pressed.connect(func(): _select_tool(Tool.DEPOSIT, 0, r))
+		marker_bar.add_child(dep_btn)
+
+	var erase_btn := Button.new()
+	erase_btn.text = "Erase Marker"
+	erase_btn.pressed.connect(func(): _select_tool(Tool.ERASE, 0, 0))
+	marker_bar.add_child(erase_btn)
+
 	# Row 2: Map Metadata, Save/Load File, Share Code Export/Import, Test Play, Main Menu
 	var action_bar := HBoxContainer.new()
 	top_vbox.add_child(action_bar)
@@ -158,6 +196,20 @@ func _cycle_brush_size() -> void:
 	if is_instance_valid(brush_btn):
 		brush_btn.text = "Hex Brush: %d" % brush_radius
 
+func _select_tool(tool: int, team: int, resource: int) -> void:
+	selected_tool = tool
+	selected_team = team
+	selected_resource = resource
+	match tool:
+		Tool.TERRAIN:
+			_set_status("Terrain brush selected (%s)." % MapData.terrain_name(selected_terrain))
+		Tool.HQ:
+			_set_status("Click a hex to place Team %d's HQ spawn." % team)
+		Tool.DEPOSIT:
+			_set_status("Click a hex to place a %s deposit." % RESOURCE_NAMES[resource])
+		Tool.ERASE:
+			_set_status("Click a hex to erase an HQ spawn or deposit marker.")
+
 func _fill_entire_map() -> void:
 	for i in range(map_data.tiles.size()):
 		map_data.tiles[i] = selected_terrain
@@ -182,17 +234,20 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	var pan := Vector2.ZERO
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): pan.y -= 1
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_up")) or Input.is_key_pressed(KEY_UP): pan.y -= 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_down")) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_left")) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_right")) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
 	if pan != Vector2.ZERO:
-		camera.position += pan * 520.0 * delta
+		camera.position += pan * float(SettingsManager.get_setting("camera_speed", 420.0)) * delta
 
 func _paint_at_screen(screen_pos: Vector2) -> void:
 	var world_pos := _screen_to_world(screen_pos)
 	var center_tx := int(world_pos.x / TILE_SIZE)
 	var center_ty := int(world_pos.y / TILE_SIZE)
+	if selected_tool != Tool.TERRAIN:
+		_place_marker(center_tx, center_ty)
+		return
 	var changed := false
 	var r := brush_radius - 1
 	for dy in range(-r, r + 1):
@@ -206,6 +261,26 @@ func _paint_at_screen(screen_pos: Vector2) -> void:
 	if changed:
 		terrain_texture.update(terrain_image)
 		queue_redraw()
+
+func _place_marker(tx: int, ty: int) -> void:
+	if not map_data.in_bounds(tx, ty):
+		return
+	match selected_tool:
+		Tool.HQ:
+			if map_data.set_hq_spawn(selected_team, tx, ty):
+				_set_status("Team %d HQ spawn placed at (%d, %d)." % [selected_team, tx, ty])
+		Tool.DEPOSIT:
+			if map_data.add_deposit(selected_resource, tx, ty):
+				_set_status("%s deposit placed at (%d, %d)." % [RESOURCE_NAMES[selected_resource], tx, ty])
+		Tool.ERASE:
+			var removed := false
+			for team in range(MapData.MAX_TEAMS):
+				if map_data.get_hq_spawn(team) == Vector2i(tx, ty):
+					removed = map_data.remove_hq_spawn(team) or removed
+			removed = map_data.clear_deposits_at(tx, ty) or removed
+			if removed:
+				_set_status("Marker erased at (%d, %d)." % [tx, ty])
+	queue_redraw()
 
 func _update_tile_pixels(tx: int, ty: int) -> void:
 	var t := map_data.get_terrain(tx, ty)
@@ -286,7 +361,12 @@ func _validate_current_map() -> void:
 	_sync_metadata()
 	var res := MapData.validate_map(map_data)
 	var prefix := "VALID" if bool(res["ok"]) else "INVALID"
-	_set_status("%s: %s (Land: %d, Water: %d)" % [prefix, String(res["reason"]), int(res["land_tiles"]), int(res["water_tiles"])])
+	_set_status("%s: %s (Land: %d, Water: %d, Spawns: %d, Deposits: %d, Path: %s, Balance: %s)" % [
+		prefix, String(res["reason"]), int(res["land_tiles"]), int(res["water_tiles"]),
+		int(res["spawns"]), int(res["deposits"]),
+		"OK" if bool(res["connected"]) else "FAIL",
+		"OK" if bool(res["balanced"]) else "FAIL",
+	])
 
 func _test_play_map() -> void:
 	_sync_metadata()
@@ -296,6 +376,27 @@ func _test_play_map() -> void:
 	SceneManager.goto_scene("res://scenes/game.tscn")
 
 func _draw() -> void:
+	# HQ spawn markers: team-colored diamonds with a team label.
+	for s in map_data.hq_spawns:
+		var team := int(s.get("team", 0))
+		var center := Vector2((int(s.get("x", 0)) + 0.5) * TILE_SIZE, (int(s.get("y", 0)) + 0.5) * TILE_SIZE)
+		var color := Faction.colorblind_color_of(team % 4, SettingsManager.colorblind_palette())
+		var pts := PackedVector2Array([
+			center + Vector2(0, -11), center + Vector2(11, 0),
+			center + Vector2(0, 11), center + Vector2(-11, 0),
+		])
+		draw_colored_polygon(pts, color)
+		draw_polyline(pts, Color(1, 1, 1, 1), 1.5, true)
+		draw_string(ThemeDB.fallback_font, center + Vector2(-5, 4), str(team), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0, 0, 0, 1))
+
+	# Resource deposit markers: colored discs with the resource initial.
+	for d in map_data.deposits:
+		var type := clampi(int(d.get("type", 0)), 0, RESOURCE_COLORS.size() - 1)
+		var center := Vector2((int(d.get("x", 0)) + 0.5) * TILE_SIZE, (int(d.get("y", 0)) + 0.5) * TILE_SIZE)
+		draw_circle(center, 7.0, RESOURCE_COLORS[type])
+		draw_arc(center, 7.0, 0.0, TAU, 16, Color(0, 0, 0, 1), 1.0)
+		draw_string(ThemeDB.fallback_font, center + Vector2(-3, 4), RESOURCE_NAMES[type].substr(0, 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0, 0, 0, 1))
+
 	# Draw hex cursor outline at hover_hex so the user can see exact hex alignment
 	if hover_hex.x >= 0 and hover_hex.y >= 0:
 		var center := hex_grid.hex_to_world(hover_hex)

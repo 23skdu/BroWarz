@@ -43,3 +43,26 @@ func test_share_code_and_file_roundtrip():
 	assert_eq(m2.get_terrain(9, 10), MapData.Terrain.FOREST)
 	assert_null(MapSerializer.from_share_code("INVALID"))
 
+func test_metadata_roundtrip_dict_and_share_code():
+	var m := MapData.new(16, 16)
+	m.set_hq_spawn(0, 2, 2)
+	m.set_hq_spawn(1, 13, 13)
+	m.add_deposit(Economy.Res.OIL, 3, 2, 800, 12.0)
+	m.add_deposit(Economy.Res.FOOD, 12, 13)
+	var d := MapSerializer.to_dict(m)
+	var from_dict := MapSerializer.from_dict(d)
+	assert_eq(from_dict.hq_spawns.size(), 2)
+	assert_eq(from_dict.get_hq_spawn(1), Vector2i(13, 13))
+	assert_eq(from_dict.deposits.size(), 2)
+	assert_eq(int(from_dict.deposits[0].get("amount", 0)), 800)
+	var from_code := MapSerializer.from_share_code(MapSerializer.to_share_code(m))
+	assert_not_null(from_code)
+	assert_eq(from_code.get_hq_spawn(0), Vector2i(2, 2))
+	assert_eq(int(from_code.deposits[0].get("type", -1)), Economy.Res.OIL)
+
+func test_legacy_metadata_defaults():
+	var legacy := {"width": 16, "height": 16, "tiles": MapData.new(16, 16).tiles}
+	var m := MapSerializer.from_dict(legacy)
+	assert_true(m.hq_spawns.is_empty())
+	assert_true(m.deposits.is_empty())
+

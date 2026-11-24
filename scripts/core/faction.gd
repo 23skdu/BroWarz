@@ -7,7 +7,7 @@ enum Id { AERODYNE, FERROCORE, PELAGIC, VANGUARD }
 # Lore: the four corporations are the four weapons divisions of a single
 # planetary megacorp ("Terran Herzog Heavy Industries" is the fictional
 # holding name). The RTS game is the means by which they settle resource
-# dividimg on the planet — division borders are drawn by match results.
+# dividing on the planet — division borders are drawn by match results.
 
 # For when two players (teams) run the *same* corporation against each
 # other in a self-vs-self scenario, they settle dividing resources chess-
@@ -20,6 +20,22 @@ static func color_of(id: int, variant: int = 0) -> Color:
 	if variant == 2:
 		return Color(0.97, 0.97, 0.98, 1.0)  # chess white
 	return c
+
+## Accessible faction color for the selected colorblind palette. Palettes
+## shift the red/green (or blue/yellow) axis while keeping each division's
+## brightness distinct; chess black/white mirror variants stay unchanged.
+static func colorblind_color_of(id: int, palette: String = "none", variant: int = 0) -> Color:
+	var c := color_of(id, variant)
+	if variant != 0:
+		return c
+	match palette:
+		"deuteranopia", "protanopia":
+			var luma := 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+			return Color(clampf(luma * 0.95, 0.0, 1.0), clampf(luma * 1.05, 0.0, 1.0), clampf(c.b * 0.6 + 0.4, 0.0, 1.0), 1.0)
+		"tritanopia":
+			return Color(clampf(c.r * 0.6 + 0.4, 0.0, 1.0), clampf(c.g * 0.6 + 0.4, 0.0, 1.0), clampf(c.b * 0.5, 0.0, 1.0), 1.0)
+		_:
+			return c
 
 static func _base_color(id: int) -> Color:
 	match id:

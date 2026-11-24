@@ -20,6 +20,7 @@ var selected_faction: int = Faction.Id.AERODYNE
 var selected_map_type: int = 2  # 0 Desert, 1 Island Chain, 2 Forest, 3 Custom Map
 
 func _ready():
+	SettingsManager.apply_to_scene()
 	if is_instance_valid(skirmish_btn):
 		skirmish_btn.pressed.connect(_on_skirmish)
 	if is_instance_valid(difficulty_btn):
@@ -36,17 +37,17 @@ func _ready():
 	if settings_btn == null and has_node("VBox"):
 		var sb := Button.new()
 		sb.name = "SettingsButton"
-		sb.text = "Audio: On (Save Settings)"
+		sb.text = "Settings (Audio, Access & Controls)"
 		$VBox.add_child(sb)
-		sb.pressed.connect(func():
-			AudioManager.muted = not AudioManager.muted
-			SettingsManager.set_setting("master_volume", 0.0 if AudioManager.muted else 1.0)
-			SettingsManager.save_settings()
-			sb.text = "Audio: %s (Saved)" % ("Muted" if AudioManager.muted else "On")
-		)
+		sb.pressed.connect(_open_settings)
 	_refresh_labels()
 	if has_node("VBox/VersionLabel"):
 		$VBox/VersionLabel.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
+
+func _open_settings() -> void:
+	var dialog := SettingsDialog.new()
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(620, 640))
 
 func _refresh_labels() -> void:
 	if is_instance_valid(difficulty_btn):

@@ -69,10 +69,10 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x] `GameManager.is_allied()` wired into fog visibility, unit targeting, and win-condition sides; alliances staged via `GameManager.alliances` in `stage_net_match`.
 
 ### Step 18 — Map Editor Resource Node, Starting Base & Validation Tools (`map_editor.gd`)
-- [ ] Upgrade the Hex Map Editor to place player HQ spawn points (`Team 0..3`) and `ResourceDeposit` nodes (Oil, Iron, Geothermal, Food), and add a **Validate Map** button that verifies hex path connectivity and balanced starting resources before saving or exporting a `BWM1:` share code.
+- [x] Hex Map Editor places Team 0..3 HQ spawns and Oil/Iron/Geothermal/Food deposits; markers render in-editor, serialize to `.bwm` and `BWM1:` share codes, and **Validate Map** checks passable hex-path connectivity plus balanced starting resources per team.
 
 ### Step 19 — Persistent Settings Menu & Accessibility Options (`SettingsStore`, `SettingsManager` → `main_menu.gd`)
-- [ ] Add an in-game Settings dialog backed by `SettingsStore` (`user://settings.cfg`) to configure master/SFX/music volume, `AudioManager.muted`, camera pan speed, UI scale, colorblind faction palettes, and custom hotkey bindings.
+- [x] In-game Settings dialog (`scripts/ui/settings_dialog.gd`) persists master/music/SFX volume, mute, camera speed, UI scale, colorblind faction palettes and camera hotkeys to `user://settings.cfg`; values apply live to audio, viewport scaling, faction colors and camera controls.
 
 ### Step 20 — Spatial-Hash Combat Queries & MultiMesh Batch Rendering in Live Scene (`UnitVisual` → `game.gd`, `unit.gd`)
 - [x] Spatial grid built per tick via `UnitVisual.build_spatial_grid` in `game.gd`; radius radius queries use `UnitVisual.query_spatial_radius`.

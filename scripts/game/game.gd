@@ -302,7 +302,7 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 	var variant := Faction.color_for_team(uf, _color_variant_count(team))
 	var body = u.get_node_or_null("Body")
 	if body:
-		body.color = Faction.color_of(uf, variant)
+		body.color = Faction.colorblind_color_of(uf, SettingsManager.colorblind_palette(), variant)
 	u.global_position = pos
 	units_container.add_child(u)
 	return u
@@ -323,7 +323,7 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 	var variant := Faction.color_for_team(bf, _color_variant_count(team))
 	var bbody = b.get_node_or_null("Body")
 	if bbody:
-		bbody.color = Faction.color_of(bf, variant)
+		bbody.color = Faction.colorblind_color_of(bf, SettingsManager.colorblind_palette(), variant)
 	b.global_position = pos
 	add_child(b)
 	GameManager.register_fort_block(b)
@@ -904,11 +904,11 @@ func _process(delta):
 	_update_hud()
 	_check_win()
 	var pan = Vector2.ZERO
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): pan.y -= 1
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
-	camera.position += pan * 420.0 * delta
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_up")) or Input.is_key_pressed(KEY_UP): pan.y -= 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_down")) or Input.is_key_pressed(KEY_DOWN): pan.y += 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_left")) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
+	if Input.is_key_pressed(SettingsManager.hotkey("camera_right")) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
+	camera.position += pan * float(SettingsManager.get_setting("camera_speed", 420.0)) * delta
 
 func _run_skirmish_ai_turn() -> void:
 	var ai_wallet := ResourceManager.get_wallet(1)

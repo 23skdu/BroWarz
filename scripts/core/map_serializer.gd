@@ -12,6 +12,8 @@ static func to_dict(map: MapData) -> Dictionary:
 		"width": map.width,
 		"height": map.height,
 		"tiles": Array(map.tiles),
+		"spawns": _spawns_to_array(map),
+		"deposits": _deposits_to_array(map),
 	}
 
 static func from_dict(d: Dictionary) -> MapData:
@@ -22,7 +24,58 @@ static func from_dict(d: Dictionary) -> MapData:
 	if t.size() == m.tile_count():
 		for i in range(t.size()):
 			m.tiles[i] = int(t[i])
+	apply_metadata(m, d)
 	return m
+
+static func _spawns_to_array(map: MapData) -> Array:
+	var out: Array = []
+	for s in map.hq_spawns:
+		out.append({
+			"team": int(s.get("team", 0)),
+			"x": int(s.get("x", 0)),
+			"y": int(s.get("y", 0)),
+		})
+	return out
+
+static func _deposits_to_array(map: MapData) -> Array:
+	var out: Array = []
+	for d in map.deposits:
+		out.append({
+			"type": int(d.get("type", 0)),
+			"x": int(d.get("x", 0)),
+			"y": int(d.get("y", 0)),
+			"amount": int(d.get("amount", 1000)),
+			"rate": float(d.get("rate", 10.0)),
+		})
+	return out
+
+## Restore HQ spawns and resource deposits from a serialized dictionary.
+## Missing or malformed metadata is ignored so older maps still load.
+static func apply_metadata(map: MapData, d: Dictionary) -> void:
+	map.hq_spawns.clear()
+	map.deposits.clear()
+	for s in d.get("spawns", []):
+		if not (s is Dictionary):
+			continue
+		var team := int(s.get("team", -1))
+		var x := int(s.get("x", -1))
+		var y := int(s.get("y", -1))
+		if team >= 0 and team < MapData.MAX_TEAMS and map.in_bounds(x, y):
+			map.hq_spawns.append({"team": team, "x": x, "y": y})
+	for dep in d.get("deposits", []):
+		if not (dep is Dictionary):
+			continue
+		var type := int(dep.get("type", -1))
+		var x := int(dep.get("x", -1))
+		var y := int(dep.get("y", -1))
+		if type >= 0 and type < 4 and map.in_bounds(x, y):
+			map.deposits.append({
+				"type": type,
+				"x": x,
+				"y": y,
+				"amount": int(dep.get("amount", 1000)),
+				"rate": float(dep.get("rate", 10.0)),
+			})
 
 static func validate(d: Dictionary) -> bool:
 	if not d.has("width") or not d.has("height"):
@@ -44,6 +97,8 @@ static func to_share_code(map: MapData) -> String:
 		"width": map.width,
 		"height": map.height,
 		"tiles_b64": Marshalls.raw_to_base64(map.tiles),
+		"spawns": _spawns_to_array(map),
+		"deposits": _deposits_to_array(map),
 	}
 	var raw := JSON.stringify(payload).to_utf8_buffer()
 	var compressed := raw.compress(FileAccess.COMPRESSION_DEFLATE)
@@ -83,6 +138,7 @@ static func from_share_code(code: String) -> MapData:
 	m.name = String(d.get("name", "Shared Map"))
 	m.author = String(d.get("author", "Commander"))
 	m.tiles = tbytes
+	apply_metadata(m, d)
 	return m
 
 static func sanitize_filename(raw_name: String) -> String:

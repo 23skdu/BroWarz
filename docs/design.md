@@ -212,8 +212,8 @@ Economy rules:
 ## 15. Map Editor
 
 - Tile painting (brush/rectangle/fill), terrain height? (flat tiles v1).
-- Place resources, start positions, neutral structures.
-- Validate: enough resources, valid start areas, no blocked HQ.
+- Place resources, start positions, neutral structures. Implemented: Team 0..3 HQ spawn markers and Oil/Iron/Geothermal/Food deposit markers, drawn in-editor and serialized into `.bwm` files and `BWM1:` share codes.
+- Validate: enough resources, valid start areas, no blocked HQ. Implemented: **Validate Map** confirms passable infantry hex paths between all HQs and balanced resource deposits near each spawn.
 - Save/load custom maps (`.bwm` or Godot resource) to user dir; share via file.
 - In-game map browser with metadata and preview.
 
@@ -275,7 +275,7 @@ P2P cannot fully prevent cheating, but BroWarz ships a **defense-in-depth** lobb
 
 - **Maps:** `.bwm` (Godot Resource or JSON) with version field and migration.
 - **Replays:** recorded command streams + initial map seed; deterministic playback.
-- **Settings:** `user://settings.cfg`.
+- **Settings:** `user://settings.cfg`, persisted by the in-game Settings dialog (audio volumes/mute, camera speed, UI scale, colorblind palettes, camera hotkeys) through `SettingsManager`/`SettingsStore`.
 - **Versioning:** semantic versioning; save/map migration on load.
 
 ## 23. Accessibility
