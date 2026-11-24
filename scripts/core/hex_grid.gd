@@ -21,12 +21,12 @@ func _axial_round(q: float, r: float) -> Vector2i:
 	var x := q
 	var z := r
 	var y := -x - z
-	var rx := round(x)
-	var ry := round(y)
-	var rz := round(z)
-	var x_diff := abs(rx - x)
-	var y_diff := abs(ry - y)
-	var z_diff := abs(rz - z)
+	var rx := roundf(x)
+	var ry := roundf(y)
+	var rz := roundf(z)
+	var x_diff := absf(rx - x)
+	var y_diff := absf(ry - y)
+	var z_diff := absf(rz - z)
 	if x_diff > y_diff and x_diff > z_diff:
 		rx = -ry - rz
 	elif y_diff > z_diff:
@@ -47,7 +47,7 @@ func distance(a: Vector2i, b: Vector2i) -> int:
 	var ar := a.y
 	var bq := b.x
 	var br := b.y
-	return (abs(aq - bq) + abs(aq + ar - bq - br) + abs(ar - br)) / 2
+	return int((absi(aq - bq) + absi(aq + ar - bq - br) + absi(ar - br)) * 0.5)
 
 func hex_path(start: Vector2i, goal: Vector2i, passable: Callable) -> Array[Vector2i]:
 	# A* over hex grid

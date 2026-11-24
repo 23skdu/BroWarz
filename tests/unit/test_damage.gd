@@ -28,3 +28,19 @@ func test_is_effective():
 func test_submerged_kinetic_zero():
 	var m = Damage.multiplier(Damage.DamageType.KINETIC, Damage.ArmorClass.SUBMERGED)
 	assert_eq(m, 0.0)
+
+func test_unit_role_multipliers():
+	assert_almost_eq(Damage.unit_role_multiplier("sapperbot", Damage.ArmorClass.STRUCTURE), 2.5, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("frogbot", Damage.ArmorClass.NAVAL), 2.2, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("frogbot", Damage.ArmorClass.SUBMERGED), 2.2, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("aa_vehicle", Damage.ArmorClass.AIR), 3.0, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("rocketbot", Damage.ArmorClass.HEAVY), 1.5, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("sniperbot", Damage.ArmorClass.UNARMORED), 1.5, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("attack_sub", Damage.ArmorClass.NAVAL), 1.8, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("siege_mech", Damage.ArmorClass.STRUCTURE), 1.6, 0.001)
+	assert_almost_eq(Damage.unit_role_multiplier("riflebot", Damage.ArmorClass.HEAVY), 1.0, 0.001)
+
+func test_compute_for_unit():
+	var sapper_dmg := Damage.compute_for_unit("sapperbot", 35.0, Damage.DamageType.EXPLOSIVE, Damage.ArmorClass.STRUCTURE, 0.0, 1.0)
+	var base_dmg := Damage.compute(35.0, Damage.DamageType.EXPLOSIVE, Damage.ArmorClass.STRUCTURE, 0.0, 1.0)
+	assert_almost_eq(sapper_dmg, base_dmg * 2.5, 0.001)

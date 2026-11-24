@@ -286,6 +286,7 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 		bbody.color = Faction.color_of(bf)
 	b.global_position = pos
 	add_child(b)
+	GameManager.register_fort_block(b)
 	return b
 
 func _world_mouse_pos(screen_pos: Vector2) -> Vector2:
@@ -382,22 +383,15 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	if s == null:
 		return false
 	var wallet := ResourceManager.get_wallet(team)
-	var cost := _wallet_cost(s.cost_dict())
+	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var cost := _wallet_cost(Faction.effective_unit_cost(fac_id, s))
 	if not Economy.spend(wallet, cost):
 		return false
 	var producer: Node2D = null
+	var valid_producers := UnitRegistry.producer_ids_for_unit(uid, s.unit_class)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding and b.team == team:
-			var ok_producer := false
-			if s.unit_class == 0 and b.stats and b.stats.id == "barracks":
-				ok_producer = true
-			elif s.unit_class == 1 and b.stats and b.stats.id == "factory":
-				ok_producer = true
-			elif s.unit_class == 2 and b.stats and b.stats.id == "shipyard":
-				ok_producer = true
-			elif s.unit_class == 3 and b.stats and b.stats.id == "airfield":
-				ok_producer = true
-			if ok_producer:
+			if b.stats and b.stats.id in valid_producers:
 				producer = b
 				break
 			if producer == null and b.stats and b.stats.is_hq:
@@ -411,9 +405,19 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 func _player_build_structure(bid: String) -> void:
 	_build_structure_for_team(0, bid)
 
+func _team_has_builder_for(team: int, bid: String) -> bool:
+	if not UnitRegistry.requires_advanced_builder(bid):
+		return true
+	for u in _get_team_units(team):
+		if u.stats and UnitRegistry.can_unit_construct(u.stats.id, bid):
+			return true
+	return false
+
 func _build_structure_for_team(team: int, bid: String) -> bool:
 	var bs := GameManager.registry.get_building(bid)
 	if bs == null:
+		return false
+	if not _team_has_builder_for(team, bid):
 		return false
 	var wallet := ResourceManager.get_wallet(team)
 	var cost := _wallet_cost(bs.cost_dict())

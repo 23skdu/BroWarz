@@ -51,5 +51,33 @@ static func compute(base_damage: float, damage_type: DamageType, armor_class: Ar
 	var dmg := base_damage * m * (1.0 - clampf(armor_reduction, 0.0, 0.95)) * cover_modifier
 	return maxf(dmg, 0.0)
 
+static func unit_role_multiplier(attacker_id: String, target_armor: int) -> float:
+	match attacker_id:
+		"sapperbot":
+			if target_armor == ArmorClass.STRUCTURE:
+				return 2.5
+		"frogbot":
+			if target_armor == ArmorClass.NAVAL or target_armor == ArmorClass.SUBMERGED or target_armor == ArmorClass.STRUCTURE:
+				return 2.2
+		"aa_vehicle":
+			if target_armor == ArmorClass.AIR:
+				return 3.0
+		"rocketbot":
+			if target_armor == ArmorClass.MEDIUM or target_armor == ArmorClass.HEAVY:
+				return 1.5
+		"sniperbot":
+			if target_armor == ArmorClass.UNARMORED or target_armor == ArmorClass.LIGHT:
+				return 1.5
+		"attack_sub":
+			if target_armor == ArmorClass.NAVAL or target_armor == ArmorClass.SUBMERGED:
+				return 1.8
+		"siege_mech", "artillery":
+			if target_armor == ArmorClass.STRUCTURE:
+				return 1.6
+	return 1.0
+
+static func compute_for_unit(attacker_id: String, base_damage: float, damage_type: DamageType, armor_class: ArmorClass, armor_reduction: float = 0.0, cover_modifier: float = 1.0) -> float:
+	return compute(base_damage, damage_type, armor_class, armor_reduction, cover_modifier) * unit_role_multiplier(attacker_id, armor_class)
+
 static func is_effective(damage_type: DamageType, armor_class: ArmorClass) -> bool:
 	return multiplier(damage_type, armor_class) >= 1.0

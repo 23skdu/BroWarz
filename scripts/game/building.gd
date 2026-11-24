@@ -52,7 +52,7 @@ func _process(delta):
 	var completed = Production.tick(production_queue, delta)
 	for uid in completed:
 		_spawn_unit(uid)
-	if stats and stats.id == "turret":
+	if stats and (stats.id == "turret" or stats.id == "missile_tower"):
 		_process_turret(delta)
 	queue_redraw()
 
@@ -60,17 +60,23 @@ func _process_turret(delta: float) -> void:
 	turret_timer -= delta
 	if turret_timer > 0.0:
 		return
+	var is_aa := stats != null and Fortification.is_anti_air(stats.id)
+	var max_rng := 320.0 if is_aa else 260.0
 	for u in get_tree().get_nodes_in_group("units"):
 		if not is_instance_valid(u) or u.team == team or ("is_exploding" in u and u.is_exploding):
 			continue
-		if global_position.distance_to(u.global_position) <= 260.0:
+		if is_aa and u.stats and u.stats.unit_class != 3:
+			continue
+		if global_position.distance_to(u.global_position) <= max_rng:
 			turret_timer = 0.9
 			fire_flash_timer = 0.22
 			turret_angle = (u.global_position - global_position).angle()
+			var dmg_type := Damage.DamageType.EXPLOSIVE if is_aa else Damage.DamageType.KINETIC
+			var dmg_val := 42.0 if is_aa else 25.0
 			var scene = get_tree().current_scene
 			if scene and scene.has_method("spawn_combat_tracer"):
-				scene.spawn_combat_tracer(global_position + Vector2.RIGHT.rotated(turret_angle) * 16.0, u.global_position, Damage.DamageType.KINETIC, team)
-			u.take_damage(25.0)
+				scene.spawn_combat_tracer(global_position + Vector2.RIGHT.rotated(turret_angle) * 16.0, u.global_position, dmg_type, team)
+			u.take_damage(dmg_val)
 			break
 
 func _spawn_unit(uid: String) -> void:
@@ -114,6 +120,7 @@ func _trigger_destruction() -> void:
 		body.visible = false
 	if hp_bar:
 		hp_bar.visible = false
+	GameManager.unregister_fort_block(self)
 	remove_from_group("buildings")
 	explosion_debris = UnitVisual.generate_explosion_debris(int(get_instance_id()), 14)
 	var scene = get_tree().current_scene

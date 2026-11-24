@@ -56,3 +56,34 @@ static func modifiers(id: int) -> Dictionary:
 		Id.VANGUARD:
 			return {"stealth_duration": 1.2, "mech_cost": 0.9}
 	return {}
+
+static func effective_max_hp(faction_id: int, unit_id: String, base_hp: int) -> int:
+	var mods := modifiers(faction_id)
+	if mods.has("tank_hp") and unit_id in ["light_tank", "mbt", "heavy_tank"]:
+		return int(round(float(base_hp) * float(mods["tank_hp"])))
+	return base_hp
+
+static func effective_speed(faction_id: int, unit_id: String, base_speed: float) -> float:
+	var mods := modifiers(faction_id)
+	if mods.has("sapper_speed") and unit_id in ["sapperbot", "engineerbot", "adv_engineerbot"]:
+		return base_speed * float(mods["sapper_speed"])
+	return base_speed
+
+static func effective_cloak_duration(faction_id: int, base_duration: float = 10.0) -> float:
+	var mods := modifiers(faction_id)
+	return Stealth.cloak_duration(base_duration, float(mods.get("stealth_duration", 1.0)))
+
+static func effective_unit_cost(faction_id: int, unit_stats: UnitStats) -> Dictionary:
+	var cost := unit_stats.cost_dict()
+	var mods := modifiers(faction_id)
+	var mult := 1.0
+	if unit_stats.unit_class == 3 and mods.has("air_cost"):
+		mult = float(mods["air_cost"])
+	elif (unit_stats.unit_class == 2 or unit_stats.unit_class == 4 or unit_stats.unit_class == 5) and mods.has("sea_cost"):
+		mult = float(mods["sea_cost"])
+	elif (unit_stats.unit_class == 0 or unit_stats.unit_class == 6 or unit_stats.unit_class == 7 or unit_stats.id == "light_mech") and mods.has("mech_cost"):
+		mult = float(mods["mech_cost"])
+	if mult != 1.0:
+		for k in cost.keys():
+			cost[k] = int(round(float(cost[k]) * mult))
+	return cost

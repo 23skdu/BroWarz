@@ -40,9 +40,9 @@ var _frame_cache: Dictionary = {}  # "state:frame" -> ImageTexture
 
 func _ready():
 	if stats:
-		hp = stats.hp
+		hp = effective_max_hp()
 		if stats.stealth:
-			cloak_timer = 10.0
+			cloak_timer = effective_cloak_duration()
 	target_pos = global_position
 	facing_angle = 0.0 if team == 0 else PI
 	turret_angle = facing_angle
@@ -56,14 +56,30 @@ func _ready():
 func setup(s: UnitStats, t: int, f: int = -1) -> void:
 	stats = s
 	team = t
-	faction = f if f >= 0 else (0 if t == 0 else 1)
-	hp = s.hp
+	faction = f if f >= 0 else (GameManager.player_faction if t == 0 else GameManager.ai_faction)
+	hp = effective_max_hp()
 	facing_angle = 0.0 if t == 0 else PI
 	turret_angle = facing_angle
 	if s.stealth:
-		cloak_timer = 10.0
+		cloak_timer = effective_cloak_duration()
 	_frame_cache.clear()
 	_update_visual()
+
+func effective_max_hp() -> int:
+	if stats == null:
+		return 100
+	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	return Faction.effective_max_hp(fac_id, stats.id, stats.hp)
+
+func effective_speed() -> float:
+	if stats == null:
+		return 100.0
+	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	return Faction.effective_speed(fac_id, stats.id, stats.speed)
+
+func effective_cloak_duration() -> float:
+	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	return Faction.effective_cloak_duration(fac_id, 10.0)
 
 func _setup_animated_sprite() -> void:
 	if sprite_node != null:
@@ -140,10 +156,10 @@ func _physics_process(delta):
 			queue_redraw()
 			return
 	if stats and stats.stealth and not has_target and attack_timer <= 0.0:
-		cloak_timer = minf(cloak_timer + delta, 10.0)
+		cloak_timer = minf(cloak_timer + delta, effective_cloak_duration())
 
-	# Medicbot auto-repair nearby friendly robots
-	if stats and stats.id == "medicbot":
+	# Medicbot and Engineerbots auto-repair nearby friendly robots/structures
+	if stats and stats.id in ["medicbot", "engineerbot", "adv_engineerbot"]:
 		_auto_repair_allies(delta)
 
 	if has_target:
@@ -159,7 +175,7 @@ func _physics_process(delta):
 			target_pos = hex_path[path_index]
 		var dir = (target_pos - global_position)
 		if dir.length() > 4.0:
-			var spd := stats.speed if stats else 100.0
+			var spd := effective_speed()
 			var terrain_mult := _terrain_speed_multiplier()
 			velocity = dir.normalized() * spd * terrain_mult
 			facing_angle = lerp_angle(facing_angle, velocity.angle(), minf(1.0, delta * 14.0))
@@ -201,16 +217,28 @@ func _terrain_speed_multiplier() -> float:
 	return clampf(1.0 / cost, 0.4, 1.4)
 
 func _auto_repair_allies(delta: float) -> void:
+	var rate := 18.0 if (stats and stats.id == "adv_engineerbot") else 12.0
 	for u in get_tree().get_nodes_in_group("units"):
 		if u == self or not is_instance_valid(u) or u.team != team or u.is_exploding:
 			continue
-		if u.stats and Repair.can_repair(u.hp, u.stats.hp):
+		var max_hp: int = u.effective_max_hp() if u.has_method("effective_max_hp") else (u.stats.hp if u.stats else 100)
+		if u.stats and Repair.can_repair(u.hp, max_hp):
 			if global_position.distance_to(u.global_position) <= 100.0:
-				var amt := int(ceil(Repair.repair_amount(12.0, delta)))
-				u.hp = mini(u.stats.hp, u.hp + amt)
+				var amt := int(ceil(Repair.repair_amount(rate, delta)))
+				u.hp = mini(max_hp, u.hp + amt)
 				if u.hp_bar:
-					u.hp_bar.value = float(u.hp) / float(u.stats.hp) * 100.0
-				break
+					u.hp_bar.value = float(u.hp) / float(max_hp) * 100.0
+				return
+	if stats and stats.can_build:
+		for b in get_tree().get_nodes_in_group("buildings"):
+			if not is_instance_valid(b) or b.team != team or ("is_exploding" in b and b.is_exploding):
+				continue
+			if b.stats and Repair.can_repair(b.hp, b.stats.hp) and global_position.distance_to(b.global_position) <= 110.0:
+				var b_amt := int(ceil(Repair.repair_amount(rate, delta)))
+				b.hp = mini(b.stats.hp, b.hp + b_amt)
+				if b.hp_bar:
+					b.hp_bar.value = float(b.hp) / float(b.stats.hp) * 100.0
+				return
 
 func _try_attack():
 	if attack_timer > 0:
@@ -254,9 +282,8 @@ func _perform_attack(enemy: Node2D) -> void:
 		var tx := clampi(int(enemy.global_position.x / 16.0), 0, GameManager.current_map.width - 1)
 		var ty := clampi(int(enemy.global_position.y / 16.0), 0, GameManager.current_map.height - 1)
 		cover_mod = Cover.modifier(GameManager.current_map.get_terrain(tx, ty))
-	var final_dmg := Damage.compute(base_dmg, dmg_type, target_armor, 0.0, cover_mod)
-	if stats and stats.id == "sapperbot" and target_armor == Damage.ArmorClass.STRUCTURE:
-		final_dmg *= 2.5
+	var uid := stats.id if stats else ""
+	var final_dmg := Damage.compute_for_unit(uid, base_dmg, dmg_type, target_armor, 0.0, cover_mod)
 
 	# Spawn projectile tracer & muzzle flash in active game scene
 	var scene = get_tree().current_scene
@@ -372,7 +399,7 @@ func take_damage(amount: float) -> void:
 	hp -= int(maxf(1.0, round(amount)))
 	hit_flash_timer = 0.14
 	if hp_bar:
-		hp_bar.value = maxf(0.0, float(hp) / float(stats.hp if stats else 100) * 100.0)
+		hp_bar.value = maxf(0.0, float(hp) / float(effective_max_hp()) * 100.0)
 	if hp <= 0:
 		_trigger_explosion()
 

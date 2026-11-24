@@ -23,6 +23,46 @@ func has_unit(id: String) -> bool:
 func has_building(id: String) -> bool:
 	return buildings.has(id)
 
+static func requires_advanced_builder(building_id: String) -> bool:
+	return building_id in ["mech_factory_3", "advanced_shipyard", "aeries_2"]
+
+static func can_unit_construct(builder_unit_id: String, building_id: String) -> bool:
+	if builder_unit_id == "sapperbot":
+		return Fortification.is_fortification(building_id)
+	if builder_unit_id == "adv_engineerbot":
+		return true
+	if builder_unit_id == "engineerbot":
+		return not requires_advanced_builder(building_id)
+	return false
+
+static func producer_ids_for_unit(unit_id: String, unit_class: int = 0) -> Array[String]:
+	match unit_id:
+		"engineerbot":
+			return ["hq", "mech_factory_1", "barracks"]
+		"adv_engineerbot", "apc", "mbt", "artillery", "aa_vehicle":
+			return ["mech_factory_2", "factory"]
+		"heavy_tank", "heavy_mech", "siege_mech":
+			return ["mech_factory_3", "factory"]
+		"patrol_boat", "landing_craft", "hovercraft", "frogbot":
+			return ["docks", "shipyard"]
+		"corvette", "attack_sub", "cruiser":
+			return ["shipyard", "advanced_shipyard"]
+		"battleship", "aircraft_carrier", "ballistic_sub":
+			return ["advanced_shipyard", "shipyard"]
+		"scout_drone", "fighter_drone":
+			return ["aeries_1", "aeries_2", "airfield"]
+		"bomber_drone", "awacs":
+			return ["aeries_2", "aeries_1", "airfield"]
+	match unit_class:
+		1, 7:
+			return ["mech_factory_2", "mech_factory_1", "factory"]
+		2, 4, 5:
+			return ["docks", "shipyard", "advanced_shipyard"]
+		3:
+			return ["aeries_1", "aeries_2", "airfield"]
+		_:
+			return ["mech_factory_1", "barracks"]
+
 func populate_defaults() -> void:
 	# Infantry & Mechanized (Part 8)
 	_add_u("riflebot", "Riflebot", 100, 130.0, Damage.ArmorClass.UNARMORED, Damage.DamageType.KINETIC, 12, 180.0, 280.0, 0, 50, 0, 25, 3.0, 0, false, false)

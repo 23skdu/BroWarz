@@ -43,3 +43,17 @@ func test_desert_and_hills_terrains():
 	assert_true(MapData.movement_cost(MapData.Terrain.HILLS, 1) > MapData.movement_cost(MapData.Terrain.PLAINS, 1))
 	assert_true(Cover.provides_cover(MapData.Terrain.HILLS))
 
+func test_all_unit_class_terrain_mechanics():
+	# Class 6 (Heavybot) and Class 7 (Heavy/Siege Mech) cross mountains
+	assert_false(MapData.is_passable(MapData.Terrain.MOUNTAIN, 0, false))
+	assert_true(MapData.is_passable(MapData.Terrain.MOUNTAIN, 6, true))
+	assert_false(MapData.is_passable(MapData.Terrain.MOUNTAIN, 1, false))
+	assert_true(MapData.is_passable(MapData.Terrain.MOUNTAIN, 7, true))
+	# Class 4 (Hovercraft) and Class 5 (Frogbot) traverse both land and sea
+	assert_true(MapData.is_passable(MapData.Terrain.PLAINS, 4))
+	assert_true(MapData.is_passable(MapData.Terrain.SEA, 4))
+	assert_false(MapData.is_passable(MapData.Terrain.MOUNTAIN, 4))
+	assert_true(MapData.is_passable(MapData.Terrain.DESERT, 5))
+	assert_true(MapData.is_passable(MapData.Terrain.SEA, 5))
+	assert_true(MapData.movement_cost(MapData.Terrain.SEA, 5) < MapData.movement_cost(MapData.Terrain.PLAINS, 5))
+
