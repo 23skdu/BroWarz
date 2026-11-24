@@ -111,7 +111,7 @@ func _on_transport_pressed() -> void:
 	NetworkManager.request_settings({"transport": "webrtc" if cur == "enet" else "enet"})
 
 func _on_ready_pressed() -> void:
-	NetworkManager.request_ready(not NetworkManager.lobby.ready_of(multiplayer.get_unique_id()))
+	NetworkManager.set_local_ready(not NetworkManager.lobby.ready_of(multiplayer.get_unique_id()))
 
 func _on_start_pressed() -> void:
 	if not NetworkManager.is_host():

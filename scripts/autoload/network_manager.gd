@@ -192,7 +192,7 @@ func request_settings(raw: Dictionary) -> void:
 		_cli_settings.rpc_id(1, raw)
 
 ## Toggle this player's ready flag.
-func request_ready(ready: bool) -> void:
+func set_local_ready(ready: bool) -> void:
 	if _has_peer() and state != State.IDLE:
 		_cli_ready.rpc_id(1, ready)
 
@@ -267,7 +267,7 @@ func validate_hello_payload(
 ## {} when the command must be dropped.
 func prepare_inbound_command(sender_id: int, cmd: Variant, now_ms: float = -1.0) -> Dictionary:
 	var now := _now() if now_ms < 0.0 else now_ms
-	if not lobby.has_player(sender_id) or not lobby.is_connected(sender_id):
+	if not lobby.has_player(sender_id) or not lobby.is_peer_connected(sender_id):
 		return {}
 	if not _cmd_limiter.try_request(sender_id, now):
 		return {}

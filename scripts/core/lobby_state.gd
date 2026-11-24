@@ -197,7 +197,7 @@ func mark_disconnected(peer_id: int, now_ms: float) -> void:
 	players[peer_id]["ready"] = false
 	changed.emit()
 
-func is_connected(peer_id: int) -> bool:
+func is_peer_connected(peer_id: int) -> bool:
 	return players.has(peer_id) and bool(players[peer_id]["connected"])
 
 ## Seats still inside the reconnect grace window.
