@@ -37,7 +37,9 @@ jobs:
             "$HOME/.local/share/godot/export_templates/4.7.2.stable"
 
       - name: Build web export
-        run: make build-web
+        # The container runs as root, so `git rev-parse` can refuse the
+        # checkout as unsafe; pin the commit from the Actions environment.
+        run: make build-web GIT_SHA="${GITHUB_SHA:0:7}"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
