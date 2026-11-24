@@ -52,7 +52,7 @@ Common targets (see `make help`):
 
 ## Project Layout
 
-- `docs/` — design document, roadmap, corporations, and units
+- `docs/` — design document, roadmap, corporations, units, and maps
 - `scenes/`, `scripts/`, `resources/`, `assets/` — game scenes, core logic, autoloads, and assets
 - `tests/` — GUT unit/integration/fuzz/regression tests
 - `addons/` — Godot addons (GUT)
