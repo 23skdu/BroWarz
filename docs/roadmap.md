@@ -17,12 +17,6 @@ Completed roadmap items have been removed. The items below are the verified gaps
 - [ ] Implement landing craft and amphibious transport.
 - [ ] Add naval counterplay (depth charges, torpedoes, anti-sub).
 
-## Part 17 — Map Editor UI
-- [ ] Build tile painting tools (brush, rectangle, fill).
-- [ ] Place resources, start positions, neutral structures.
-- [ ] Validate maps and save/load `.bwm`.
-- [ ] In-game map browser with metadata/preview.
-
 ## Part 19 — Audio & Polish
 - [ ] Add weapon, UI, and alert sound effects.
 - [ ] Add adaptive music tracks.

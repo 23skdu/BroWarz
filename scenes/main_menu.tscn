@@ -40,6 +40,9 @@ text = "Host P2P Multiplayer"
 [node name="JoinButton" type="Button" parent="VBox"]
 text = "Join P2P Multiplayer"
 
+[node name="EditorButton" type="Button" parent="VBox"]
+text = "Map Editor"
+
 [node name="IpEdit" type="LineEdit" parent="VBox"]
 placeholder_text = "127.0.0.1"
 
