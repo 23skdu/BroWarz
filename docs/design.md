@@ -291,12 +291,17 @@ P2P cannot fully prevent cheating. v1 mitigations: deterministic lockstep + chec
 ---
 ## 26. Current Implementation Status
 
-The repository now contains a playable single-player skirmish vertical slice plus extensive core systems. Implemented:
+The repository now contains a playable single-player skirmish vertical slice and P2P multiplayer lobby/match foundation plus extensive core systems. Implemented:
 
-- Project bootstrap, autoloads, 4 corporations with colors/modifiers.
-- Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, game state/replay/save settings, pathfinding, AI heuristics, strategic weapons, formation, alliances, scoring, power, resource deposits.
-- Gameplay: 128×128 map, units across infantry/armor/naval/air, buildings (HQ, barracks, factory, airfield, shipyard, extractor, farm, power, lab, radar, turret, silo, orbital uplink), combat with VFX/tracers, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, skirmish AI, audio stubs.
-- Verification: GUT unit/fuzz/regression suites and `make ci` gate.
+- Project bootstrap, autoloads (`GameManager`, `NetworkManager`, `ResourceManager`, `SettingsManager`, `AudioManager`, `SceneManager`), and 4 corporations with signature colors, emblems, and gameplay modifiers.
+- Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, fortifications, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, network security/rate-limiting/sequence guards, lobby state, game state/replay/save settings, hex grid & A* pathfinding, AI heuristics, strategic weapons, formation, alliances, scoring, power, resource deposits, and ambient wildlife (`Wildlife`).
+- Visuals & Audio:
+  - Large 48×48 high-detail procedural unit sprites (`UnitVisual`) across all 31 unit types with 100% uniform geometry across factions, 5 animation states (`IDLE`, `MOVE`, `FIRE`, `HIT`, `EXPLODE`), articulated turret rotation, barrel recoil, muzzle flashes, projectile tracers, and shrapnel/scorch-mark explosions.
+  - High-resolution 512×512 terrain rendering (4× sub-tile detail) with forest tree canopies and shrubs, water wave highlights, and mountain ridges.
+  - Ambient non-combatant wildlife (Birds on all maps, Dolphins and Squid in sea/river water, and Deer in forests/plains) that wander, flee when chased or shot at, and die when hit.
+  - Custom retro-future corporate dystopia main logo (`assets/logo.png`) and minimalist corporation banners (`assets/banners/*.png`).
+- Gameplay: 128×128 maps (Desert, Island Chain, Forest), 31 units across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard), and map editor.
+- Verification: GUT unit/fuzz/regression suites (144 tests, 0 orphans) and `make ci` gate.
 
 Outstanding gaps (see `docs/roadmap.md`):
 

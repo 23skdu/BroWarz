@@ -76,18 +76,7 @@ func _setup_animated_sprite() -> void:
 
 func _team_base_color() -> Color:
 	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	var c := Faction.color_of(fac_id)
-	if stats:
-		match stats.unit_class:
-			1, 4, 7: c = c.darkened(0.08)
-			2: c = c.lerp(Color.CYAN, 0.18)
-			3: c = c.lightened(0.16)
-			5: c = c.darkened(0.16)
-	return c
-
-func _team_accent_color() -> Color:
-	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	return Faction.accent_of(fac_id)
+	return Faction.color_of(fac_id)
 
 func _refresh_sprite_texture() -> void:
 	if sprite_node == null:
@@ -97,7 +86,7 @@ func _refresh_sprite_texture() -> void:
 	var key := "%s:%d:%d" % [uid, anim_state, f_idx]
 	if not _frame_cache.has(key):
 		var uclass := stats.unit_class if stats else 0
-		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), 32, uid, _team_accent_color())
+		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), UnitVisual.DEFAULT_SPRITE_SIZE, uid)
 		_frame_cache[key] = ImageTexture.create_from_image(img)
 	sprite_node.texture = _frame_cache[key]
 	sprite_node.rotation = 0.0 if is_exploding else facing_angle

@@ -46,6 +46,12 @@ func test_high_res_terrain_and_specific_unit_ids():
 	assert_eq(t_img.get_width(), 64)
 	assert_eq(t_img.get_height(), 64)
 	for uid in ["riflebot", "heavybot", "stealthbot", "sniperbot", "rocketbot", "medicbot", "mbt", "heavy_mech", "attack_sub", "fighter_drone"]:
-		var u_img := UnitVisual.build_unit_frame_image(0, UnitVisual.AnimState.IDLE, 0, Faction.color_of(0), 32, uid, Faction.accent_of(0))
-		assert_eq(u_img.get_width(), 32)
+		var u_img := UnitVisual.build_unit_frame_image(0, UnitVisual.AnimState.IDLE, 0, Faction.color_of(0), 48, uid)
+		assert_eq(u_img.get_width(), 48)
+		var u_img_f1 := UnitVisual.build_unit_frame_image(0, UnitVisual.AnimState.IDLE, 0, Faction.color_of(1), 48, uid)
+		assert_eq(u_img_f1.get_width(), 48)
+		# Verify pixel-perfect structural uniformity across factions (identical opaque silhouette mask)
+		for y in range(48):
+			for x in range(48):
+				assert_eq(u_img.get_pixel(x, y).a > 0.0, u_img_f1.get_pixel(x, y).a > 0.0)
 

@@ -1,6 +1,6 @@
 # BroWarz — Units
 
-Each unit has a stylized, high-contrast outlined sprite tailored to its combat role and colored in its owning corporation's primary and accent livery (**AeroDyne Industries**, **FerroCore Heavy**, **Pelagic Systems**, and **Vanguard Robotics**).
+Every unit has a large, detailed 48×48 pixel-art sprite (rendered below at 64×64) with a strictly uniform silhouette, structural shading, and weapon/chassis geometry across all four corporations (**AeroDyne Industries**, **FerroCore Heavy**, **Pelagic Systems**, and **Vanguard Robotics**), recolored solely by each corporation's primary color ramp.
 
 ## Infantry Robots
 
