@@ -25,6 +25,9 @@ var ai_timer: float = 0.0
 var ai_tech_tier: int = 1
 var player_tech_tier: int = 1
 var ai_tactical_state: String = "rally"
+# Last time (elapsed seconds) each AI unit was ordered to retreat, so damaged
+# units rejoin the fight instead of being re-ordered home on every AI tick.
+var ai_retreat_until: Dictionary = {}
 var replay_log := Replay.new()  # match command record (Step 15)
 var match_duration: float = 0.0
 var drag_selecting: bool = false
@@ -254,25 +257,54 @@ func _set_base_rates(pid: int, mult: float) -> void:
 	ResourceManager.set_rate(pid, Economy.Res.FOOD, int(round(15.0 * mult)))
 
 func _spawn_starting_bases() -> void:
+	# Use map-editor HQ spawns when present; generated maps fall back to the
+	# traditional corners, nudged to the nearest vehicle-passable tile.
+	var player_base := _hq_world_pos(0, Vector2i(8, 8))
+	var ai_base := _hq_world_pos(1, Vector2i(68, 56))
+
 	# Player 0 (Blue) top-left base
-	_spawn_building_by_id("hq", Vector2(140, 140), 0)
-	_spawn_building_by_id("barracks", Vector2(220, 140), 0)
-	_spawn_building_by_id("factory", Vector2(140, 220), 0)
-	_spawn_building_by_id("extractor", Vector2(80, 200), 0)
-	_spawn_unit_by_id("riflebot", Vector2(200, 200), 0)
-	_spawn_unit_by_id("riflebot", Vector2(230, 200), 0)
-	_spawn_unit_by_id("rocketbot", Vector2(200, 230), 0)
-	_spawn_unit_by_id("sapperbot", Vector2(170, 200), 0)
+	_spawn_building_by_id("hq", player_base, 0)
+	_spawn_building_by_id("barracks", player_base + Vector2(80, 0), 0)
+	_spawn_building_by_id("factory", player_base + Vector2(0, 80), 0)
+	_spawn_building_by_id("extractor", player_base + Vector2(-60, 60), 0)
+	_spawn_unit_by_id("riflebot", player_base + Vector2(60, 60), 0)
+	_spawn_unit_by_id("riflebot", player_base + Vector2(90, 60), 0)
+	_spawn_unit_by_id("rocketbot", player_base + Vector2(60, 90), 0)
+	_spawn_unit_by_id("sapperbot", player_base + Vector2(30, 60), 0)
 
 	# Player 1 (Red / Skirmish AI) bottom-right base
-	_spawn_building_by_id("hq", Vector2(1100, 900), 1)
-	_spawn_building_by_id("barracks", Vector2(1010, 900), 1)
-	_spawn_building_by_id("factory", Vector2(1100, 810), 1)
-	_spawn_building_by_id("extractor", Vector2(1170, 840), 1)
-	_spawn_unit_by_id("riflebot", Vector2(1020, 820), 1)
-	_spawn_unit_by_id("riflebot", Vector2(1050, 820), 1)
-	_spawn_unit_by_id("rocketbot", Vector2(1020, 850), 1)
-	_spawn_unit_by_id("sapperbot", Vector2(1070, 850), 1)
+	_spawn_building_by_id("hq", ai_base, 1)
+	_spawn_building_by_id("barracks", ai_base + Vector2(-90, 0), 1)
+	_spawn_building_by_id("factory", ai_base + Vector2(0, -90), 1)
+	_spawn_building_by_id("extractor", ai_base + Vector2(70, -60), 1)
+	_spawn_unit_by_id("riflebot", ai_base + Vector2(-80, -80), 1)
+	_spawn_unit_by_id("riflebot", ai_base + Vector2(-50, -80), 1)
+	_spawn_unit_by_id("rocketbot", ai_base + Vector2(-80, -50), 1)
+	_spawn_unit_by_id("sapperbot", ai_base + Vector2(-30, -50), 1)
+
+func _hq_world_pos(team: int, fallback_tile: Vector2i) -> Vector2:
+	var tile := fallback_tile
+	if map_data != null:
+		var authored := map_data.get_hq_spawn(team)
+		if authored.x >= 0 and authored.y >= 0:
+			tile = authored
+		tile = _nearest_vehicle_tile(tile)
+	return Vector2((float(tile.x) + 0.5) * TILE_SIZE, (float(tile.y) + 0.5) * TILE_SIZE)
+
+func _nearest_vehicle_tile(origin: Vector2i) -> Vector2i:
+	if map_data == null:
+		return origin
+	for radius in range(0, 25):
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if maxi(absi(dx), absi(dy)) != radius:
+					continue
+				var t := origin + Vector2i(dx, dy)
+				if not map_data.in_bounds(t.x, t.y):
+					continue
+				if MapData.is_passable(map_data.get_terrain(t.x, t.y), 1):
+					return t
+	return origin
 
 func _spawn_unit(pos: Vector2, team: int) -> void:
 	_spawn_unit_by_id("riflebot", pos, team)
@@ -330,7 +362,11 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 	return b
 
 func _world_mouse_pos(screen_pos: Vector2) -> Vector2:
-	return screen_pos + camera.position - get_viewport_rect().size / 2.0
+	if camera == null:
+		return screen_pos
+	var offset := screen_pos - get_viewport_rect().size * 0.5
+	# Undo the camera transform so orders/placement stay accurate while zoomed.
+	return camera.position + Vector2(offset.x / camera.zoom.x, offset.y / camera.zoom.y)
 
 func _unhandled_input(event):
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
@@ -560,7 +596,7 @@ func _record_replay_command(cmd: Dictionary) -> void:
 	if not (cmd is Dictionary):
 		return
 	replay_log.seed = int(GameManager.match_seed)
-	replay_log.map_name = String(GameManager.map_type)
+	replay_log.map_name = str(GameManager.map_type)
 	var c := Command.new()
 	c.type = Command.Type.MOVE
 	c.tick = int(elapsed_time * 60.0)
@@ -664,9 +700,10 @@ func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vect
 		return false
 	_spawn_building_by_id(bid, target_pos, team)
 	if bid == "extractor":
-		var cur_iron := int(ResourceManager.rates[team].get(Economy.Res.IRON, 20))
-		var cur_oil := int(ResourceManager.rates[team].get(Economy.Res.OIL, 10))
-		var cur_geo := int(ResourceManager.rates[team].get(Economy.Res.GEOTHERMAL, 5))
+		# Expand base production, not the efficiency-scaled effective rate.
+		var cur_iron := ResourceManager.get_base_rate(team, Economy.Res.IRON)
+		var cur_oil := ResourceManager.get_base_rate(team, Economy.Res.OIL)
+		var cur_geo := ResourceManager.get_base_rate(team, Economy.Res.GEOTHERMAL)
 		ResourceManager.set_rate(team, Economy.Res.IRON, cur_iron + 12)
 		ResourceManager.set_rate(team, Economy.Res.OIL, cur_oil + 8)
 		ResourceManager.set_rate(team, Economy.Res.GEOTHERMAL, cur_geo + 5)
@@ -959,15 +996,22 @@ func _run_skirmish_ai_turn() -> void:
 	if weak_target != null:
 		primary_target_pos = weak_target.global_position
 
-	var rally_pos := Vector2(880, 720)
+	# Rally relative to the AI HQ so custom/island maps do not send squads into
+	# a hardcoded corner that may be off-map or underwater.
+	var rally_pos := ai_base_pos + Vector2(-220, -180)
 	var offsets := Formation.grid_offsets(combat_units.size(), 30.0)
 	for i in range(combat_units.size()):
 		var u: Node2D = combat_units[i]
 		var max_hp := float(u.stats.hp if u.stats else 100)
 		var hp_ratio := float(u.hp) / maxf(1.0, max_hp)
+		var retreat_key := u.get_instance_id()
+		var retreat_until := float(ai_retreat_until.get(retreat_key, 0.0))
 		if AI.retreat_threshold(hp_ratio, 0.28):
-			u.move_to(ai_base_pos + Vector2(-40, -40), false)
+			if elapsed_time >= retreat_until:
+				u.move_to(ai_base_pos + Vector2(-40, -40), false)
+				ai_retreat_until[retreat_key] = elapsed_time + 8.0
 			continue
+		ai_retreat_until.erase(retreat_key)
 		match ai_tactical_state:
 			"defend":
 				var def_pos := closest_intruder.global_position if closest_intruder != null else ai_base_pos
@@ -1021,13 +1065,7 @@ func _tick_power() -> void:
 		var bids := _get_team_building_ids(t)
 		var summary := Power.team_power_summary(bids)
 		var eff := Power.efficiency(float(summary["balance"]))
-		ResourceManager.power_efficiency[t] = eff
-		if eff >= 1.0:
-			continue
-		for k in [Economy.Res.OIL, Economy.Res.IRON, Economy.Res.GEOTHERMAL, Economy.Res.FOOD]:
-			var r := int(ResourceManager.rates.get(t, {}).get(k, 0))
-			if r > 0:
-				ResourceManager.set_rate(t, k, int(maxf(0.0, r * eff)))
+		ResourceManager.set_power_efficiency(t, eff)
 
 ## Spatial hash over unit positions for fast radius queries (Step 20).
 func _rebuild_spatial_grid() -> void:
@@ -1212,7 +1250,7 @@ func _draw():
 func _update_fog() -> void:
 	if fog == null:
 		return
-	var team := my_team()
+	var team := GameManager.local_team
 	if not GameManager.fog_enabled:
 		fog_sprite.visible = false
 		for u in units_container.get_children():

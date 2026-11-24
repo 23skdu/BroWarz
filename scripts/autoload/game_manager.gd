@@ -44,6 +44,8 @@ func _ready() -> void:
 	registry.populate_defaults()
 
 func start_single_player(difficulty: int = 1, map: MapData = null, p_faction: int = 0, e_faction: int = 1) -> void:
+	begin_net_session()
+	match_seed = 1337
 	match_mode = Mode.SINGLE_PLAYER
 	ai_difficulty = clampi(difficulty, 0, 2)
 	player_faction = p_faction
@@ -54,8 +56,7 @@ func start_single_player(difficulty: int = 1, map: MapData = null, p_faction: in
 	net_transport = "enet"
 	if registry.units.is_empty():
 		registry.populate_defaults()
-	if map != null:
-		current_map = map
+	current_map = map
 	match_started = true
 
 func start_match(map: MapData) -> void:
@@ -78,6 +79,7 @@ func stage_net_match(
 	map_t: int, seed_value: int, fog: bool, transport: String,
 	match_teams: Array, team: int, match_alliances: Dictionary = {},
 ) -> void:
+	begin_net_session()
 	match_mode = Mode.MULTIPLAYER
 	map_type = clampi(map_t, 0, 2)
 	match_seed = seed_value
@@ -94,6 +96,8 @@ func stage_net_match(
 func begin_net_session() -> void:
 	_net_id_counter = 0
 	fort_blocks.clear()
+	alliances.clear()
+	active_clouds.clear()
 
 # --- Fortification movement blocks ----------------------------------------
 

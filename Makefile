@@ -344,10 +344,15 @@ build: build-web
 build-web: check-godot templates prep-build import
 	@mkdir -p "$(WEB_DIR)"
 	"$(GODOT)" --headless --export-release "Web" "$(WEB_DIR)/index.html"
+	@cp -f favicon.ico "$(WEB_DIR)/favicon.ico"
+	@touch "$(WEB_DIR)/.nojekyll"
 	$(CURL) -fsSL -o "$(WEB_DIR)/coi-serviceworker.js" "$(COI_SW_URL)"
 	@echo "$(COI_SW_SHA256)  $(WEB_DIR)/coi-serviceworker.js" | sha256sum -c -
 	@if ! grep -q 'coi-serviceworker.js' "$(WEB_DIR)/index.html"; then \
 		sed -i 's|<head>|<head><script src="coi-serviceworker.js"></script>|g' "$(WEB_DIR)/index.html"; \
+	fi
+	@if ! grep -q 'href="favicon.ico"' "$(WEB_DIR)/index.html"; then \
+		sed -i 's|<head>|<head><link rel="icon" type="image/x-icon" href="favicon.ico" />|g' "$(WEB_DIR)/index.html"; \
 	fi
 	@echo "Web build exported to $(WEB_DIR)/"
 
