@@ -21,6 +21,12 @@ var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_ra
 var active_tracers: Array = []  # Array of Dictionary {from, to, color, width, timer, duration}
 var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
 
+const TILE_SIZE: float = 10.0
+var fog: FogOfWar
+var fog_image: Image
+var fog_texture: ImageTexture
+var fog_sprite: Sprite2D
+
 @onready var units_container = $Units
 @onready var ui = $UI
 @onready var status_label = $UI/StatusLabel
@@ -34,6 +40,15 @@ func _ready():
 		GameManager.registry.populate_defaults()
 	map_data = MapData.new(128, 128)
 	_generate_map()
+	fog = FogOfWar.new(128, 128)
+	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	fog_texture = ImageTexture.create_from_image(fog_image)
+	fog_sprite = Sprite2D.new()
+	fog_sprite.texture = fog_texture
+	fog_sprite.scale = Vector2(TILE_SIZE, TILE_SIZE)
+	fog_sprite.centered = false
+	fog_sprite.z_index = 10
+	add_child(fog_sprite)
 	camera = $Camera2D
 	camera.position = Vector2(360, 300)
 	_setup_hud()
@@ -479,6 +494,7 @@ func _process(delta):
 			ai_timer = 0.0
 			_run_skirmish_ai_turn()
 
+	_update_fog()
 	_update_hud()
 	_check_win()
 	var pan = Vector2.ZERO
@@ -669,3 +685,38 @@ func _draw():
 		var r := Rect2(drag_start, drag_current - drag_start).abs()
 		draw_rect(r, Color(0.2, 0.9, 0.3, 0.18), true)
 		draw_rect(r, Color(0.2, 0.95, 0.3, 0.9), false, 2.0)
+
+func _update_fog() -> void:
+	if fog == null:
+		return
+	fog.reset_visibility()
+	for u in units_container.get_children():
+		if is_instance_valid(u) and u.team == 0:
+			var tx := int(u.global_position.x / TILE_SIZE)
+			var ty := int(u.global_position.y / TILE_SIZE)
+			var sight_tiles := 8
+			if u.stats:
+				sight_tiles = int(u.stats.sight / TILE_SIZE)
+			fog.mark_visible(tx, ty, sight_tiles)
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and b.team == 0:
+			var tx := int(b.global_position.x / TILE_SIZE)
+			var ty := int(b.global_position.y / TILE_SIZE)
+			fog.mark_visible(tx, ty, 5)
+	for y in range(128):
+		for x in range(128):
+			var col := Color(0, 0, 0, 0.9)
+			if fog.is_visible(x, y):
+				col = Color(0, 0, 0, 0.0)
+			elif fog.is_explored(x, y):
+				col = Color(0, 0, 0, 0.45)
+			fog_image.set_pixel(x, y, col)
+	fog_texture.update(fog_image)
+	for u in units_container.get_children():
+		if is_instance_valid(u):
+			if u.team == 0:
+				u.visible = true
+			else:
+				var tx := int(u.global_position.x / TILE_SIZE)
+				var ty := int(u.global_position.y / TILE_SIZE)
+				u.visible = fog.is_visible(tx, ty)
