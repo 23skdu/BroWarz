@@ -25,6 +25,8 @@ var ai_timer: float = 0.0
 var ai_tech_tier: int = 1
 var player_tech_tier: int = 1
 var ai_tactical_state: String = "rally"
+var replay_log := Replay.new()  # match command record (Step 15)
+var match_duration: float = 0.0
 var drag_selecting: bool = false
 var drag_start: Vector2 = Vector2.ZERO
 var drag_current: Vector2 = Vector2.ZERO
@@ -508,6 +510,7 @@ func _disembark_units_for_team(team: int, candidates: Array) -> int:
 	return unloaded
 
 func apply_command(cmd: Dictionary) -> bool:
+	_record_replay_command(cmd)
 	var ctype := String(cmd.get("type", ""))
 	var team := int(cmd.get("team", GameManager.local_team))
 	match ctype:
@@ -532,6 +535,35 @@ func apply_command(cmd: Dictionary) -> bool:
 				u.hold_position = (ctype == "hold")
 			return true
 	return false
+
+## Record accepted commands into the Replay log (Step 15).
+func _record_replay_command(cmd: Dictionary) -> void:
+	if not (cmd is Dictionary):
+		return
+	replay_log.seed = int(GameManager.match_seed)
+	replay_log.map_name = String(GameManager.map_type)
+	var c := Command.new()
+	c.type = Command.Type.MOVE
+	c.tick = int(elapsed_time * 60.0)
+	c.player_id = int(GameManager.local_team)
+	var ids = cmd.get("unit_ids", null)
+	if ids is Array:
+		for v in ids as Array:
+			c.unit_ids.append(int(v))
+	replay_log.record(c)
+
+## Save the replay log to user://replays/match.json.
+func save_replay() -> Error:
+	DirAccess.make_dir_recursive_absolute("user://replays")
+	var path := "user://replays/match.json"
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return FileAccess.get_open_error()
+	f.store_string(JSON.stringify(replay_log.to_dict()))
+	f.close()
+	if is_instance_valid(status_label):
+		status_label.text = "Replay saved (%d commands)" % replay_log.command_count()
+	return OK
 
 func _train_unit_for_team(team: int, uid: String) -> bool:
 	var s := GameManager.registry.get_unit(uid)

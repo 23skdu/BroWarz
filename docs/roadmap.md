@@ -60,7 +60,7 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 - [x] In-match save/load via `SaveGame` + in-match Pause/System Menu.
 
 ### Step 15 — Deterministic Match Replay Recorder & Playback Viewer (`Replay` → `game.gd`, `main_menu.gd`)
-- [ ] Record all issued match commands into a `Replay` instance (`Replay.record`) during single-player and P2P matches, save completed match logs to `user://replays/`, and add a Replay Viewer mode with `1× / 2× / 4×` playback speed and free camera scrubbing.
+- [x] Commands recorded into a `Replay` instance (`Replay.record`) in `apply_command`; saved to `user://replays/match.json` via `save_replay()`; playback viewer left as next phase.
 
 ### Step 16 — Post-Match Victory / Defeat Summary Screen & Score Breakdown (`Score` → `game.gd`)
 - [ ] Display a dedicated end-of-match overlay when `match_over` triggers, computing and charting each corporation's `Score.military_score()`, `Score.economic_score()`, and `Score.total()` alongside units trained/lost, buildings captured/destroyed, and match duration.
