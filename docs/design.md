@@ -117,6 +117,8 @@ Units are grouped by domain. Each has a role, hard counters, and a cost in resou
 
 **Counters (rock-paper-scissors):** infantry ↔ armor (rockets), armor ↔ air (AA), air ↔ infantry, naval ↔ naval, subs ↔ surface (torpedoes), stealth ↔ radar, fortifications ↔ sappers.
 
+**Amphibious hazard:** Hovercraft traverse both land and sea, but occasionally suffer a unique hazard — "My Hovercraft is full of eels!" — temporarily disabling the unit.
+
 ## 7. Terrain & Maps
 
 - **Grid:** 128×128 tiles, each tile 2 world units (256×256 m battlefield). Tile size configurable for editor preview.

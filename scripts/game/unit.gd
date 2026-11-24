@@ -7,6 +7,7 @@ var hp: int = 100
 var selected: bool = false
 var target_pos: Vector2 = Vector2.ZERO
 var has_target: bool = false
+var eel_timer: float = 0.0
 var attack_move: bool = false
 var hold_position: bool = false
 var attack_timer: float = 0.0
@@ -125,6 +126,15 @@ func _physics_process(delta):
 		return
 
 	attack_timer -= delta
+	# Hovercraft eel hazard
+	if stats and stats.id == "hovercraft":
+		eel_timer = maxf(0.0, eel_timer - delta)
+		if eel_timer > 0.0:
+			velocity = Vector2.ZERO
+			anim_state = UnitVisual.AnimState.IDLE
+			_refresh_sprite_texture()
+			queue_redraw()
+			return
 	if stats and stats.stealth and not has_target and attack_timer <= 0.0:
 		cloak_timer = minf(cloak_timer + delta, 10.0)
 
@@ -295,6 +305,9 @@ func stop_command() -> void:
 	attack_move = false
 	focus_target = null
 	velocity = Vector2.ZERO
+
+func trigger_eels() -> void:
+	eel_timer = 5.0
 
 func take_damage(amount: float) -> void:
 	if is_exploding:

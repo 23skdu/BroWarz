@@ -159,6 +159,7 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Train Tank [4]", func(): _player_train_unit("mbt"))
 	_add_cmd_button(btn_bar, "Train AA [5]", func(): _player_train_unit("aa_vehicle"))
 	_add_cmd_button(btn_bar, "Train Fighter [6]", func(): _player_train_unit("fighter_drone"))
+	_add_cmd_button(btn_bar, "Train Hovercraft [7]", func(): _player_train_unit("hovercraft"))
 	_add_cmd_button(btn_bar, "Build Extractor [B]", func(): _player_build_structure("extractor"))
 	_add_cmd_button(btn_bar, "Build Turret [V]", func(): _player_build_structure("turret"))
 	_add_cmd_button(btn_bar, "Tech Up [T]", func(): _player_upgrade_tech())
@@ -508,6 +509,14 @@ func _process(delta):
 			ai_timer = 0.0
 			_run_skirmish_ai_turn()
 
+	# Hovercraft eel hazard
+	for u in units_container.get_children():
+		if is_instance_valid(u) and not u.is_exploding and u.stats and u.stats.id == "hovercraft":
+			if u.eel_timer <= 0.0 and randf() < 0.0008:
+				u.trigger_eels()
+				if is_instance_valid(status_label):
+					status_label.text = "My Hovercraft is full of eels!"
+				AudioManager.play_sfx("eel_hazard")
 	_update_fog()
 	_update_hud()
 	_check_win()

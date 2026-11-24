@@ -42,7 +42,7 @@ func tile_count() -> int:
 	return width * height
 
 static func movement_cost(terrain: int, unit_class: int) -> float:
-	# unit_class: 0 infantry, 1 vehicle, 2 naval, 3 air
+	# unit_class: 0 infantry, 1 vehicle, 2 naval, 3 air, 4 hovercraft
 	match unit_class:
 		3: # air
 			return 1.0
@@ -67,6 +67,13 @@ static func movement_cost(terrain: int, unit_class: int) -> float:
 				Terrain.RIVER, Terrain.SEA, Terrain.MOUNTAIN: return INF
 				Terrain.WASTELAND: return 1.4
 				_: return 1.1
+		4: # hovercraft (land + sea)
+			match terrain:
+				Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
+				Terrain.SWAMP: return 1.3
+				Terrain.FOREST: return 1.3
+				Terrain.RIVER, Terrain.SEA: return 1.1
+				_: return 1.0
 	return 1.0
 
 static func is_passable(terrain: int, unit_class: int) -> bool:
