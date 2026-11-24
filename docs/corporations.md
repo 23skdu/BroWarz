@@ -1,6 +1,8 @@
 # BroWarz — Corporations
 
-Each playable corporation has a unique identity: motto, background, distinctive color, and gameplay modifiers. Units and buildings use the corporation color for quick identification.
+Each playable corporation is one of four weapons divisions of a single planetary megacorp ("Terran Herzog Heavy Industries") that rules the planet. The RTS match is how the four divisions settle their dividing of planetary resources — borders are drawn by match results.
+
+Each playable corporation has a unique identity: motto, background, distinctive color, and gameplay modifiers. Units and buildings use the corporation color for quick identification. When two players run the *same* corporation against each other (e.g. 2v2), the colors read as a chess game: the corporation keeps its base color and the opposing player uses black (`#0a0a0b`) or white (`#f7f7f8`), letting them be told apart.
 
 ## AeroDyne Industries
 ![AeroDyne Banner](../assets/banners/aerodyne.png)

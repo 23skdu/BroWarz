@@ -59,6 +59,8 @@ Secondary loops:
 
 ## 5. Factions (Corporations)
 
+**Lore:** The four playable corporations are the four weapons divisions of a single planetary megacorp that rules the planet. The RTS match itself is the medium by which these divisions settle their dividing of the planet's resources: match results draw up new trade borders.
+
 v1 ships **four playable corporations**, symmetric in economy but asymmetric in unit flavor and one signature ability each. Asymmetry is light to keep balance tractable.
 
 | Corporation | Theme | Signature |

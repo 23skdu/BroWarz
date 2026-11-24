@@ -273,6 +273,19 @@ func _spawn_starting_bases() -> void:
 func _spawn_unit(pos: Vector2, team: int) -> void:
 	_spawn_unit_by_id("riflebot", pos, team)
 
+func _color_variant_count(team: int) -> int:
+	# When several teams run the same corporation, later teams get a
+	# black-or-white variant so players can tell them apart (chess colors).
+	var count := 0
+	var uf := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	for t in GameManager.teams:
+		if int(t) >= team:
+			break
+		var other := GameManager.player_faction if int(t) == 0 else GameManager.ai_faction
+		if other == uf:
+			count += 1
+	return count
+
 func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 	var u = preload("res://scenes/unit.tscn").instantiate()
 	var s: UnitStats = GameManager.registry.get_unit(uid)
@@ -282,9 +295,10 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 		s.display_name = uid.capitalize()
 	u.setup(s, team)
 	var uf = GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var variant := Faction.color_for_team(uf, _color_variant_count(team))
 	var body = u.get_node_or_null("Body")
 	if body:
-		body.color = Faction.color_of(uf)
+		body.color = Faction.color_of(uf, variant)
 	u.global_position = pos
 	units_container.add_child(u)
 	return u
@@ -302,9 +316,10 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 		s.is_hq = (bid == "hq")
 	b.setup(s, team)
 	var bf = GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var variant := Faction.color_for_team(bf, _color_variant_count(team))
 	var bbody = b.get_node_or_null("Body")
 	if bbody:
-		bbody.color = Faction.color_of(bf)
+		bbody.color = Faction.color_of(bf, variant)
 	b.global_position = pos
 	add_child(b)
 	GameManager.register_fort_block(b)

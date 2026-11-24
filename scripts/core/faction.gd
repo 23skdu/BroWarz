@@ -4,6 +4,37 @@ extends RefCounted
 
 enum Id { AERODYNE, FERROCORE, PELAGIC, VANGUARD }
 
+# Lore: the four corporations are the four weapons divisions of a single
+# planetary megacorp ("Terran Herzog Heavy Industries" is the fictional
+# holding name). The RTS game is the means by which they settle resource
+# dividimg on the planet — division borders are drawn by match results.
+
+# For when two players (teams) run the *same* corporation against each
+# other in a self-vs-self scenario, they settle dividing resources chess-
+# style: the first team keeps the corporation's base color, the second
+# plays the opponent's black-and-white variant (chess black = off-base).
+static func color_of(id: int, variant: int = 0) -> Color:
+	var c := _base_color(id)
+	if variant == 1:
+		return Color(0.08, 0.08, 0.10, 1.0)  # chess black
+	if variant == 2:
+		return Color(0.97, 0.97, 0.98, 1.0)  # chess white
+	return c
+
+static func _base_color(id: int) -> Color:
+	match id:
+		Id.AERODYNE: return Color(0.25, 0.75, 1.0)   # sky blue
+		Id.FERROCORE: return Color(1.0, 0.55, 0.15)  # amber
+		Id.PELAGIC: return Color(0.15, 0.8, 0.75)    # teal
+		Id.VANGUARD: return Color(0.75, 0.35, 0.95)  # violet
+	return Color(0.8, 0.8, 0.8)
+
+# Resolve a corporation identity for a team; two teams sharing the same
+# corporation get the second a black-or-white variant so players can tell
+# them apart in a self-versus-self scenario (like chess colors).
+static func color_for_team(faction_id: int, teams_sharing: int) -> int:
+	return 2 if teams_sharing > 0 else 0
+
 static func name_of(id: int) -> String:
 	match id:
 		Id.AERODYNE: return "AeroDyne Industries"
@@ -12,13 +43,6 @@ static func name_of(id: int) -> String:
 		Id.VANGUARD: return "Vanguard Robotics"
 	return "Unknown"
 
-static func color_of(id: int) -> Color:
-	match id:
-		Id.AERODYNE: return Color(0.25, 0.75, 1.0)   # sky blue
-		Id.FERROCORE: return Color(1.0, 0.55, 0.15)  # amber
-		Id.PELAGIC: return Color(0.15, 0.8, 0.75)    # teal
-		Id.VANGUARD: return Color(0.75, 0.35, 0.95)  # violet
-	return Color(0.8, 0.8, 0.8)
 
 static func accent_of(id: int) -> Color:
 	match id:
