@@ -2,7 +2,8 @@
 
 ![BroWarz Logo](assets/logo.png)
 
-**Real-time networked peer-to-peer strategy game — Godot 4.7.2**
+**Retro-future corporate dystopia RTS — Godot 4.7.2**
+*Neon-lit megacorp warfare, 2030.*
 
 BroWarz is a combined-arms RTS set in 2030 where rival corporations fight for control of oil, iron, geothermal, and food. Command infantry robots, sappers, stealth units, tanks, mechanized infantry, sea drones, submarines, aerial drones, orbital lasers, nuclear missiles, and large killer robots across a 128×128 battlefield. Play solo against a tactical Skirmish AI (Easy, Normal, Hard) or over peer-to-peer multiplayer.
 
