@@ -407,11 +407,12 @@ func _embark_units_for_team(team: int, candidates: Array) -> int:
 		var best_t: Node2D = null
 		var best_d := 140.0
 		for t in transports:
-			if t.can_load_passenger(u):
-				var d := u.global_position.distance_to(t.global_position)
+			var t_node: Node2D = t
+			if t_node.can_load_passenger(u):
+				var d: float = (u as Node2D).global_position.distance_to(t_node.global_position)
 				if d <= best_d:
 					best_d = d
-					best_t = t
+					best_t = t_node
 		if best_t != null and best_t.embark_passenger(u):
 			selected_units.erase(u)
 			loaded += 1
