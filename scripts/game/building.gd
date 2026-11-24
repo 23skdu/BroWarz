@@ -30,9 +30,10 @@ func setup(s: BuildingStats, t: int) -> void:
 	hp = s.hp
 	rally_point = global_position + Vector2(56, 56) if t == 0 else global_position - Vector2(56, 56)
 	if body:
-		var base_c := Color(0.15, 0.45, 0.95, 1.0) if t == 0 else Color(0.9, 0.2, 0.2, 1.0)
+		var fac_id := GameManager.player_faction if t == 0 else GameManager.ai_faction
+		var base_c := Faction.primary_color(fac_id).darkened(0.12)
 		if s.is_hq:
-			base_c = base_c.lightened(0.2)
+			base_c = base_c.lightened(0.22)
 		body.color = base_c
 
 func set_rally(pos: Vector2) -> void:
