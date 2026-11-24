@@ -4,6 +4,11 @@ var muted: bool = false
 var last_played_sfx: String = ""
 var current_music: String = "menu"
 var _players: Dictionary = {}
+var _music_player: AudioStreamPlayer = null
+
+func _ready() -> void:
+	_music_player = AudioStreamPlayer.new()
+	add_child(_music_player)
 
 func play_sfx(sfx_name: String) -> void:
 	if muted:
@@ -20,3 +25,10 @@ func play_sfx(sfx_name: String) -> void:
 
 func set_music(track_name: String) -> void:
 	current_music = track_name
+	if muted or _music_player == null:
+		return
+	var path := "res://assets/music/%s.wav" % track_name
+	if not ResourceLoader.exists(path):
+		return
+	_music_player.stream = load(path)
+	_music_player.play()
