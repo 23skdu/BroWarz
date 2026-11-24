@@ -192,9 +192,9 @@ func request_settings(raw: Dictionary) -> void:
 		_cli_settings.rpc_id(1, raw)
 
 ## Toggle this player's ready flag.
-func set_local_ready(ready: bool) -> void:
+func set_local_ready(is_ready: bool) -> void:
 	if _has_peer() and state != State.IDLE:
-		_cli_ready.rpc_id(1, ready)
+		_cli_ready.rpc_id(1, is_ready)
 
 ## Ask the host to start the match (host-only on arrival).
 func request_start() -> void:
@@ -507,13 +507,13 @@ func _cli_hello(
 	_schedule_sync()
 
 @rpc("any_peer", "call_remote", "reliable")
-func _cli_ready(ready: bool) -> void:
+func _cli_ready(is_ready: bool) -> void:
 	if state != State.HOSTING:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if not _lobby_gate(sender):
 		return
-	lobby.set_ready(sender, ready)
+	lobby.set_ready(sender, is_ready)
 	_schedule_sync()
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -628,8 +628,11 @@ func _srv_reject(reason: String) -> void:
 	if not _from_server():
 		return
 	var was_reconnect := _reconnect_deadline_ms > 0.0
+	var was_in_session := state == State.LOBBY or state == State.MATCH
 	leave()
-	if was_reconnect:
+	if was_in_session:
+		kicked.emit(reason)
+	elif was_reconnect:
 		server_left.emit(reason)
 	else:
 		connection_failed.emit(reason)
@@ -848,10 +851,10 @@ func _on_rtc_sdp(type: String, sdp: String, pid: int) -> void:
 	else:
 		_cli_rtc.rpc_id(1, "desc", pid, {"type": type, "sdp": sdp})
 
-func _on_rtc_ice(media: String, index: int, name: String, pid: int) -> void:
+func _on_rtc_ice(media: String, index: int, sdp_name: String, pid: int) -> void:
 	if _rtc == null or not _rtc_conns.has(pid):
 		return
-	var payload := {"media": media, "index": index, "name": name}
+	var payload := {"media": media, "index": index, "name": sdp_name}
 	if _i_am_server():
 		_srv_rtc.rpc_id(pid, 1, "ice", payload)
 	else:

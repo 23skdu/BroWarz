@@ -30,9 +30,11 @@ func setup(s: BuildingStats, t: int) -> void:
 	hp = s.hp
 	rally_point = global_position + Vector2(56, 56) if t == 0 else global_position - Vector2(56, 56)
 	if body:
+		var base_c := Color(0.15, 0.45, 0.95, 1.0) if t == 0 else Color(0.9, 0.2, 0.2, 1.0)
 		var fac_id := GameManager.player_faction if t == 0 else GameManager.ai_faction
-		var base_c := Faction.color_of(fac_id).darkened(0.12)
+		var base_c := Faction.primary_color(fac_id).darkened(0.12)
 		if s.is_hq:
+			base_c = base_c.lightened(0.2)
 			base_c = base_c.lightened(0.22)
 		body.color = base_c
 
@@ -88,7 +90,7 @@ func _spawn_unit(uid: String) -> void:
 	u.setup(s, team)
 	var offset := Vector2(randf_range(36.0, 56.0), randf_range(-24.0, 24.0))
 	if team == 1:
-		offset = -offset
+		offset = - offset
 	u.global_position = global_position + offset
 	var scene = get_tree().current_scene
 	if scene and scene.has_node("Units"):

@@ -104,12 +104,12 @@ func ready_of(peer_id: int) -> bool:
 		return false
 	return bool(players[peer_id]["ready"])
 
-func set_ready(peer_id: int, ready: bool) -> bool:
+func set_ready(peer_id: int, is_ready: bool) -> bool:
 	if not players.has(peer_id):
 		return false
 	if phase != Phase.LOBBY:
 		return false
-	players[peer_id]["ready"] = bool(ready)
+	players[peer_id]["ready"] = bool(is_ready)
 	changed.emit()
 	return true
 
