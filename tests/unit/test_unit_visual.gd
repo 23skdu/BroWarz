@@ -39,3 +39,13 @@ func test_build_unit_frame_image_all_domains():
 		assert_eq(img_fire.get_width(), 32)
 	var img_exp := UnitVisual.build_unit_frame_image(1, UnitVisual.AnimState.EXPLODE, 3, Color.RED, 32)
 	assert_eq(img_exp.get_width(), 32)
+
+func test_high_res_terrain_and_specific_unit_ids():
+	var m := TerrainGenerator.generate_forest(16, 16, 5)
+	var t_img := UnitVisual.build_terrain_map_image(m, 4)
+	assert_eq(t_img.get_width(), 64)
+	assert_eq(t_img.get_height(), 64)
+	for uid in ["riflebot", "heavybot", "stealthbot", "sniperbot", "rocketbot", "medicbot", "mbt", "heavy_mech", "attack_sub", "fighter_drone"]:
+		var u_img := UnitVisual.build_unit_frame_image(0, UnitVisual.AnimState.IDLE, 0, Faction.color_of(0), 32, uid, Faction.accent_of(0))
+		assert_eq(u_img.get_width(), 32)
+

@@ -24,8 +24,11 @@ var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
 var terrain_image: Image
 var terrain_texture: ImageTexture
 var terrain_sprite: Sprite2D
+var forest_decorations: Array = []  # Array of Dictionary {pos, kind, radius, shade}
+var wildlife_herd: Array[Dictionary] = []
 
 const TILE_SIZE: float = 16.0
+const TERRAIN_PPT: int = 4
 var fog: FogOfWar
 var fog_image: Image
 var fog_texture: ImageTexture
@@ -44,15 +47,17 @@ func _ready():
 		GameManager.registry.populate_defaults()
 	map_data = MapData.new(128, 128)
 	_generate_map(GameManager.map_type)
-	terrain_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	terrain_image = UnitVisual.build_terrain_map_image(map_data, TERRAIN_PPT)
 	terrain_texture = ImageTexture.create_from_image(terrain_image)
 	terrain_sprite = Sprite2D.new()
+	terrain_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	terrain_sprite.texture = terrain_texture
-	terrain_sprite.scale = Vector2(TILE_SIZE, TILE_SIZE)
+	terrain_sprite.scale = Vector2(TILE_SIZE / float(TERRAIN_PPT), TILE_SIZE / float(TERRAIN_PPT))
 	terrain_sprite.centered = false
 	terrain_sprite.z_index = -5
 	add_child(terrain_sprite)
-	_update_terrain_image()
+	_rebuild_forest_decorations()
+	wildlife_herd = Wildlife.spawn_ambient_herd(map_data, GameManager.match_seed, 10)
 	fog = FogOfWar.new(128, 128, map_data)
 	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
@@ -110,7 +115,24 @@ func spawn_combat_tracer(from_pos: Vector2, to_pos: Vector2, dmg_type: int, _tea
 		"timer": dur,
 		"duration": dur,
 	})
+	_affect_wildlife_from_fire(from_pos, to_pos, 14.0)
 	queue_redraw()
+
+func _affect_wildlife_from_fire(from_pos: Vector2, to_pos: Vector2, dmg: float) -> void:
+	for cr in wildlife_herd:
+		if not bool(cr.get("alive", true)):
+			continue
+		var cpos: Vector2 = cr["pos"]
+		if cpos.distance_to(to_pos) <= 20.0:
+			var died := Wildlife.apply_damage(cr, dmg, from_pos)
+			if died:
+				spawn_explosion_vfx(cpos, 10.0)
+		elif cpos.distance_to(to_pos) <= 130.0 or cpos.distance_to(from_pos) <= 130.0:
+			cr["flee_timer"] = 3.0
+			var away := (cpos - to_pos).normalized()
+			if away.length_squared() < 0.01:
+				away = Vector2.RIGHT
+			cr["vel"] = away * Wildlife.flee_speed(int(cr["kind"]))
 
 func spawn_explosion_vfx(world_pos: Vector2, max_radius: float = 24.0) -> void:
 	active_vfx.append({
@@ -459,6 +481,9 @@ func _apply_aoe_damage(center: Vector2, radius: float, dmg: float, attacker_team
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding and b.team != attacker_team and b.global_position.distance_to(center) <= radius:
 			b.take_damage(dmg)
+	for cr in wildlife_herd:
+		if bool(cr.get("alive", true)) and Vector2(cr["pos"]).distance_to(center) <= radius:
+			Wildlife.apply_damage(cr, dmg, center)
 
 func _find_team_hq(team: int) -> Node2D:
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -506,8 +531,8 @@ func _process(delta):
 		if float(active_tracers[i]["timer"]) <= 0.0:
 			active_tracers.remove_at(i)
 
-	if needs_redraw:
-		queue_redraw()
+	_update_wildlife(delta)
+	queue_redraw()
 
 	# Economy 1s tick
 	economy_timer += delta
@@ -691,9 +716,25 @@ func _check_win():
 		match_over = true
 
 func _draw():
+	# Minimal forest tree canopies and shrubs
+	for dec in forest_decorations:
+		var dpos: Vector2 = dec["pos"]
+		var rad := float(dec["radius"])
+		var shade := float(dec["shade"])
+		draw_circle(dpos + Vector2(2, 2), rad, Color(0.04, 0.08, 0.04, 0.42))
+		if dec["kind"] == "tree":
+			draw_circle(dpos, rad, Color(0.12 + shade, 0.34 + shade, 0.14 + shade, 0.92))
+			draw_circle(dpos - Vector2(1.5, 1.5), rad * 0.58, Color(0.22 + shade, 0.48 + shade, 0.22 + shade, 0.95))
+		else:
+			draw_circle(dpos, rad, Color(0.18 + shade, 0.40 + shade, 0.17 + shade, 0.88))
+
 	# Scorch marks from blown-up units and buildings
 	for s in scorch_marks:
 		draw_circle(s["pos"], float(s["radius"]), Color(0.1, 0.09, 0.08, float(s["alpha"])))
+
+	# Ambient non-combatant wildlife (Deer, Dolphins, Squid, Birds)
+	for cr in wildlife_herd:
+		_draw_wildlife_critter(cr)
 
 	# Weapon projectile tracers & impact sparks
 	for tr in active_tracers:
@@ -776,13 +817,86 @@ func _terrain_color(t: int) -> Color:
 	return Color(0.3, 0.3, 0.3)
 
 func _update_terrain_image() -> void:
-	if terrain_image == null or map_data == null:
+	if map_data == null:
 		return
-	for y in range(map_data.height):
-		for x in range(map_data.width):
-			terrain_image.set_pixel(x, y, _terrain_color(map_data.get_terrain(x, y)))
+	terrain_image = UnitVisual.build_terrain_map_image(map_data, TERRAIN_PPT)
 	if terrain_texture:
-		terrain_texture.update(terrain_image)
+		terrain_texture = ImageTexture.create_from_image(terrain_image)
+		if terrain_sprite:
+			terrain_sprite.texture = terrain_texture
+	_rebuild_forest_decorations()
+
+func _rebuild_forest_decorations() -> void:
+	forest_decorations.clear()
+	if map_data == null:
+		return
+	for ty in range(2, map_data.height - 2):
+		for tx in range(2, map_data.width - 2):
+			if map_data.get_terrain(tx, ty) == MapData.Terrain.FOREST:
+				var h := ((tx * 374761393) ^ (ty * 668265263)) & 255
+				if (h % 4) == 0:
+					var wpos := Vector2(float(tx * 16 + 4 + (h % 8)), float(ty * 16 + 4 + ((h >> 3) % 8)))
+					forest_decorations.append({
+						"pos": wpos,
+						"kind": "tree" if (h % 2 == 0) else "shrub",
+						"radius": 6.2 if (h % 2 == 0) else 3.8,
+						"shade": float(h % 10) * 0.015,
+					})
+
+func _update_wildlife(delta: float) -> void:
+	var threats: Array = []
+	for u in units_container.get_children():
+		if is_instance_valid(u) and not u.is_exploding:
+			threats.append(u.global_position)
+	for i in range(wildlife_herd.size() - 1, -1, -1):
+		var cr: Dictionary = wildlife_herd[i]
+		Wildlife.step_critter(cr, map_data, threats, delta, int(elapsed_time * 10.0) + i)
+		if not bool(cr.get("alive", true)) and float(cr.get("death_timer", 0.0)) <= 0.0:
+			wildlife_herd.remove_at(i)
+
+func _draw_wildlife_critter(cr: Dictionary) -> void:
+	var cpos: Vector2 = cr["pos"]
+	var tx := clampi(int(cpos.x / TILE_SIZE), 0, 127)
+	var ty := clampi(int(cpos.y / TILE_SIZE), 0, 127)
+	if fog != null and not fog.is_visible(tx, ty):
+		return
+	var alive := bool(cr.get("alive", true))
+	var kind := int(cr.get("kind", Wildlife.Kind.DEER))
+	var vel: Vector2 = cr.get("vel", Vector2.RIGHT)
+	var dir := vel.normalized() if vel.length_squared() > 0.01 else Vector2.RIGHT
+	var perp := Vector2(-dir.y, dir.x)
+	var phase := float(cr.get("anim_phase", 0.0))
+
+	if not alive:
+		var alpha := clampf(float(cr.get("death_timer", 0.0)), 0.0, 1.0)
+		draw_circle(cpos, 4.2, Color(0.55, 0.14, 0.12, alpha))
+		return
+
+	match kind:
+		Wildlife.Kind.BIRD:
+			var flap := sin(phase * 1.8) * 4.5
+			draw_circle(cpos + Vector2(6, 10), 2.4, Color(0, 0, 0, 0.24))
+			var wing_l := cpos - dir * 2.0 + perp * (6.2 + flap * 0.4)
+			var wing_r := cpos - dir * 2.0 - perp * (6.2 + flap * 0.4)
+			draw_line(wing_l, cpos + dir * 2.5, Color(0.95, 0.96, 0.98, 0.95), 1.8)
+			draw_line(wing_r, cpos + dir * 2.5, Color(0.95, 0.96, 0.98, 0.95), 1.8)
+		Wildlife.Kind.DOLPHIN:
+			var breach := sin(phase) * 2.0
+			draw_arc(cpos, 6.0 + absf(breach), 0, TAU, 16, Color(0.75, 0.95, 1.0, 0.45), 1.2)
+			draw_line(cpos - dir * 6.0, cpos + dir * 6.0, Color(0.45, 0.78, 0.92, 0.95), 3.2)
+			draw_circle(cpos + dir * 2.0, 2.2, Color(0.32, 0.62, 0.80, 1.0))
+		Wildlife.Kind.SQUID:
+			var pulse := sin(phase * 1.3) * 1.8
+			draw_circle(cpos + dir * 3.0, 3.8, Color(0.88, 0.42, 0.58, 0.92))
+			for t_i in [-1.0, 0.0, 1.0]:
+				var t_end := cpos - dir * (6.5 + pulse) + perp * (t_i * 2.5)
+				draw_line(cpos, t_end, Color(0.92, 0.55, 0.68, 0.85), 1.3)
+		_:
+			var stride := sin(phase * 1.5) * 1.5
+			draw_circle(cpos + Vector2(1, 2), 3.2, Color(0, 0, 0, 0.28))
+			draw_line(cpos - dir * 4.2, cpos + dir * 4.0, Color(0.68, 0.48, 0.28, 0.96), 3.0)
+			draw_circle(cpos + dir * (4.8 + stride * 0.3), 2.2, Color(0.78, 0.58, 0.35, 1.0))
+			draw_circle(cpos - dir * 4.8, 1.3, Color(0.95, 0.92, 0.85, 0.95))
 
 func _capture_screenshot() -> void:
 	var img := get_viewport().get_texture().get_image()

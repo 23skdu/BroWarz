@@ -16,6 +16,9 @@ func test_unknown():
 func test_color():
 	var c = Faction.color_of(Faction.Id.AERODYNE)
 	assert_true(c is Color)
+	var a = Faction.accent_of(Faction.Id.VANGUARD)
+	assert_true(a is Color)
+	assert_ne(c, a)
 
 func test_motto():
 	assert_ne(Faction.motto_of(Faction.Id.FERROCORE), "")

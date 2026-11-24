@@ -20,6 +20,14 @@ static func color_of(id: int) -> Color:
 		Id.VANGUARD: return Color(0.75, 0.35, 0.95)  # violet
 	return Color(0.8, 0.8, 0.8)
 
+static func accent_of(id: int) -> Color:
+	match id:
+		Id.AERODYNE: return Color(0.82, 0.97, 1.0)   # stratospheric ice cyan
+		Id.FERROCORE: return Color(1.0, 0.88, 0.28)  # forge gold
+		Id.PELAGIC: return Color(0.55, 1.0, 0.88)    # bioluminescent aqua
+		Id.VANGUARD: return Color(0.58, 1.0, 0.32)   # covert neon lime
+	return Color(1.0, 1.0, 1.0)
+
 static func motto_of(id: int) -> String:
 	match id:
 		Id.AERODYNE: return "Dominion of the Skies"

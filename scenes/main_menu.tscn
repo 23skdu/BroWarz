@@ -44,7 +44,14 @@ text = "Join P2P Multiplayer"
 text = "Map Editor"
 
 [node name="IpEdit" type="LineEdit" parent="VBox"]
-placeholder_text = "127.0.0.1"
+placeholder_text = "Host address (127.0.0.1)"
+
+[node name="NameEdit" type="LineEdit" parent="VBox"]
+placeholder_text = "Commander name"
+
+[node name="PasscodeEdit" type="LineEdit" parent="VBox"]
+placeholder_text = "Lobby passcode (optional)"
+secret = true
 
 [node name="Status" type="Label" parent="VBox"]
 text = ""

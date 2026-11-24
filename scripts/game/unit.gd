@@ -6,6 +6,7 @@ var team: int = 0
 var hp: int = 100
 var selected: bool = false
 var faction: int = -1
+var net_id: int = 0
 var target_pos: Vector2 = Vector2.ZERO
 var has_target: bool = false
 var eel_timer: float = 0.0
@@ -49,6 +50,8 @@ func _ready():
 		body.visible = false
 	_setup_animated_sprite()
 	add_to_group("units")
+	if net_id == 0:
+		net_id = GameManager.next_net_id()
 
 func setup(s: UnitStats, t: int, f: int = -1) -> void:
 	stats = s
@@ -72,24 +75,29 @@ func _setup_animated_sprite() -> void:
 	_refresh_sprite_texture()
 
 func _team_base_color() -> Color:
-	var c := Faction.color_of(faction) if faction >= 0 else (Color(0.22, 0.58, 1.0, 1.0) if team == 0 else Color(0.96, 0.26, 0.24, 1.0))
+	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	var c := Faction.color_of(fac_id)
 	if stats:
 		match stats.unit_class:
-			1, 4, 7: c = c.darkened(0.1)
-			2: c = c.lerp(Color.CYAN, 0.25)
-			3: c = c.lightened(0.2)
-			5: c = c.darkened(0.2)
+			1, 4, 7: c = c.darkened(0.08)
+			2: c = c.lerp(Color.CYAN, 0.18)
+			3: c = c.lightened(0.16)
+			5: c = c.darkened(0.16)
 	return c
+
+func _team_accent_color() -> Color:
+	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	return Faction.accent_of(fac_id)
 
 func _refresh_sprite_texture() -> void:
 	if sprite_node == null:
 		return
 	var f_idx := UnitVisual.frame_index(anim_state, anim_elapsed, anim_state != UnitVisual.AnimState.EXPLODE)
-	var key := "%d:%d" % [anim_state, f_idx]
+	var uid := stats.id if stats else ""
+	var key := "%s:%d:%d" % [uid, anim_state, f_idx]
 	if not _frame_cache.has(key):
 		var uclass := stats.unit_class if stats else 0
-		var uid := stats.id if stats else ""
-		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), 32, uid)
+		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), 32, uid, _team_accent_color())
 		_frame_cache[key] = ImageTexture.create_from_image(img)
 	sprite_node.texture = _frame_cache[key]
 	sprite_node.rotation = 0.0 if is_exploding else facing_angle
@@ -312,12 +320,25 @@ func move_to(pos: Vector2, is_attack_move: bool = false) -> void:
 	has_target = true
 	attack_move = is_attack_move
 	hold_position = false
-	_build_hex_path(pos)
+	var goal := _goal_avoiding_fortifications(pos)
+	_build_hex_path(goal)
 	if hex_path.size() > 0:
 		path_index = 0
 		target_pos = hex_path[0]
 	else:
-		target_pos = hex_grid.hex_to_world(hex_grid.world_to_hex(pos))
+		target_pos = hex_grid.hex_to_world(hex_grid.world_to_hex(goal))
+
+## Walls and barbed wire stop ground units: nudge the order onto the
+## nearest tile the unit can actually stand on.
+func _goal_avoiding_fortifications(pos: Vector2) -> Vector2:
+	if GameManager.current_map == null or stats == null:
+		return pos
+	var tx := clampi(int(pos.x / 16.0), 0, GameManager.current_map.width - 1)
+	var ty := clampi(int(pos.y / 16.0), 0, GameManager.current_map.height - 1)
+	if not GameManager.is_tile_blocked(tx, ty, stats.unit_class):
+		return pos
+	var free := GameManager.nearest_free_tile(tx, ty, stats.unit_class)
+	return Vector2(free.x * 16.0 + 8.0, free.y * 16.0 + 8.0)
 
 func _build_hex_path(goal_world: Vector2) -> void:
 	hex_path.clear()
@@ -326,6 +347,7 @@ func _build_hex_path(goal_world: Vector2) -> void:
 		hex_path.append(hex_grid.hex_to_world(hex_grid.world_to_hex(goal_world)))
 		return
 	var heavy := stats != null and (stats.unit_class == 6 or stats.unit_class == 7)
+	var uclass := stats.unit_class if stats else 0
 	var start_hex := hex_grid.world_to_hex(global_position)
 	var goal_hex := hex_grid.world_to_hex(goal_world)
 	var passable := func(h: Vector2i) -> bool:
@@ -334,7 +356,10 @@ func _build_hex_path(goal_world: Vector2) -> void:
 		var ty := int(wpos.y / 16.0)
 		if not GameManager.current_map.in_bounds(tx, ty):
 			return false
-		return MapData.is_passable(GameManager.current_map.get_terrain(tx, ty), stats.unit_class if stats else 0, heavy)
+		# Sapper fortifications are hard terrain for ground units.
+		if GameManager.is_tile_blocked(tx, ty, uclass):
+			return false
+		return MapData.is_passable(GameManager.current_map.get_terrain(tx, ty), uclass, heavy)
 	var hexes := hex_grid.hex_path(start_hex, goal_hex, passable)
 	for h in hexes:
 		hex_path.append(hex_grid.hex_to_world(h))

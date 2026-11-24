@@ -75,6 +75,10 @@ func populate_defaults() -> void:
 	_add_b("turret", "Defense Turret", 520, 40, 150, 20, 15, Vector2i(1, 1), "", 4.5, false)
 	_add_b("silo", "Nuclear Missile Silo", 900, 250, 400, 300, 80, Vector2i(3, 3), "", 14.0, false)
 	_add_b("orbital_uplink", "Orbital Laser Uplink", 850, 200, 350, 280, 60, Vector2i(2, 2), "", 12.0, false)
+	# Sapper fortifications (Part 3/11 follow-up)
+	_add_b("missile_tower", "Missile Tower", 600, 30, 120, 60, 0, Vector2i(2, 2), "", 6.0, false)
+	_add_b("wall", "Barrier Wall", 900, 0, 45, 0, 0, Vector2i(1, 1), "", 2.0, false)
+	_add_b("barbed_wire", "Barbed Wire", 150, 0, 15, 0, 0, Vector2i(1, 1), "", 1.0, false)
 
 func _add_u(
 	id: String, dname: String, hp_v: int, spd: float, armor: int, dmg_t: int, dmg: int,

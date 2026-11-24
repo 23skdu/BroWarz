@@ -1,0 +1,83 @@
+[gd_scene load_steps=2 format=3 uid="uid://lobby001"]
+
+[ext_resource type="Script" path="res://scripts/ui/lobby.gd" id="1"]
+
+[node name="Lobby" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -340.0
+offset_top = -280.0
+offset_right = 340.0
+offset_bottom = 280.0
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="VBox"]
+layout_mode = 2
+text = "P2P LOBBY"
+horizontal_alignment = 1
+
+[node name="PlayersLabel" type="Label" parent="VBox"]
+custom_minimum_size = Vector2(680, 220)
+layout_mode = 2
+text = ""
+horizontal_alignment = 0
+vertical_alignment = 0
+autowrap_mode = 2
+
+[node name="SettingsBox" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="MapButton" type="Button" parent="VBox/SettingsBox"]
+layout_mode = 2
+text = "Map: Forest"
+
+[node name="TeamsButton" type="Button" parent="VBox/SettingsBox"]
+layout_mode = 2
+text = "Teams: 2"
+
+[node name="FogButton" type="Button" parent="VBox/SettingsBox"]
+layout_mode = 2
+text = "Fog: On"
+
+[node name="TransportButton" type="Button" parent="VBox/SettingsBox"]
+layout_mode = 2
+text = "Transport: ENet"
+
+[node name="PasscodeLabel" type="Label" parent="VBox/SettingsBox"]
+layout_mode = 2
+text = "Passcode: open"
+
+[node name="ButtonsHBox" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 16
+
+[node name="ReadyButton" type="Button" parent="VBox/ButtonsHBox"]
+layout_mode = 2
+text = "Ready"
+
+[node name="StartButton" type="Button" parent="VBox/ButtonsHBox"]
+layout_mode = 2
+text = "Start Match"
+
+[node name="LeaveButton" type="Button" parent="VBox/ButtonsHBox"]
+layout_mode = 2
+text = "Leave Lobby"
+
+[node name="StatusLabel" type="Label" parent="VBox"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
