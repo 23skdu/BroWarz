@@ -60,6 +60,7 @@ func _ready():
 	add_child(terrain_sprite)
 	_rebuild_forest_decorations()
 	wildlife_herd = WildlifeRef.spawn_ambient_herd(map_data, GameManager.match_seed, 10)
+	GameManager.active_clouds = Cover.spawn_clouds(float(map_data.width) * TILE_SIZE, float(map_data.height) * TILE_SIZE, GameManager.match_seed, 8)
 	fog = FogOfWar.new(128, 128, map_data)
 	fog_image = Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
@@ -75,6 +76,7 @@ func _ready():
 	_init_economies()
 	_spawn_starting_bases()
 	GameManager.start_match(map_data)
+	NetworkManager.attach_game(self)
 	AudioManager.set_music("battle")
 
 func _generate_map(map_type: int = 2) -> void:
@@ -177,8 +179,8 @@ func _setup_hud() -> void:
 	help_label.name = "HelpLabel"
 	help_label.position = Vector2(20, 110)
 	help_label.text = (
-		"[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-6] Train (Rifle/Rocket/Stealth/Tank/AA/Fighter) | "
-		+ "[B] Build Extractor | [T] Tech Up | [L] Orbital Laser | [N] Launch Nuke"
+		"[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-7] Train | "
+		+ "[E] Embark | [U] Disembark | [B/V] Build | [T] Tech Up | [L] Laser | [N] Nuke"
 	)
 	ui.add_child(help_label)
 
@@ -194,6 +196,8 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Train AA [5]", func(): _player_train_unit("aa_vehicle"))
 	_add_cmd_button(btn_bar, "Train Fighter [6]", func(): _player_train_unit("fighter_drone"))
 	_add_cmd_button(btn_bar, "Train Hovercraft [7]", func(): _player_train_unit("hovercraft"))
+	_add_cmd_button(btn_bar, "Embark [E]", func(): _player_embark_selected())
+	_add_cmd_button(btn_bar, "Disembark [U]", func(): _player_disembark_selected())
 	_add_cmd_button(btn_bar, "Build Extractor [B]", func(): _player_build_structure("extractor"))
 	_add_cmd_button(btn_bar, "Build Turret [V]", func(): _player_build_structure("turret"))
 	_add_cmd_button(btn_bar, "Tech Up [T]", func(): _player_upgrade_tech())
@@ -356,6 +360,9 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		KEY_4: _player_train_unit("mbt")
 		KEY_5: _player_train_unit("aa_vehicle")
 		KEY_6: _player_train_unit("fighter_drone")
+		KEY_7: _player_train_unit("hovercraft")
+		KEY_E: _player_embark_selected()
+		KEY_U: _player_disembark_selected()
 		KEY_B: _player_build_structure("extractor")
 		KEY_V: _player_build_structure("turret")
 		KEY_T: _player_upgrade_tech()
@@ -377,6 +384,76 @@ func _wallet_cost(s_cost: Dictionary) -> Dictionary:
 
 func _player_train_unit(uid: String) -> void:
 	_train_unit_for_team(0, uid)
+
+func _player_embark_selected() -> int:
+	return _embark_units_for_team(0, selected_units)
+
+func _player_disembark_selected() -> int:
+	return _disembark_units_for_team(0, selected_units)
+
+func _embark_units_for_team(team: int, candidates: Array) -> int:
+	var transports: Array = []
+	for u in _get_team_units(team):
+		if u.has_method("transport_capacity") and u.transport_capacity() > 0:
+			transports.append(u)
+	if transports.is_empty():
+		return 0
+	var loaded := 0
+	for u in candidates.duplicate():
+		if not is_instance_valid(u) or u.is_exploding or u.team != team:
+			continue
+		if u.has_method("transport_capacity") and u.transport_capacity() > 0:
+			continue
+		var best_t: Node2D = null
+		var best_d := 140.0
+		for t in transports:
+			if t.can_load_passenger(u):
+				var d := u.global_position.distance_to(t.global_position)
+				if d <= best_d:
+					best_d = d
+					best_t = t
+		if best_t != null and best_t.embark_passenger(u):
+			selected_units.erase(u)
+			loaded += 1
+	if loaded > 0 and is_instance_valid(status_label):
+		status_label.text = "Embarked %d unit(s) into transport" % loaded
+	return loaded
+
+func _disembark_units_for_team(team: int, candidates: Array) -> int:
+	var unloaded := 0
+	var list := candidates if not candidates.is_empty() else _get_team_units(team)
+	for u in list:
+		if is_instance_valid(u) and not u.is_exploding and u.team == team and u.has_method("disembark_all"):
+			unloaded += u.disembark_all()
+	if unloaded > 0 and is_instance_valid(status_label):
+		status_label.text = "Disembarked %d unit(s)" % unloaded
+	return unloaded
+
+func apply_command(cmd: Dictionary) -> bool:
+	var ctype := String(cmd.get("type", ""))
+	var team := int(cmd.get("team", GameManager.local_team))
+	match ctype:
+		"train":
+			return _train_unit_for_team(team, String(cmd.get("id", "")))
+		"build", "fortify":
+			return _build_structure_for_team(team, String(cmd.get("id", "")))
+		"embark":
+			return _embark_units_for_team(team, _get_team_units(team)) > 0
+		"disembark":
+			return _disembark_units_for_team(team, _get_team_units(team)) > 0
+		"move":
+			var tx := float(cmd.get("target_x", 0.0))
+			var ty := float(cmd.get("target_y", 0.0))
+			var am := bool(cmd.get("attack_move", true))
+			for u in _get_team_units(team):
+				u.move_to(Vector2(tx, ty), am)
+			return true
+		"hold", "stop":
+			for u in _get_team_units(team):
+				u.stop_command()
+				u.hold_position = (ctype == "hold")
+			return true
+	return false
 
 func _train_unit_for_team(team: int, uid: String) -> bool:
 	var s := GameManager.registry.get_unit(uid)
@@ -543,6 +620,8 @@ func _process(delta):
 			active_tracers.remove_at(i)
 
 	_update_wildlife(delta)
+	if map_data != null:
+		Cover.step_clouds(GameManager.active_clouds, float(map_data.width) * TILE_SIZE, float(map_data.height) * TILE_SIZE, delta)
 	queue_redraw()
 
 	# Economy 1s tick
@@ -781,6 +860,18 @@ func _draw():
 		var r := Rect2(drag_start, drag_current - drag_start).abs()
 		draw_rect(r, Color(0.2, 0.9, 0.3, 0.18), true)
 		draw_rect(r, Color(0.2, 0.95, 0.3, 0.9), false, 2.0)
+
+	# Drifting cloud formations (affecting only aerial units)
+	for cl in GameManager.active_clouds:
+		var cpos: Vector2 = cl["pos"]
+		var rad := float(cl.get("radius", 90.0))
+		var calpha := float(cl.get("alpha", 0.32))
+		# Soft ground shadow + multi-puff cloud canopy
+		draw_circle(cpos + Vector2(14, 18), rad * 0.85, Color(0.03, 0.05, 0.08, calpha * 0.38))
+		draw_circle(cpos, rad * 0.78, Color(0.94, 0.97, 1.0, calpha))
+		draw_circle(cpos + Vector2(-rad * 0.35, rad * 0.12), rad * 0.56, Color(0.92, 0.96, 1.0, calpha * 0.92))
+		draw_circle(cpos + Vector2(rad * 0.36, -rad * 0.10), rad * 0.58, Color(0.96, 0.98, 1.0, calpha * 0.92))
+		draw_circle(cpos + Vector2(0, -rad * 0.25), rad * 0.52, Color(1.0, 1.0, 1.0, calpha * 0.95))
 
 func _update_fog() -> void:
 	if fog == null:

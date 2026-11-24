@@ -52,3 +52,16 @@ func test_builder_requirements_and_producers():
 	assert_true("docks" in UnitRegistry.producer_ids_for_unit("frogbot", 5))
 	assert_true("advanced_shipyard" in UnitRegistry.producer_ids_for_unit("battleship", 2))
 	assert_true("aeries_2" in UnitRegistry.producer_ids_for_unit("bomber_drone", 3))
+
+func test_transport_capacity_and_embark_rules():
+	assert_eq(UnitRegistry.transport_capacity("landing_craft"), 4)
+	assert_eq(UnitRegistry.transport_capacity("apc"), 3)
+	assert_eq(UnitRegistry.transport_capacity("hovercraft"), 2)
+	assert_eq(UnitRegistry.transport_capacity("aircraft_carrier"), 4)
+	assert_eq(UnitRegistry.transport_capacity("riflebot"), 0)
+	assert_true(UnitRegistry.can_embark("landing_craft", "riflebot", 0))
+	assert_true(UnitRegistry.can_embark("landing_craft", "frogbot", 5))
+	assert_true(UnitRegistry.can_embark("apc", "heavybot", 6))
+	assert_false(UnitRegistry.can_embark("landing_craft", "mbt", 1))
+	assert_true(UnitRegistry.can_embark("aircraft_carrier", "fighter_drone", 3))
+	assert_false(UnitRegistry.can_embark("aircraft_carrier", "riflebot", 0))

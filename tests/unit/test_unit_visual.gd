@@ -55,3 +55,20 @@ func test_high_res_terrain_and_specific_unit_ids():
 			for x in range(48):
 				assert_eq(u_img.get_pixel(x, y).a > 0.0, u_img_f1.get_pixel(x, y).a > 0.0)
 
+func test_500_unit_lod_cache_and_spatial_hash():
+	UnitVisual.clear_shared_cache()
+	assert_eq(UnitVisual.lod_sprite_size(1.0, 120), 48)
+	assert_eq(UnitVisual.lod_sprite_size(0.5, 120), 24)
+	assert_eq(UnitVisual.lod_sprite_size(1.0, 520), 24)
+	var t1 := UnitVisual.get_cached_unit_texture(0, UnitVisual.AnimState.IDLE, 0, Faction.color_of(0), 48, "riflebot")
+	var t2 := UnitVisual.get_cached_unit_texture(0, UnitVisual.AnimState.IDLE, 0, Faction.color_of(0), 48, "riflebot")
+	assert_eq(t1, t2)
+	assert_eq(UnitVisual.shared_cache_size(), 1)
+
+	var positions: Array = []
+	for i in range(520):
+		positions.append(Vector2(float((i % 26) * 32), float((i / 26.0) * 32)))
+	var grid := UnitVisual.build_spatial_grid(positions, 128.0)
+	var nearby := UnitVisual.query_spatial_radius(grid, positions, Vector2(64, 64), 80.0, 128.0)
+	assert_true(nearby.size() > 0 and nearby.size() < 40)
+

@@ -71,3 +71,25 @@ func test_live_unit_combat_stealth_emp_repair_and_eel_mechanics():
 	hover.setup(GameManager.registry.get_unit("hovercraft"), 0, Faction.Id.PELAGIC)
 	hover.trigger_eels()
 	assert_almost_eq(hover.eel_timer, 5.0, 0.01)
+
+	# 6. Amphibious Landing Craft embark & disembark + Cloud effects on Air Units
+	var lc = unit_scene.instantiate()
+	add_child_autofree(lc)
+	lc.setup(GameManager.registry.get_unit("landing_craft"), 0, Faction.Id.PELAGIC)
+	lc.global_position = Vector2(80, 80)
+	assert_true(lc.embark_passenger(sapper))
+	assert_eq(lc.cargo.size(), 1)
+	assert_false(sapper.visible)
+	assert_eq(lc.disembark_all(), 1)
+	assert_eq(lc.cargo.size(), 0)
+	assert_true(sapper.visible)
+
+	# 7. Drifting cloud affects Fighter Drone speed & combat modifiers while ground units ignore clouds
+	var fighter = unit_scene.instantiate()
+	add_child_autofree(fighter)
+	fighter.setup(GameManager.registry.get_unit("fighter_drone"), 0, Faction.Id.AERODYNE)
+	fighter.global_position = Vector2(120, 120)
+	GameManager.active_clouds = [{"id": 1, "pos": Vector2(120, 120), "vel": Vector2.ZERO, "radius": 80.0, "alpha": 0.35}]
+	assert_true(fighter.is_in_cloud())
+	assert_almost_eq(fighter._terrain_speed_multiplier(), 0.78, 0.01)
+	assert_false(sapper.is_in_cloud())

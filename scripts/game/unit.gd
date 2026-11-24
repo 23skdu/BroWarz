@@ -20,6 +20,8 @@ var attack_cooldown: float = 0.8
 var emp_timer: float = 0.0
 var cloak_timer: float = 0.0
 var focus_target: Node2D = null
+var cargo: Array = []  # Array of Unit nodes currently embarked inside this transport
+var embarked_in: Node2D = null
 
 # Animation & visual combat state
 var anim_state: int = UnitVisual.AnimState.IDLE
@@ -99,12 +101,8 @@ func _refresh_sprite_texture() -> void:
 		return
 	var f_idx := UnitVisual.frame_index(anim_state, anim_elapsed, anim_state != UnitVisual.AnimState.EXPLODE)
 	var uid := stats.id if stats else ""
-	var key := "%s:%d:%d" % [uid, anim_state, f_idx]
-	if not _frame_cache.has(key):
-		var uclass := stats.unit_class if stats else 0
-		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), UnitVisual.DEFAULT_SPRITE_SIZE, uid)
-		_frame_cache[key] = ImageTexture.create_from_image(img)
-	sprite_node.texture = _frame_cache[key]
+	var uclass := stats.unit_class if stats else 0
+	sprite_node.texture = UnitVisual.get_cached_unit_texture(uclass, anim_state, f_idx, _team_base_color(), UnitVisual.DEFAULT_SPRITE_SIZE, uid)
 	sprite_node.rotation = 0.0 if is_exploding else facing_angle
 	var alpha := 0.42 if is_cloaked() else 1.0
 	sprite_node.modulate = Color(1, 1, 1, alpha)
@@ -122,6 +120,76 @@ func apply_emp(duration: float) -> void:
 		return
 	var ac := stats.armor_class if stats else 0
 	emp_timer = maxf(emp_timer, EMP.disable_duration(duration, ac))
+
+func transport_capacity() -> int:
+	return UnitRegistry.transport_capacity(stats.id) if stats else 0
+
+func can_load_passenger(unit: Node2D) -> bool:
+	if unit == null or unit == self or not is_instance_valid(unit) or is_exploding:
+		return false
+	if unit.team != team or ("is_exploding" in unit and unit.is_exploding):
+		return false
+	if "embarked_in" in unit and unit.embarked_in != null:
+		return false
+	var cap := transport_capacity()
+	if cap <= 0 or cargo.size() >= cap:
+		return false
+	var p_stats: UnitStats = unit.stats if "stats" in unit else null
+	if p_stats == null:
+		return false
+	return UnitRegistry.can_embark(stats.id, p_stats.id, p_stats.unit_class)
+
+func embark_passenger(unit: Node2D) -> bool:
+	if not can_load_passenger(unit):
+		return false
+	cargo.append(unit)
+	unit.embarked_in = self
+	unit.selected = false
+	unit.stop_command()
+	unit.visible = false
+	unit.set_physics_process(false)
+	unit.remove_from_group("units")
+	return true
+
+func disembark_all(drop_origin: Vector2 = Vector2.INF) -> int:
+	if cargo.is_empty():
+		return 0
+	var base_pos := global_position if drop_origin == Vector2.INF else drop_origin
+	var offsets := Formation.grid_offsets(cargo.size(), 22.0)
+	var unloaded := 0
+	for i in range(cargo.size()):
+		var p = cargo[i]
+		if not is_instance_valid(p):
+			continue
+		p.embarked_in = null
+		var drop_pos := base_pos + offsets[i] + Vector2(20.0, 0.0)
+		if GameManager.current_map != null and p.stats:
+			var tx := clampi(int(drop_pos.x / 16.0), 0, GameManager.current_map.width - 1)
+			var ty := clampi(int(drop_pos.y / 16.0), 0, GameManager.current_map.height - 1)
+			var heavy: bool = p.stats.unit_class in [6, 7]
+			if not MapData.is_passable(GameManager.current_map.get_terrain(tx, ty), p.stats.unit_class, heavy):
+				# Find nearest passable shoreline/land tile within 4 tiles
+				for r in range(1, 5):
+					var found := false
+					for dy in range(-r, r + 1):
+						for dx in range(-r, r + 1):
+							if GameManager.current_map.in_bounds(tx + dx, ty + dy):
+								var tt := GameManager.current_map.get_terrain(tx + dx, ty + dy)
+								if MapData.is_passable(tt, p.stats.unit_class, heavy):
+									drop_pos = Vector2(float(tx + dx) * 16.0 + 8.0, float(ty + dy) * 16.0 + 8.0)
+									found = true
+									break
+						if found:
+							break
+					if found:
+						break
+		p.global_position = drop_pos
+		p.visible = true
+		p.set_physics_process(true)
+		p.add_to_group("units")
+		unloaded += 1
+	cargo.clear()
+	return unloaded
 
 func _physics_process(delta):
 	anim_elapsed += delta
@@ -205,16 +273,21 @@ func _update_anim_state() -> void:
 		anim_state = next_state
 		anim_elapsed = 0.0
 
+func is_in_cloud() -> bool:
+	return stats != null and stats.unit_class == 3 and GameManager.is_in_cloud(global_position)
+
 func _terrain_speed_multiplier() -> float:
-	if GameManager.current_map == null or stats == null:
+	if stats == null:
+		return 1.0
+	if stats.unit_class == 3:
+		return MapData.speed_multiplier(MapData.Terrain.PLAINS, 3, false, is_in_cloud())
+	if GameManager.current_map == null:
 		return 1.0
 	var tx := clampi(int(global_position.x / 16.0), 0, GameManager.current_map.width - 1)
 	var ty := clampi(int(global_position.y / 16.0), 0, GameManager.current_map.height - 1)
 	var t := GameManager.current_map.get_terrain(tx, ty)
-	var cost := MapData.movement_cost(t, stats.unit_class)
-	if cost >= INF or cost <= 0.0:
-		return 0.5
-	return clampf(1.0 / cost, 0.4, 1.4)
+	var heavy := stats.unit_class == 6 or stats.unit_class == 7
+	return MapData.speed_multiplier(t, stats.unit_class, heavy, false)
 
 func _auto_repair_allies(delta: float) -> void:
 	var rate := 18.0 if (stats and stats.id == "adv_engineerbot") else 12.0
@@ -278,12 +351,27 @@ func _perform_attack(enemy: Node2D) -> void:
 		else:
 			target_armor = Damage.ArmorClass.STRUCTURE
 	var cover_mod := 1.0
+	var atk_mod := 1.0
+	var attacker_class := stats.unit_class if stats else 0
+	var attacker_in_cloud := is_in_cloud()
+	var target_class := 0
+	var target_in_cloud := false
+	if "stats" in enemy and enemy.stats != null and "unit_class" in enemy.stats:
+		target_class = enemy.stats.unit_class
+		if target_class == 3:
+			target_in_cloud = GameManager.is_in_cloud(enemy.global_position)
 	if GameManager.current_map != null:
+		var ax := clampi(int(global_position.x / 16.0), 0, GameManager.current_map.width - 1)
+		var ay := clampi(int(global_position.y / 16.0), 0, GameManager.current_map.height - 1)
 		var tx := clampi(int(enemy.global_position.x / 16.0), 0, GameManager.current_map.width - 1)
 		var ty := clampi(int(enemy.global_position.y / 16.0), 0, GameManager.current_map.height - 1)
-		cover_mod = Cover.modifier(GameManager.current_map.get_terrain(tx, ty))
+		atk_mod = Cover.attack_modifier_for_unit(GameManager.current_map.get_terrain(ax, ay), attacker_class, attacker_in_cloud)
+		cover_mod = Cover.defense_modifier_for_unit(GameManager.current_map.get_terrain(tx, ty), target_class, target_in_cloud)
+	elif attacker_class == 3 or target_class == 3:
+		atk_mod = Cover.attack_modifier_for_unit(MapData.Terrain.PLAINS, attacker_class, attacker_in_cloud)
+		cover_mod = Cover.defense_modifier_for_unit(MapData.Terrain.PLAINS, target_class, target_in_cloud)
 	var uid := stats.id if stats else ""
-	var final_dmg := Damage.compute_for_unit(uid, base_dmg, dmg_type, target_armor, 0.0, cover_mod)
+	var final_dmg := Damage.compute_for_unit(uid, base_dmg * atk_mod, dmg_type, target_armor, 0.0, cover_mod)
 
 	# Spawn projectile tracer & muzzle flash in active game scene
 	var scene = get_tree().current_scene
@@ -406,6 +494,8 @@ func take_damage(amount: float) -> void:
 func _trigger_explosion() -> void:
 	if is_exploding:
 		return
+	if not cargo.is_empty():
+		disembark_all()
 	is_exploding = true
 	has_target = false
 	selected = false
@@ -476,3 +566,6 @@ func _draw():
 		draw_arc(Vector2.ZERO, 18, 0, TAU, 24, Color.YELLOW, 2.0)
 	if EMP.is_disabled(emp_timer):
 		draw_arc(Vector2.ZERO, 14, 0, TAU, 16, Color.CYAN, 2.0)
+	if not cargo.is_empty():
+		for ci in range(cargo.size()):
+			draw_rect(Rect2(-12.0 + float(ci) * 6.0, 14.0, 4.0, 4.0), Color(0.2, 1.0, 0.45, 0.95), true)

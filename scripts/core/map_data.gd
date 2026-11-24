@@ -58,63 +58,87 @@ func tile_count() -> int:
 	return width * height
 
 static func movement_cost(terrain: int, unit_class: int, heavy: bool = false) -> float:
-	# unit_class: 0 infantry, 1 vehicle, 2 naval, 3 air, 4 hovercraft, 5 amphibious (frogmen)
-	# heavy: heavy infantry or large mechs that can cross mountains
+	# unit_class: 0 infantry, 1 vehicle, 2 naval, 3 air, 4 hovercraft, 5 amphibious (frogbots), 6 heavy infantry, 7 heavy/siege mech
+	# Ground/sea terrain does NOT affect air units (class 3); only drifting clouds affect aerial units.
 	match unit_class:
-		3: # air
+		3: # air (unaffected by ground terrain; only affected by clouds)
 			return 1.0
 		2: # naval
-			if terrain == Terrain.SEA or terrain == Terrain.RIVER:
-				return 1.0
-			return INF
+			match terrain:
+				Terrain.SEA: return 0.95
+				Terrain.RIVER: return 1.10
+				Terrain.BRIDGE: return 1.15
+				_: return INF
 		1, 7: # vehicle (1) or heavy mech (7)
 			match terrain:
-				Terrain.PLAINS, Terrain.ROAD, Terrain.BRIDGE: return 1.0
+				Terrain.ROAD, Terrain.BRIDGE: return 0.80
+				Terrain.PLAINS: return 1.00
 				Terrain.DESERT: return 1.15
+				Terrain.URBAN: return 1.30
 				Terrain.HILLS: return 1.45
-				Terrain.URBAN: return 1.3
-				Terrain.FOREST: return 1.6
-				Terrain.SWAMP: return INF
-				Terrain.RIVER, Terrain.SEA, Terrain.WASTELAND: return INF
+				Terrain.FOREST: return 1.60
+				Terrain.SWAMP:
+					if heavy or unit_class == 7:
+						return 1.85
+					return INF
+				Terrain.RIVER, Terrain.SEA: return INF
+				Terrain.WASTELAND:
+					if heavy or unit_class == 7:
+						return 1.75
+					return INF
 				Terrain.MOUNTAIN:
 					if heavy or unit_class == 7:
-						return 2.2
+						return 2.20
 					return INF
-				_: return 1.2
+				_: return 1.20
 		4: # hovercraft (land + sea)
 			match terrain:
 				Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
-				Terrain.HILLS: return 1.4
-				Terrain.DESERT: return 1.0
-				Terrain.SWAMP: return 1.3
-				Terrain.FOREST: return 1.3
-				Terrain.RIVER, Terrain.SEA: return 1.1
-				_: return 1.0
-		5: # amphibious (frogbots): land + water, slower on land
+				Terrain.ROAD, Terrain.BRIDGE: return 0.85
+				Terrain.PLAINS, Terrain.DESERT: return 1.00
+				Terrain.RIVER: return 1.05
+				Terrain.SEA: return 1.10
+				Terrain.URBAN: return 1.20
+				Terrain.SWAMP, Terrain.FOREST: return 1.30
+				Terrain.HILLS: return 1.40
+				_: return 1.00
+		5: # amphibious (frogbots): land + water, faster in water
 			match terrain:
 				Terrain.MOUNTAIN, Terrain.WASTELAND: return INF
-				Terrain.PLAINS, Terrain.ROAD, Terrain.BRIDGE, Terrain.DESERT: return 1.2
+				Terrain.SEA: return 0.90
+				Terrain.RIVER: return 0.95
+				Terrain.BRIDGE, Terrain.URBAN: return 1.10
+				Terrain.ROAD: return 1.05
+				Terrain.PLAINS, Terrain.DESERT: return 1.20
 				Terrain.HILLS: return 1.35
-				Terrain.URBAN: return 1.1
-				Terrain.FOREST: return 1.4
-				Terrain.SWAMP: return 1.5
-				Terrain.RIVER, Terrain.SEA: return 1.0
-				_: return 1.3
+				Terrain.FOREST: return 1.40
+				Terrain.SWAMP: return 1.25
+				_: return 1.25
 		_: # infantry (0) or heavy infantry (6)
 			match terrain:
-				Terrain.PLAINS, Terrain.ROAD, Terrain.BRIDGE: return 1.0
+				Terrain.ROAD, Terrain.BRIDGE: return 0.85
+				Terrain.URBAN: return 0.90
+				Terrain.PLAINS: return 1.00
 				Terrain.DESERT: return 1.15
-				Terrain.HILLS: return 1.3
-				Terrain.URBAN: return 0.9
-				Terrain.FOREST: return 1.2
-				Terrain.SWAMP: return 1.6
+				Terrain.FOREST: return 1.20
+				Terrain.HILLS: return 1.30
+				Terrain.WASTELAND: return 1.40
+				Terrain.SWAMP: return 1.60
 				Terrain.RIVER, Terrain.SEA: return INF
 				Terrain.MOUNTAIN:
 					if heavy or unit_class == 6:
-						return 2.0
+						return 2.00
 					return INF
-				Terrain.WASTELAND: return 1.4
-				_: return 1.1
+				_: return 1.10
+
+static func speed_multiplier(terrain: int, unit_class: int, heavy: bool = false, in_cloud: bool = false) -> float:
+	# Air units ignore ground terrain completely and are only affected by clouds.
+	if unit_class == 3:
+		return Cover.cloud_air_speed_multiplier(in_cloud)
+	var cost := movement_cost(terrain, unit_class, heavy)
+	if cost >= INF or cost <= 0.0:
+		return 0.45
+	return clampf(1.0 / cost, 0.40, 1.35)
 
 static func is_passable(terrain: int, unit_class: int, heavy: bool = false) -> bool:
 	return movement_cost(terrain, unit_class, heavy) < INF

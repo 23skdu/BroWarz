@@ -17,7 +17,7 @@ const MAX_COORD: float = 4096.0
 const MIN_PLAYERS: int = 2
 const MAX_PLAYERS: int = 8
 const ALLOWED_COMMAND_TYPES: Array[String] = [
-	"move", "hold", "stop", "train", "build", "fortify", "tech", "laser", "nuke",
+	"move", "hold", "stop", "train", "build", "fortify", "tech", "laser", "nuke", "embark", "disembark",
 ]
 const ALLOWED_TRANSPORTS: Array[String] = ["enet", "webrtc"]
 
@@ -214,7 +214,7 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 			return {}
 		out["team"] = team
 	match ctype:
-		"move", "hold", "stop":
+		"move", "hold", "stop", "embark", "disembark":
 			var ids := _sanitize_ids(d.get("unit_ids", null))
 			if ids.is_empty():
 				return {}

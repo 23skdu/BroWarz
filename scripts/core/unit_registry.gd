@@ -23,6 +23,23 @@ func has_unit(id: String) -> bool:
 func has_building(id: String) -> bool:
 	return buildings.has(id)
 
+static func transport_capacity(unit_id: String) -> int:
+	match unit_id:
+		"landing_craft": return 4
+		"apc": return 3
+		"hovercraft": return 2
+		"aircraft_carrier": return 4
+	return 0
+
+static func can_embark(transport_id: String, passenger_id: String, passenger_class: int) -> bool:
+	var cap := transport_capacity(transport_id)
+	if cap <= 0 or transport_id == passenger_id:
+		return false
+	if transport_id == "aircraft_carrier":
+		return passenger_class == 3
+	# Amphibious transports & APCs carry infantry (0), frogbot commandos (5), and heavy infantry (6)
+	return passenger_class in [0, 5, 6]
+
 static func requires_advanced_builder(building_id: String) -> bool:
 	return building_id in ["mech_factory_3", "advanced_shipyard", "aeries_2"]
 

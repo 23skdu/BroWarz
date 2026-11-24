@@ -8,6 +8,58 @@ extends RefCounted
 enum AnimState { IDLE = 0, MOVE = 1, FIRE = 2, HIT = 3, EXPLODE = 4 }
 
 const DEFAULT_SPRITE_SIZE: int = 48
+const LOD_ICON_SIZE: int = 24
+const SpatialCellSize: float = 128.0
+
+static var _shared_texture_cache: Dictionary = {}  # "uid:uclass:state:frame:color_hex:size" -> ImageTexture
+
+static func clear_shared_cache() -> void:
+	_shared_texture_cache.clear()
+
+static func shared_cache_size() -> int:
+	return _shared_texture_cache.size()
+
+static func lod_sprite_size(camera_zoom: float = 1.0, active_unit_count: int = 0) -> int:
+	if camera_zoom < 0.65 or active_unit_count >= 500:
+		return LOD_ICON_SIZE
+	return DEFAULT_SPRITE_SIZE
+
+static func get_cached_unit_texture(
+	unit_class: int, state: int, frame: int, team_color: Color,
+	size: int = DEFAULT_SPRITE_SIZE, unit_id: String = ""
+) -> ImageTexture:
+	var key := "%s:%d:%d:%d:%s:%d" % [unit_id, unit_class, state, frame, team_color.to_html(false), size]
+	if not _shared_texture_cache.has(key):
+		var img := build_unit_frame_image(unit_class, state, frame, team_color, size, unit_id)
+		_shared_texture_cache[key] = ImageTexture.create_from_image(img)
+	return _shared_texture_cache[key]
+
+static func build_spatial_grid(unit_positions: Array, cell_size: float = SpatialCellSize) -> Dictionary:
+	# Spatial hash grid for 500+ unit nearest-neighbor queries: Vector2i(cx, cy) -> Array[int] (indices)
+	var grid: Dictionary = {}
+	var inv := 1.0 / maxf(16.0, cell_size)
+	for i in range(unit_positions.size()):
+		var p: Vector2 = unit_positions[i]
+		var cell := Vector2i(int(floor(p.x * inv)), int(floor(p.y * inv)))
+		if not grid.has(cell):
+			grid[cell] = []
+		(grid[cell] as Array).append(i)
+	return grid
+
+static func query_spatial_radius(grid: Dictionary, unit_positions: Array, center: Vector2, radius: float, cell_size: float = SpatialCellSize) -> Array[int]:
+	var out: Array[int] = []
+	var inv := 1.0 / maxf(16.0, cell_size)
+	var min_c := Vector2i(int(floor((center.x - radius) * inv)), int(floor((center.y - radius) * inv)))
+	var max_c := Vector2i(int(floor((center.x + radius) * inv)), int(floor((center.y + radius) * inv)))
+	var r2 := radius * radius
+	for cy in range(min_c.y, max_c.y + 1):
+		for cx in range(min_c.x, max_c.x + 1):
+			var bucket: Array = grid.get(Vector2i(cx, cy), [])
+			for idx in bucket:
+				var p: Vector2 = unit_positions[int(idx)]
+				if center.distance_squared_to(p) <= r2:
+					out.append(int(idx))
+	return out
 
 const FRAME_COUNTS := {
 	AnimState.IDLE: 4,

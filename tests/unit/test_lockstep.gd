@@ -29,3 +29,11 @@ func test_advance():
 	var ls = Lockstep.new()
 	assert_eq(ls.advance(), 1)
 	assert_eq(ls.tick, 1)
+
+func test_multi_peer_lockstep_soak_simulation():
+	var res := Lockstep.run_soak_simulation(4, 150, 2030)
+	assert_true(bool(res["ok"]))
+	assert_eq(int(res["peers"]), 4)
+	assert_eq(int(res["ticks"]), 150)
+	assert_eq(int(res["desyncs"]), 0)
+	assert_true(int(res["commands"]) > 100)

@@ -22,6 +22,7 @@ var net_transport: String = "enet"
 
 # Sapper fortification movement blocks: Vector2i tile -> {building id: mask}
 var fort_blocks: Dictionary = {}
+var active_clouds: Array[Dictionary] = []
 
 var _net_id_counter: int = 0
 
@@ -51,7 +52,12 @@ func start_match(map: MapData) -> void:
 	if registry.units.is_empty():
 		registry.populate_defaults()
 	current_map = map
+	if active_clouds.is_empty() and map != null:
+		active_clouds = Cover.spawn_clouds(float(map.width) * 16.0, float(map.height) * 16.0, match_seed, 8)
 	match_started = true
+
+func is_in_cloud(world_pos: Vector2) -> bool:
+	return Cover.is_point_in_cloud(active_clouds, world_pos)
 
 func end_match(_winner_id: int) -> void:
 	match_started = false
