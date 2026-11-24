@@ -85,7 +85,8 @@ func _refresh_sprite_texture() -> void:
 	var key := "%d:%d" % [anim_state, f_idx]
 	if not _frame_cache.has(key):
 		var uclass := stats.unit_class if stats else 0
-		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), 32)
+		var uid := stats.id if stats else ""
+		var img := UnitVisual.build_unit_frame_image(uclass, anim_state, f_idx, _team_base_color(), 32, uid)
 		_frame_cache[key] = ImageTexture.create_from_image(img)
 	sprite_node.texture = _frame_cache[key]
 	sprite_node.rotation = 0.0 if is_exploding else facing_angle
