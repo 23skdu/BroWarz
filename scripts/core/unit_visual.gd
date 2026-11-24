@@ -167,7 +167,7 @@ static func build_unit_frame_image(
 	var base_size := 48
 	var img := Image.create(base_size, base_size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	var c := base_size / 2
+	var c := 24
 
 	# Strictly uniform palette derived solely from `team_color`
 	var outline := Color(0.05, 0.06, 0.08, 0.98)
@@ -184,7 +184,7 @@ static func build_unit_frame_image(
 		var rad := int(lerpf(6.0, float(c - 2), float(frame + 1) / float(frame_count(state))))
 		var fire_c := Color(1.0, 0.9, 0.3, 1.0).lerp(Color(0.9, 0.2, 0.05, 0.75), float(frame) / 7.0)
 		_fill_circle(img, c, c, rad, fire_c)
-		_fill_circle(img, c, c, maxi(3, rad / 2), Color(1.0, 0.98, 0.8, 1.0 - float(frame) * 0.1))
+		_fill_circle(img, c, c, maxi(3, int(float(rad) * 0.5)), Color(1.0, 0.98, 0.8, 1.0 - float(frame) * 0.1))
 		return _finalize_size(img, target_size)
 
 	var recoil := 3 if (state == AnimState.FIRE and frame < 2) else 0

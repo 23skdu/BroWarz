@@ -38,7 +38,7 @@ func reset() -> void:
 # --- Membership -----------------------------------------------------------
 
 ## Validate and admit a new peer. Returns {ok: bool, reason: String}.
-func add_player(peer_id: int, raw_name: Variant, addr: Variant, now_ms: float = 0.0) -> Dictionary:
+func add_player(peer_id: int, raw_name: Variant, addr: Variant, _now_ms: float = 0.0) -> Dictionary:
 	if peer_id <= 0:
 		return {"ok": false, "reason": "bad peer id"}
 	if phase != Phase.LOBBY:
@@ -115,7 +115,7 @@ func set_ready(peer_id: int, is_ready: bool) -> bool:
 
 ## Rejoin path: prove ownership of a dropped seat with the resume token
 ## issued at admission. Transfers the seat to the new connection's peer id.
-func transfer(old_peer_id: int, new_peer_id: int, token: Variant, now_ms: float = 0.0) -> Dictionary:
+func transfer(old_peer_id: int, new_peer_id: int, token: Variant, _now_ms: float = 0.0) -> Dictionary:
 	if not (token is String):
 		return {"ok": false, "reason": "bad token"}
 	if not players.has(old_peer_id):
