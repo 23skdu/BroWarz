@@ -35,4 +35,3 @@ func start_match(map: MapData) -> void:
 
 func end_match(_winner_id: int) -> void:
 	match_started = false
-

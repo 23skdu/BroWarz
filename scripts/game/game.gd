@@ -587,7 +587,7 @@ func _count_team_buildings(team: int, bid: String) -> int:
 func _update_hud() -> void:
 	if is_instance_valid(hud_label):
 		var w := ResourceManager.get_wallet(0)
-		var r := ResourceManager.rates.get(0, {})
+		var r: Dictionary = ResourceManager.rates.get(0, {})
 		var p_units := _get_team_units(0).size()
 		var p_cap := int(ResourceManager.caps.get(0, 20))
 		hud_label.text = "Corp: %s | Tech: T%d | Oil: %d (+%d/s) | Iron: %d (+%d/s) | Geo: %d (+%d/s) | Food: %d | Units: %d/%d" % [

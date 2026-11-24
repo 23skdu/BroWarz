@@ -103,4 +103,3 @@ func _add_b(id: String, dname: String, hp_v: int, oil: int, iron: int, geo: int,
 	b.build_time = btime
 	b.is_hq = hq
 	register_building(b)
-

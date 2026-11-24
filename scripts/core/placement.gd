@@ -31,4 +31,3 @@ static func free_footprint(occupied: Dictionary, footprint: Vector2i, origin: Ve
 	for dy in range(footprint.y):
 		for dx in range(footprint.x):
 			occupied.erase(Vector2i(origin.x + dx, origin.y + dy))
-

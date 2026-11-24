@@ -125,4 +125,3 @@ static func choose_tactical_state(own_combat_count: int, enemy_near_base: int, w
 	if own_combat_count >= maxi(1, wave_threshold / 2):
 		return "harass"
 	return "rally"
-

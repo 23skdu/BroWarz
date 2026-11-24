@@ -30,4 +30,3 @@ func test_free():
 	Placement.occupy(occ, Vector2i(2,2), Vector2i(0,0))
 	Placement.free_footprint(occ, Vector2i(2,2), Vector2i(0,0))
 	assert_true(Placement.can_place(m, Vector2i(2,2), Vector2i(0,0), occ))
-

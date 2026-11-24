@@ -24,4 +24,3 @@ func test_populate_defaults():
 	assert_true(reg.has_building("hq"))
 	assert_true(reg.has_building("silo"))
 	assert_true(reg.has_building("orbital_uplink"))
-

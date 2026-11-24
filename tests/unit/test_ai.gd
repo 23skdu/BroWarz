@@ -40,4 +40,3 @@ func test_counter_production_and_tactics():
 	assert_eq(AI.choose_tactical_state(6, 0, 5), "attack")
 	assert_eq(AI.choose_tactical_state(3, 0, 5), "harass")
 	assert_eq(AI.choose_tactical_state(1, 0, 5), "rally")
-
