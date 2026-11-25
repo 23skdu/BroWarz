@@ -182,4 +182,4 @@ Peer-to-peer via Godot's HighLevelMultiplayerAPI (ENet on desktop, WebRTC on web
 
 ## License
 
-Public domain (Unlicense). See [LICENSE](LICENSE).
+This project is released into the public domain under the [Unlicense](https://unlicense.org). See [LICENSE](LICENSE) for details.
