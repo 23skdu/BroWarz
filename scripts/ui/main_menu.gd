@@ -1,6 +1,7 @@
 # scripts/ui/main_menu.gd
 extends Control
 
+const LockstepDialogRef := preload("res://scripts/ui/lockstep_dialog.gd")
 const MAP_OPTIONS := ["Desert", "Island Chain", "Forest", "Custom Map (.bwm)"]
 
 const PLAY_COLUMN := "MenuPanel/Margin/VBox/Columns/PlayColumn"
@@ -111,9 +112,9 @@ func _open_replay() -> void:
 	viewer.popup_centered(Vector2i(720, 560))
 
 func _open_lockstep_dialog() -> void:
-	var dialog := get_node_or_null("LockstepDialog") as LockstepDialog
+	var dialog: LockstepDialogRef = get_node_or_null("LockstepDialog") as LockstepDialogRef
 	if dialog == null or not is_instance_valid(dialog):
-		dialog = LockstepDialog.new()
+		dialog = LockstepDialogRef.new()
 		dialog.name = "LockstepDialog"
 		add_child(dialog)
 	dialog.refresh_live_status()

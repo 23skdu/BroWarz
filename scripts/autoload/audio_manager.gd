@@ -1,5 +1,7 @@
 extends Node
 
+const VoiceBarkRef := preload("res://scripts/core/voice_bark.gd")
+
 ## Music/SFX playback. `menu` and `battle` are logical cue names; the selected
 ## faction soundtrack supplies the actual WAV for both cues, so switching the
 ## soundtrack changes the menu bed and the in-match bed together.
@@ -135,22 +137,22 @@ func reset_bark_cooldowns() -> void:
 
 func play_weapon_sfx(damage_type: int, now_sec: float = -1.0) -> void:
 	var now := float(Time.get_ticks_msec()) * 0.001 if now_sec < 0.0 else now_sec
-	if not VoiceBark.can_emit(_weapon_last_sec, now, 0.06):
+	if not VoiceBarkRef.can_emit(_weapon_last_sec, now, 0.06):
 		return
 	_weapon_last_sec = now
-	play_sfx(VoiceBark.weapon_sfx_for_damage_type(damage_type))
+	play_sfx(VoiceBarkRef.weapon_sfx_for_damage_type(damage_type))
 
 ## Play a throttled robotic voice bark and emit its accessible subtitle.
 ## Returns the subtitle text when emitted, or "" if throttled.
 func play_bark(event: String, faction_id: int = 0, subject: String = "", now_sec: float = -1.0) -> String:
 	var now := float(Time.get_ticks_msec()) * 0.001 if now_sec < 0.0 else now_sec
 	var last := float(_bark_last_sec.get(event, -1.0))
-	var cooldown := 0.25 if event in ["build_complete", "tech_complete", "capture", "nuke_warning", "victory", "defeat"] else VoiceBark.DEFAULT_COOLDOWN_SEC
-	if not VoiceBark.can_emit(last, now, cooldown):
+	var cooldown: float = 0.25 if event in ["build_complete", "tech_complete", "capture", "nuke_warning", "victory", "defeat"] else VoiceBarkRef.DEFAULT_COOLDOWN_SEC
+	if not VoiceBarkRef.can_emit(last, now, cooldown):
 		return ""
 	_bark_last_sec[event] = now
-	play_sfx(VoiceBark.sfx_for_event(event))
-	var subtitle := VoiceBark.subtitle_for(event, faction_id, subject)
+	play_sfx(VoiceBarkRef.sfx_for_event(event))
+	var subtitle: String = VoiceBarkRef.subtitle_for(event, faction_id, subject)
 	if not is_instance_valid(SettingsManager) or SettingsManager.subtitles_enabled():
 		bark_subtitle.emit(subtitle)
 	return subtitle

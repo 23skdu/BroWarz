@@ -2,6 +2,8 @@
 extends Node2D
 
 const WildlifeRef := preload("res://scripts/core/wildlife.gd")
+const BuildingInspectorRef := preload("res://scripts/ui/building_inspector.gd")
+const LockstepDialogRef := preload("res://scripts/ui/lockstep_dialog.gd")
 
 var map_data: MapData
 var selected_units: Array = []
@@ -50,8 +52,8 @@ var spatial_unit_positions: Array = []
 var spatial_unit_nodes: Array = []
 var spatial_unit_grid: Dictionary = {}
 var minimap: Minimap = null
-var building_inspector: BuildingInspector = null
-var lockstep_dialog: LockstepDialog = null
+var building_inspector: BuildingInspectorRef = null
+var lockstep_dialog: LockstepDialogRef = null
 var bark_subtitle_label: Label = null
 var bark_subtitle_timer: float = 0.0
 var desync_count: int = 0
@@ -351,7 +353,7 @@ func _setup_hud() -> void:
 	minimap.move_requested.connect(_on_minimap_order)
 	minimap.ping_requested.connect(_on_minimap_ping)
 
-	building_inspector = BuildingInspector.new()
+	building_inspector = BuildingInspectorRef.new()
 	ui.add_child(building_inspector)
 	if pause_node != null:
 		ui.move_child(building_inspector, pause_node.get_index())
@@ -530,7 +532,7 @@ func _open_diplomacy_dialog() -> void:
 
 func _open_lockstep_dialog() -> void:
 	if lockstep_dialog == null or not is_instance_valid(lockstep_dialog):
-		lockstep_dialog = LockstepDialog.new()
+		lockstep_dialog = LockstepDialogRef.new()
 		lockstep_dialog.name = "LockstepDialog"
 		ui.add_child(lockstep_dialog)
 	last_state_checksum = compute_match_checksum()
