@@ -66,3 +66,35 @@ func test_legacy_metadata_defaults():
 	assert_true(m.hq_spawns.is_empty())
 	assert_true(m.deposits.is_empty())
 
+func test_validate_detailed_reports_specific_causes():
+	var bad_tiles := MapSerializer.validate_detailed({"width": 2, "height": 2, "tiles": [0, 0, 0]})
+	assert_false(bool(bad_tiles.get("ok", true)))
+	assert_true(String(bad_tiles.get("reason", "")).contains("Expected 4 tiles"))
+	var bad_tile := MapSerializer.validate_detailed({"width": 1, "height": 1, "tiles": [99]})
+	assert_false(bool(bad_tile.get("ok", true)))
+	assert_true(String(bad_tile.get("reason", "")).contains("unknown terrain id"))
+	var good := MapSerializer.validate_detailed(MapSerializer.to_dict(MapData.new(2, 2)))
+	assert_true(bool(good.get("ok", false)))
+
+func test_share_code_errors_are_actionable():
+	assert_true(String(MapSerializer.from_share_code_detailed("").get("reason", "")).contains("Paste a share code"))
+	assert_true(String(MapSerializer.from_share_code_detailed("INVALID").get("reason", "")).contains("BWM1:"))
+	assert_true(String(MapSerializer.from_share_code_detailed("BWM1:broken").get("reason", "")).contains("payload length"))
+	var bad_base64 := MapSerializer.from_share_code_detailed("BWM1:10:x")
+	assert_engine_error_count(1, "expected one engine error for invalid Base64")
+	assert_true(String(bad_base64.get("reason", "")).contains("Base64"))
+
+func test_save_and_load_results_report_paths_and_errors():
+	var path := "user://maps/test_detailed_result.bwm"
+	var m := MapData.new(16, 16)
+	m.name = "Detailed Result"
+	var saved := MapSerializer.save_with_result(m, path)
+	assert_true(bool(saved.get("ok", false)))
+	assert_eq(String(saved.get("path", "")), path)
+	var loaded := MapSerializer.load_with_result(path)
+	assert_true(bool(loaded.get("ok", false)))
+	assert_true(String(loaded.get("reason", "")).contains("Detailed Result"))
+	assert_false(bool(MapSerializer.load_with_result("user://maps/does_not_exist.bwm").get("ok", true)))
+	assert_false(bool(MapSerializer.save_with_result(null, path).get("ok", true)))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+

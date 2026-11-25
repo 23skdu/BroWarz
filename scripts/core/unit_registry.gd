@@ -40,6 +40,19 @@ static func can_embark(transport_id: String, passenger_id: String, passenger_cla
 	# Amphibious transports & APCs carry infantry (0), frogbot commandos (5), and heavy infantry (6)
 	return passenger_class in [0, 5, 6]
 
+## Worker IDs that can repair, capture and construct fortifications.
+## `sapperbot` is the unified role; the engineer/medic ids are aliases.
+static func is_worker_unit(unit_id: String) -> bool:
+	return unit_id in ["sapperbot", "engineerbot", "adv_engineerbot", "medicbot"]
+
+## Production structures eligible for worker capture (HQs and defenses excluded).
+static func is_production_building(building_id: String) -> bool:
+	return building_id in [
+		"barracks", "factory", "airfield", "shipyard",
+		"docks", "mech_factory_1", "mech_factory_2", "mech_factory_3",
+		"advanced_shipyard", "aeries_1", "aeries_2",
+	]
+
 static func requires_advanced_builder(building_id: String) -> bool:
 	return building_id in ["mech_factory_3", "advanced_shipyard", "aeries_2"]
 

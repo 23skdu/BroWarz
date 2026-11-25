@@ -77,17 +77,41 @@ static func apply_metadata(map: MapData, d: Dictionary) -> void:
 				"rate": float(dep.get("rate", 10.0)),
 			})
 
-static func validate(d: Dictionary) -> bool:
+## Structured validation used by file/share-code loaders and the editor UI.
+## Returns {ok: bool, reason: String} with a human-readable failure message.
+static func validate_detailed(raw: Variant) -> Dictionary:
+	if not (raw is Dictionary):
+		return {"ok": false, "reason": "Map payload is not an object"}
+	var d := raw as Dictionary
 	if not d.has("width") or not d.has("height"):
-		return false
-	var w := int(d.get("width", 0))
-	var h := int(d.get("height", 0))
+		return {"ok": false, "reason": "Map is missing width or height"}
+	var wv: Variant = d.get("width")
+	var hv: Variant = d.get("height")
+	if not ((wv is int) or (wv is float)) or not ((hv is int) or (hv is float)):
+		return {"ok": false, "reason": "Map dimensions must be numbers"}
+	var w := int(wv)
+	var h := int(hv)
 	if w <= 0 or h <= 0 or w > 512 or h > 512:
-		return false
-	var t: Array = d.get("tiles", [])
-	if t.size() != w * h:
-		return false
-	return true
+		return {"ok": false, "reason": "Map dimensions %dx%d are outside 1..512" % [w, h]}
+	if not d.has("tiles") or not (d.get("tiles") is Array):
+		return {"ok": false, "reason": "Map has no tile array"}
+	var tiles: Array = d.get("tiles")
+	if tiles.size() != w * h:
+		return {"ok": false, "reason": "Expected %d tiles, found %d" % [w * h, tiles.size()]}
+	for i in range(tiles.size()):
+		var tile: Variant = tiles[i]
+		if not ((tile is int) or (tile is float)):
+			return {"ok": false, "reason": "Tile %d is not a number" % i}
+		var tid := int(tile)
+		if tid < 0 or tid > MapData.Terrain.HILLS:
+			return {"ok": false, "reason": "Tile %d has unknown terrain id %d" % [i, tid]}
+	for key in ["spawns", "deposits"]:
+		if d.has(key) and not (d.get(key) is Array):
+			return {"ok": false, "reason": "'%s' must be an array" % key}
+	return {"ok": true, "reason": "OK"}
+
+static func validate(d: Dictionary) -> bool:
+	return bool(validate_detailed(d).get("ok", false))
 
 static func to_share_code(map: MapData) -> String:
 	# Compresses the map dictionary withDEFLATE and encodes as a portable Base64 share string.
@@ -104,42 +128,54 @@ static func to_share_code(map: MapData) -> String:
 	var compressed := raw.compress(FileAccess.COMPRESSION_DEFLATE)
 	return "%s%d:%s" % [SHARE_PREFIX, raw.size(), Marshalls.raw_to_base64(compressed)]
 
-static func from_share_code(code: String) -> MapData:
+## Share-code import with a reason instead of a silent null.
+static func from_share_code_detailed(code: String) -> Dictionary:
 	var clean := code.strip_edges()
+	if clean.is_empty():
+		return {"ok": false, "reason": "Paste a share code or choose Copy Share Code first"}
 	if not clean.begins_with(SHARE_PREFIX):
-		return null
+		return {"ok": false, "reason": "Share code must start with '%s'" % SHARE_PREFIX}
 	var rest := clean.substr(SHARE_PREFIX.length())
 	var sep := rest.find(":")
 	if sep <= 0:
-		return null
+		return {"ok": false, "reason": "Share code is missing the payload length separator"}
 	var raw_len := int(rest.substr(0, sep))
 	if raw_len <= 0 or raw_len > 2097152:
-		return null
+		return {"ok": false, "reason": "Share code payload length is invalid"}
 	var b64 := rest.substr(sep + 1)
+	if b64.is_empty():
+		return {"ok": false, "reason": "Share code payload is empty"}
 	var compressed := Marshalls.base64_to_raw(b64)
 	if compressed.is_empty():
-		return null
+		return {"ok": false, "reason": "Share code is not valid Base64"}
 	var raw := compressed.decompress(raw_len, FileAccess.COMPRESSION_DEFLATE)
 	if raw.is_empty():
-		return null
+		return {"ok": false, "reason": "Share code decompression failed or payload length mismatch"}
 	var parsed = JSON.parse_string(raw.get_string_from_utf8())
 	if not (parsed is Dictionary):
-		return null
-	var d: Dictionary = parsed
-	var w := int(d.get("width", 0))
-	var h := int(d.get("height", 0))
-	if w <= 0 or h <= 0 or w > 512 or h > 512:
-		return null
+		return {"ok": false, "reason": "Share code payload is not valid JSON"}
+	var d := parsed as Dictionary
 	var tb64 := String(d.get("tiles_b64", ""))
 	var tbytes := Marshalls.base64_to_raw(tb64)
-	if tbytes.size() != w * h:
-		return null
-	var m := MapData.new(w, h)
+	if tbytes.size() != int(d.get("width", 0)) * int(d.get("height", 0)):
+		return {"ok": false, "reason": "Share code tile data is truncated or corrupt"}
+	var check := validate_detailed({
+		"width": d.get("width"), "height": d.get("height"),
+		"tiles": Array(tbytes), "spawns": d.get("spawns", []),
+		"deposits": d.get("deposits", []),
+	})
+	if not bool(check.get("ok", false)):
+		return {"ok": false, "reason": "Invalid shared map: %s" % str(check.get("reason", "unknown"))}
+	var m := MapData.new(int(d.get("width")), int(d.get("height")))
 	m.name = String(d.get("name", "Shared Map"))
 	m.author = String(d.get("author", "Commander"))
 	m.tiles = tbytes
 	apply_metadata(m, d)
-	return m
+	return {"ok": true, "map": m, "reason": "OK"}
+
+static func from_share_code(code: String) -> MapData:
+	var result := from_share_code_detailed(code)
+	return result.get("map", null) as MapData
 
 static func sanitize_filename(raw_name: String) -> String:
 	var out := ""
@@ -153,38 +189,75 @@ static func sanitize_filename(raw_name: String) -> String:
 		out = "custom_map"
 	return out.substr(0, 40)
 
-static func save_to_file(map: MapData, path: String = "", update_default: bool = true) -> Error:
-	DirAccess.make_dir_recursive_absolute(MAPS_DIR)
+## Save with a structured result the editor can show verbatim.
+static func save_with_result(map: MapData, path: String = "", update_default: bool = true) -> Dictionary:
+	if map == null:
+		return {"ok": false, "reason": "No map is open"}
+	if map.width <= 0 or map.height <= 0 or map.tiles.size() != map.width * map.height:
+		return {"ok": false, "reason": "Map dimensions and tile data do not match"}
+	var dir_err := DirAccess.make_dir_recursive_absolute(MAPS_DIR)
+	if dir_err != OK:
+		return {"ok": false, "reason": "Cannot create %s: %s" % [MAPS_DIR, error_string(dir_err)]}
 	var target := path
 	if target.is_empty():
 		target = "%s/%s.bwm" % [MAPS_DIR, sanitize_filename(map.name)]
 	var f := FileAccess.open(target, FileAccess.WRITE)
 	if f == null:
-		return ERR_CANT_OPEN
+		return {"ok": false, "reason": "Cannot write %s: %s" % [target, error_string(FileAccess.get_open_error())]}
 	var content := JSON.stringify(to_dict(map))
 	f.store_string(content)
 	f.close()
-	# Also keep user://custom_map.bwm in sync as the quick-load default,
-	# unless this was a transient test-play write.
+	# A failed default write must not silently break the main-menu Custom Map.
 	if update_default:
-		var f_def := FileAccess.open("user://custom_map.bwm", FileAccess.WRITE)
-		if f_def != null:
-			f_def.store_string(content)
-			f_def.close()
-	return OK
+		var def := FileAccess.open("user://custom_map.bwm", FileAccess.WRITE)
+		if def == null:
+			return {
+				"ok": false,
+				"reason": "Saved %s but could not update the quick-load default: %s" % [
+					target, error_string(FileAccess.get_open_error()),
+				],
+			}
+		def.store_string(content)
+		def.close()
+	return {"ok": true, "path": target, "reason": "Saved %s" % target}
 
-static func load_from_file(path: String) -> MapData:
+static func save_to_file(map: MapData, path: String = "", update_default: bool = true) -> Error:
+	var result := save_with_result(map, path, update_default)
+	return OK if bool(result.get("ok", false)) else ERR_CANT_OPEN
+
+## Load with structured errors: missing file, unreadable file, invalid JSON,
+## invalid dimensions/tiles are all reported with actionable text.
+static func load_with_result(path: String) -> Dictionary:
+	if path.is_empty():
+		return {"ok": false, "reason": "No map path supplied"}
 	if not FileAccess.file_exists(path):
-		return null
+		return {"ok": false, "reason": "No map file at %s" % path}
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		return null
+		return {"ok": false, "reason": "Cannot open %s: %s" % [path, error_string(FileAccess.get_open_error())]}
 	var text := f.get_as_text()
 	f.close()
+	if text.strip_edges().is_empty():
+		return {"ok": false, "reason": "%s is empty" % path}
 	var parsed = JSON.parse_string(text)
-	if parsed is Dictionary and validate(parsed):
-		return from_dict(parsed)
-	return null
+	if not (parsed is Dictionary):
+		return {"ok": false, "reason": "%s is not a valid JSON map" % path}
+	var check := validate_detailed(parsed)
+	if not bool(check.get("ok", false)):
+		return {"ok": false, "reason": "Invalid map in %s: %s" % [path, str(check.get("reason", "unknown"))]}
+	var map := from_dict(parsed as Dictionary)
+	var playability := MapData.validate_map(map)
+	return {
+		"ok": true,
+		"map": map,
+		"reason": "Loaded '%s' from %s" % [map.name, path],
+		"playable": bool(playability.get("ok", false)),
+		"playability_reason": String(playability.get("reason", "")),
+	}
+
+static func load_from_file(path: String) -> MapData:
+	var result := load_with_result(path)
+	return result.get("map", null) as MapData
 
 static func list_saved_maps() -> Array[String]:
 	var files: Array[String] = []

@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: Dictionary = {
 	"num_teams": 2,
 	"fog_of_war": true,
 	"transport": "enet",
+	"alliance_mode": 0,  # 0 = free-for-all, 1 = paired sides
 }
 
 var phase: int = Phase.LOBBY

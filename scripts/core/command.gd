@@ -2,7 +2,10 @@
 class_name Command
 extends RefCounted
 
-enum Type { MOVE, ATTACK, ATTACK_MOVE, BUILD, STOP, PATROL, HOLD }
+enum Type {
+	MOVE, ATTACK, ATTACK_MOVE, BUILD, STOP, PATROL, HOLD,
+	TRAIN, FORTIFY, EMBARK, DISEMBARK, TECH, ORBITAL, NUKE,
+}
 
 var type: Type = Type.MOVE
 var tick: int = 0

@@ -35,6 +35,8 @@ var turret_angle: float = 0.0
 var last_target_world_pos: Vector2 = Vector2.ZERO
 var explosion_debris: Array[Dictionary] = []
 var sprite_node: Sprite2D = null
+var deck_label: Label = null
+var capture_progress: Dictionary = {}  # building instance id -> seconds nearby
 var _frame_cache: Dictionary = {}  # "state:frame" -> ImageTexture
 
 @onready var body = $Body
@@ -67,11 +69,45 @@ func setup(s: UnitStats, t: int, f: int = -1) -> void:
 	_frame_cache.clear()
 	_update_visual()
 
+## Find the owning game scene even when this node is not the engine's
+## current_scene (GUT instantiates scenes under its own test root).
+func _game_root() -> Node:
+	var node: Node = self
+	while node != null:
+		if node.has_method("team_tech_bonus") and node.has_method("units_near"):
+			return node
+		node = node.get_parent()
+	if not is_inside_tree():
+		return null
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var scene = tree.current_scene
+	if scene != null and scene.has_method("team_tech_bonus") and scene.has_method("units_near"):
+		return scene
+	return null
+
+func _scene_tech_bonus(key: String) -> float:
+	# setup() is called before the unit enters the scene tree in some spawners,
+	# so the owning game may not be reachable yet.
+	var game := _game_root()
+	if game != null:
+		return float(game.team_tech_bonus(team, key))
+	return 0.0
+
+## Live recolor after the colorblind palette changes in the settings dialog.
+func refresh_colorblind() -> void:
+	_frame_cache.clear()
+	_refresh_sprite_texture()
+	if deck_label != null:
+		_update_deck_label()
+
 func effective_max_hp() -> int:
 	if stats == null:
 		return 100
 	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	return Faction.effective_max_hp(fac_id, stats.id, stats.hp)
+	var base := Faction.effective_max_hp(fac_id, stats.id, stats.hp)
+	return int(round(float(base) * (1.0 + _scene_tech_bonus("armor_hp"))))
 
 func effective_speed() -> float:
 	if stats == null:
@@ -81,7 +117,8 @@ func effective_speed() -> float:
 
 func effective_cloak_duration() -> float:
 	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	return Faction.effective_cloak_duration(fac_id, 10.0)
+	var base := Faction.effective_cloak_duration(fac_id, 10.0)
+	return base * (1.0 + _scene_tech_bonus("cloak_duration"))
 
 func _setup_animated_sprite() -> void:
 	if sprite_node != null:
@@ -90,11 +127,27 @@ func _setup_animated_sprite() -> void:
 	sprite_node.name = "AnimatedUnitSprite"
 	sprite_node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	add_child(sprite_node)
+	if transport_capacity() > 0:
+		deck_label = Label.new()
+		deck_label.name = "DroneDeckLabel"
+		deck_label.position = Vector2(-14, -30)
+		deck_label.add_theme_font_size_override("font_size", 10)
+		add_child(deck_label)
+		_update_deck_label()
 	_refresh_sprite_texture()
+
+func _update_deck_label() -> void:
+	if deck_label == null:
+		return
+	deck_label.text = "Deck %d/%d" % [cargo.size(), transport_capacity()]
 
 func _team_base_color() -> Color:
 	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	return Faction.color_of(fac_id)
+	var variant := 0
+	var scene = get_tree().current_scene
+	if scene != null and scene.has_method("color_variant_for_team"):
+		variant = int(scene.color_variant_for_team(team))
+	return Faction.colorblind_color_of(fac_id, SettingsManager.colorblind_palette(), variant)
 
 func _refresh_sprite_texture() -> void:
 	if sprite_node == null:
@@ -149,6 +202,7 @@ func embark_passenger(unit: Node2D) -> bool:
 	unit.visible = false
 	unit.set_physics_process(false)
 	unit.remove_from_group("units")
+	_update_deck_label()
 	return true
 
 func disembark_all(drop_origin: Vector2 = Vector2.INF) -> int:
@@ -189,6 +243,7 @@ func disembark_all(drop_origin: Vector2 = Vector2.INF) -> int:
 		p.add_to_group("units")
 		unloaded += 1
 	cargo.clear()
+	_update_deck_label()
 	return unloaded
 
 func _physics_process(delta):
@@ -229,8 +284,8 @@ func _physics_process(delta):
 	# Sapperbot is the unified worker: auto-repair nearby friendly units/structures.
 	if stats and stats.id == "sapperbot":
 		_auto_repair_allies(delta)
-	if stats and stats.id == "sapperbot":
-		_try_capture_enemy_building()
+	if stats and UnitRegistry.is_worker_unit(stats.id):
+		_try_capture_enemy_building(delta)
 	if stats and stats.id == "aircraft_carrier" and not cargo.is_empty():
 		_repair_carrier_drones(delta)
 
@@ -296,7 +351,7 @@ func _terrain_speed_multiplier() -> float:
 func _auto_repair_allies(delta: float) -> void:
 	var rate := 18.0 if (stats and stats.id == "sapperbot") else 12.0
 	for u in get_tree().get_nodes_in_group("units"):
-		if u == self or not is_instance_valid(u) or u.team != team or u.is_exploding:
+		if u == self or not is_instance_valid(u) or not GameManager.is_allied(team, int(u.team)) or u.is_exploding:
 			continue
 		var max_hp: int = u.effective_max_hp() if u.has_method("effective_max_hp") else (u.stats.hp if u.stats else 100)
 		if u.stats and Repair.can_repair(u.hp, max_hp):
@@ -308,7 +363,7 @@ func _auto_repair_allies(delta: float) -> void:
 				return
 	if stats and stats.can_build:
 		for b in get_tree().get_nodes_in_group("buildings"):
-			if not is_instance_valid(b) or b.team != team or ("is_exploding" in b and b.is_exploding):
+			if not is_instance_valid(b) or not GameManager.is_allied(team, int(b.team)) or ("is_exploding" in b and b.is_exploding):
 				continue
 			if b.stats and Repair.can_repair(b.hp, b.stats.hp) and global_position.distance_to(b.global_position) <= 110.0:
 				var b_amt := int(ceil(Repair.repair_amount(rate, delta)))
@@ -317,17 +372,29 @@ func _auto_repair_allies(delta: float) -> void:
 					b.hp_bar.value = float(b.hp) / float(b.stats.hp) * 100.0
 				return
 
-func _try_capture_enemy_building() -> void:
+func _try_capture_enemy_building(delta: float) -> void:
+	# Only the unified worker role can capture, and only damaged production
+	# structures. Holding a worker nearby for two seconds completes the flip.
+	if stats == null or not UnitRegistry.is_worker_unit(stats.id):
+		return
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if not is_instance_valid(b) or b.team == team or ("is_exploding" in b and b.is_exploding):
+		if not is_instance_valid(b) or GameManager.is_allied(team, int(b.team)) or ("is_exploding" in b and b.is_exploding):
 			continue
-		if b.stats and b.hp <= int(float(b.stats.hp) * 0.5) and global_position.distance_to(b.global_position) <= 44.0:
-			b.team = team
-			if "body" in b and b.body:
-				var fac := GameManager.player_faction if team == 0 else GameManager.ai_faction
-				b.body.color = Faction.color_of(fac).darkened(0.12)
-			AudioManager.play_sfx("tech_up")
-			return
+		if b.stats == null or not UnitRegistry.is_production_building(b.stats.id):
+			continue
+		if b.hp > int(float(b.stats.hp) * 0.5) or global_position.distance_to(b.global_position) > 44.0:
+			continue
+		var key := b.get_instance_id()
+		var progress := float(capture_progress.get(key, 0.0)) + delta
+		if progress < 2.0:
+			capture_progress[key] = progress
+			continue
+		capture_progress.erase(key)
+		b.team = team
+		if b.has_method("refresh_colorblind"):
+			b.refresh_colorblind()
+		AudioManager.play_sfx("tech_up")
+		return
 
 func _repair_carrier_drones(delta: float) -> void:
 	for p in cargo:
@@ -393,7 +460,8 @@ func _perform_attack(enemy: Node2D) -> void:
 		atk_mod = Cover.attack_modifier_for_unit(MapData.Terrain.PLAINS, attacker_class, attacker_in_cloud)
 		cover_mod = Cover.defense_modifier_for_unit(MapData.Terrain.PLAINS, target_class, target_in_cloud)
 	var uid := stats.id if stats else ""
-	var final_dmg := Damage.compute_for_unit(uid, base_dmg * atk_mod, dmg_type, target_armor, 0.0, cover_mod)
+	var dmg_mult := 1.0 + _scene_tech_bonus("weapon_damage")
+	var final_dmg := Damage.compute_for_unit(uid, base_dmg * atk_mod * dmg_mult, dmg_type, target_armor, 0.0, cover_mod)
 
 	# Spawn projectile tracer & muzzle flash in active game scene
 	var scene = get_tree().current_scene
@@ -419,8 +487,14 @@ func _nearest_enemy() -> Node2D:
 	var uid := stats.id if stats else ""
 	var has_radar := uid == "awacs" or uid == "scout_drone"
 	var has_sonar := Vision.is_sonar_unit(uid)
-	for u in get_tree().get_nodes_in_group("units"):
-		if u == self or not is_instance_valid(u) or u.team == team:
+	var unit_candidates: Array = get_tree().get_nodes_in_group("units")
+	var game := _game_root()
+	if game != null:
+		var nearby: Array = game.units_near(global_position, maxf(sgt, 600.0))
+		if not nearby.is_empty():
+			unit_candidates = nearby
+	for u in unit_candidates:
+		if u == self or not is_instance_valid(u) or GameManager.is_allied(team, int(u.team)):
 			continue
 		if "is_exploding" in u and u.is_exploding:
 			continue

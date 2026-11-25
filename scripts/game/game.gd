@@ -13,9 +13,6 @@ var pending_target_action: String = ""
 var resource_deposits: Array[Dictionary] = []
 var team_unlocked_tech: Dictionary = {0: [], 1: []}
 var alliances: Dictionary = {}
-var replay: Replay = Replay.new()
-var spatial_grid: Dictionary = {}
-var spatial_positions: Array = []
 var tactical_pings: Array[Dictionary] = []
 var camera: Camera2D
 var match_over: bool = false
@@ -37,10 +34,14 @@ var match_duration: float = 0.0
 var drag_selecting: bool = false
 var drag_start: Vector2 = Vector2.ZERO
 var drag_current: Vector2 = Vector2.ZERO
-# Spatial hash grid (UnitVisual.build_spatial_grid) over unit world positions,
-# rebuilt per tick so unit.gd combat/repair queries stay O(1)-ish.
+# Single spatial hash grid shared by scene combat, turrets and AOE queries.
 var spatial_unit_positions: Array = []
+var spatial_unit_nodes: Array = []
 var spatial_unit_grid: Dictionary = {}
+var minimap: Minimap = null
+var pause_panel: Control = null
+var victory_panel: Control = null
+var research_dialog: ResearchDialog = null
 var laser_cooldown: float = 0.0
 var nuke_cooldown: float = 0.0
 var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
@@ -50,6 +51,7 @@ var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
 var terrain_image: Image
 var terrain_texture: ImageTexture
 var terrain_sprite: Sprite2D
+var forest_multimesh: MultiMeshInstance2D = null
 var forest_decorations: Array = []  # Array of Dictionary {pos, kind, radius, shade}
 var wildlife_herd: Array[Dictionary] = []
 
@@ -73,6 +75,8 @@ func _ready():
 		GameManager.registry.populate_defaults()
 	map_data = MapData.new(128, 128)
 	_generate_map(GameManager.map_type)
+	replay_log.seed = GameManager.match_seed
+	replay_log.map_name = map_data.name
 	terrain_image = UnitVisual.build_terrain_map_image(map_data, TERRAIN_PPT)
 	terrain_texture = ImageTexture.create_from_image(terrain_image)
 	terrain_sprite = Sprite2D.new()
@@ -207,8 +211,8 @@ func _setup_hud() -> void:
 	help_label.name = "HelpLabel"
 	help_label.position = Vector2(20, 110)
 	help_label.text = (
-		"[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-7] Train | "
-		+ "[E] Embark | [U] Disembark | [B/V] Build | [T] Tech Up | [L] Laser | [N] Nuke"
+		"[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-7] Train | [F/G/M] Fortify | "
+		+ "[E] Embark | [U] Disembark | [B/V/P] Build | [T/R] Tech | [L] Laser | [N] Nuke | [Esc] Pause"
 	)
 	ui.add_child(help_label)
 
@@ -224,6 +228,9 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Train AA [5]", func(): _player_train_unit("aa_vehicle"))
 	_add_cmd_button(btn_bar, "Train Fighter [6]", func(): _player_train_unit("fighter_drone"))
 	_add_cmd_button(btn_bar, "Train Hovercraft [7]", func(): _player_train_unit("hovercraft"))
+	_add_cmd_button(btn_bar, "Wall [F]", func(): _enter_build_mode("wall"))
+	_add_cmd_button(btn_bar, "Barbed Wire [G]", func(): _enter_build_mode("barbed_wire"))
+	_add_cmd_button(btn_bar, "Missile Tower [M]", func(): _enter_build_mode("missile_tower"))
 	_add_cmd_button(btn_bar, "Embark [E]", func(): _player_embark_selected())
 	_add_cmd_button(btn_bar, "Disembark [U]", func(): _player_disembark_selected())
 	_add_cmd_button(btn_bar, "Build Extractor [B]", func(): _enter_build_mode("extractor"))
@@ -231,16 +238,189 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Build Power [P]", func(): _enter_build_mode("power_plant"))
 	_add_cmd_button(btn_bar, "Cancel Queue [X]", func(): _cancel_selected_building_queue())
 	_add_cmd_button(btn_bar, "Tech Up [T]", func(): _player_upgrade_tech())
+	_add_cmd_button(btn_bar, "Research [R]", func(): _open_research_dialog())
 	_add_cmd_button(btn_bar, "Orbital Laser [L]", func(): _enter_target_mode("laser"))
 	_add_cmd_button(btn_bar, "Nuclear Strike [N]", func(): _enter_target_mode("nuke"))
 	_add_cmd_button(btn_bar, "Save [F5]", func(): quicksave_match())
-	_add_cmd_button(btn_bar, "Main Menu", func(): SceneManager.goto_scene("res://scenes/main_menu.tscn"))
+	_add_cmd_button(btn_bar, "Load [F9]", func(): quickload_match())
+	_add_cmd_button(btn_bar, "Settings", func(): _open_settings())
+	_add_cmd_button(btn_bar, "Pause [Esc]", func(): toggle_pause())
 
-func _add_cmd_button(parent: Node, label_text: String, cb: Callable) -> void:
+	_build_full_palette()
+	_build_pause_panel()
+	_build_victory_panel()
+
+	minimap = Minimap.new()
+	minimap.name = "Minimap"
+	minimap.game = self
+	ui.add_child(minimap)
+	minimap.camera_requested.connect(_on_minimap_camera)
+	minimap.move_requested.connect(_on_minimap_order)
+
+func _build_full_palette() -> void:
+	var scroll := ScrollContainer.new()
+	scroll.name = "FullPaletteScroll"
+	scroll.position = Vector2(20, 190)
+	scroll.custom_minimum_size = Vector2(215, 340)
+	ui.add_child(scroll)
+	var vbox := VBoxContainer.new()
+	vbox.name = "FullPalette"
+	scroll.add_child(vbox)
+	var unit_ids: Array = GameManager.registry.units.keys()
+	unit_ids.sort()
+	for uid in unit_ids:
+		var s: UnitStats = GameManager.registry.get_unit(str(uid))
+		var label := s.display_name if s != null else str(uid)
+		var b := _add_cmd_button(vbox, "Train %s" % label, func(): _player_train_unit(str(uid)))
+		b.name = "Train_%s" % str(uid)
+	var building_ids: Array = GameManager.registry.buildings.keys()
+	building_ids.sort()
+	for bid in building_ids:
+		var bs: BuildingStats = GameManager.registry.get_building(str(bid))
+		var label := bs.display_name if bs != null else str(bid)
+		var b := _add_cmd_button(vbox, "Place %s" % label, func(): _enter_build_mode(str(bid)))
+		b.name = "Build_%s" % str(bid)
+
+func _build_pause_panel() -> void:
+	pause_panel = Control.new()
+	pause_panel.name = "PausePanel"
+	pause_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_panel.visible = false
+	ui.add_child(pause_panel)
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.0, 0.0, 0.0, 0.78)
+	pause_panel.add_child(dim)
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_CENTER)
+	vbox.offset_left = -170.0
+	vbox.offset_top = -190.0
+	vbox.offset_right = 170.0
+	vbox.offset_bottom = 190.0
+	vbox.add_theme_constant_override("separation", 8)
+	pause_panel.add_child(vbox)
+	var title := Label.new()
+	title.text = "SYSTEM MENU — PAUSED"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	_add_cmd_button(vbox, "Resume", func(): toggle_pause())
+	_add_cmd_button(vbox, "Save Match [F5]", func(): quicksave_match())
+	_add_cmd_button(vbox, "Load Match [F9]", func(): quickload_match())
+	_add_cmd_button(vbox, "Settings", func(): _open_settings())
+	_add_cmd_button(vbox, "Save Replay", func(): save_replay())
+	_add_cmd_button(vbox, "Watch Replay", func(): _open_replay_viewer())
+	_add_cmd_button(vbox, "Main Menu", func():
+		resume_game()
+		SceneManager.goto_scene("res://scenes/main_menu.tscn")
+	)
+
+func _build_victory_panel() -> void:
+	var panel := Control.new()
+	victory_panel = panel
+	panel.name = "MatchEndPanel"
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -300.0
+	panel.offset_top = -140.0
+	panel.offset_right = 300.0
+	panel.offset_bottom = 140.0
+	panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	panel.visible = false
+	ui.add_child(panel)
+	var bg := ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.02, 0.03, 0.05, 0.92)
+	panel.add_child(bg)
+	var vbox := VBoxContainer.new()
+	vbox.name = "VBoxContainer"
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 10)
+	panel.add_child(vbox)
+	var title := Label.new()
+	title.name = "ResultLabel"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 24)
+	vbox.add_child(title)
+	var detail := Label.new()
+	detail.name = "ScoreLabel"
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(detail)
+	_add_cmd_button(vbox, "Save Replay", func(): save_replay())
+	_add_cmd_button(vbox, "Watch Replay", func(): _open_replay_viewer())
+	_add_cmd_button(vbox, "Main Menu", func():
+		resume_game()
+		SceneManager.goto_scene("res://scenes/main_menu.tscn")
+	)
+
+func _add_cmd_button(parent: Node, label_text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = label_text
 	b.pressed.connect(cb)
 	parent.add_child(b)
+	return b
+
+func _open_settings() -> void:
+	var dialog := SettingsDialog.new()
+	ui.add_child(dialog)
+	dialog.popup_centered(Vector2i(620, 640))
+
+func _open_replay_viewer() -> void:
+	var viewer := ui.get_node_or_null("ReplayViewer")
+	if viewer == null:
+		viewer = ReplayViewer.new()
+		viewer.name = "ReplayViewer"
+		ui.add_child(viewer)
+	viewer.popup_centered(Vector2i(720, 560))
+
+func _open_research_dialog() -> void:
+	if research_dialog != null and is_instance_valid(research_dialog):
+		research_dialog.queue_free()
+	research_dialog = ResearchDialog.new()
+	ui.add_child(research_dialog)
+	research_dialog.populate(team_unlocked_tech.get(GameManager.local_team, []), ResourceManager.get_wallet(GameManager.local_team))
+	research_dialog.research_selected.connect(_on_research_selected)
+	research_dialog.popup_centered(Vector2i(560, 520))
+
+func _on_research_selected(node_id: String) -> void:
+	_research_node(GameManager.local_team, node_id)
+
+func _on_minimap_camera(world_pos: Vector2) -> void:
+	if camera != null:
+		camera.position = _clamp_camera(world_pos)
+
+func _on_minimap_order(world_pos: Vector2) -> void:
+	_issue_move_order(world_pos, true)
+
+func _clamp_camera(pos: Vector2) -> Vector2:
+	if map_data == null:
+		return pos
+	var half_view := get_viewport_rect().size * 0.5 / maxf(camera.zoom.x, 0.01)
+	return Vector2(
+		clampf(pos.x, half_view.x, float(map_data.width) * TILE_SIZE - half_view.x),
+		clampf(pos.y, half_view.y, float(map_data.height) * TILE_SIZE - half_view.y)
+	)
+
+func toggle_pause() -> void:
+	if pause_panel == null:
+		return
+	pause_panel.visible = not pause_panel.visible
+	get_tree().paused = pause_panel.visible
+	pending_build_id = ""
+	pending_target_action = ""
+
+func resume_game() -> void:
+	if pause_panel != null:
+		pause_panel.visible = false
+	get_tree().paused = false
+
+func _team_score(team: int) -> Dictionary:
+	var wallet := ResourceManager.get_wallet(team)
+	var eco_sum := int(wallet.get(Economy.Res.OIL, 0)) + int(wallet.get(Economy.Res.IRON, 0)) + int(wallet.get(Economy.Res.GEOTHERMAL, 0))
+	var mil := Score.military_score(_get_team_units(team).size(), _get_team_building_counts(team).size())
+	var eco := Score.economic_score(eco_sum)
+	return {"military": mil, "economic": eco, "total": Score.total(mil, eco)}
 
 func _init_economies() -> void:
 	var start_res := {
@@ -396,6 +576,11 @@ func _nearest_vehicle_tile(origin: Vector2i) -> Vector2i:
 func _spawn_unit(pos: Vector2, team: int) -> void:
 	_spawn_unit_by_id("riflebot", pos, team)
 
+## Chess-style variant used for mirrored corporations (black/white).
+func color_variant_for_team(team: int) -> int:
+	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	return Faction.color_for_team(fac_id, _color_variant_count(team))
+
 func _color_variant_count(team: int) -> int:
 	# When several teams run the same corporation, later teams get a
 	# black-or-white variant so players can tell them apart (chess colors).
@@ -418,7 +603,7 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 		s.display_name = uid.capitalize()
 	u.setup(s, team)
 	var uf = GameManager.player_faction if team == 0 else GameManager.ai_faction
-	var variant := Faction.color_for_team(uf, _color_variant_count(team))
+	var variant := color_variant_for_team(team)
 	var body = u.get_node_or_null("Body")
 	if body:
 		body.color = Faction.colorblind_color_of(uf, SettingsManager.colorblind_palette(), variant)
@@ -439,7 +624,7 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 		s.is_hq = (bid == "hq")
 	b.setup(s, team)
 	var bf = GameManager.player_faction if team == 0 else GameManager.ai_faction
-	var variant := Faction.color_for_team(bf, _color_variant_count(team))
+	var variant := color_variant_for_team(team)
 	var bbody = b.get_node_or_null("Body")
 	if bbody:
 		bbody.color = Faction.colorblind_color_of(bf, SettingsManager.colorblind_palette(), variant)
@@ -456,6 +641,11 @@ func _world_mouse_pos(screen_pos: Vector2) -> Vector2:
 	return camera.position + Vector2(offset.x / camera.zoom.x, offset.y / camera.zoom.y)
 
 func _unhandled_input(event):
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		toggle_pause()
+		return
+	if get_tree().paused:
+		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F12:
 		_capture_screenshot()
 		return
@@ -473,14 +663,14 @@ func _unhandled_input(event):
 				queue_redraw()
 				return
 			if event.pressed and not pending_build_id.is_empty():
-				if _build_structure_for_team(0, pending_build_id, world_pos):
+				var bid := pending_build_id
+				var ctype := "fortify" if Fortification.is_fortification(bid) else "build"
+				if apply_command({"type": ctype, "team": 0, "id": bid, "target_x": world_pos.x, "target_y": world_pos.y}):
 					pending_build_id = ""
 				return
 			if event.pressed and not pending_target_action.is_empty():
-				if pending_target_action == "laser":
-					_player_fire_orbital_laser(world_pos)
-				elif pending_target_action == "nuke":
-					_player_fire_nuke(world_pos)
+				var action := pending_target_action
+				apply_command({"type": action, "team": 0, "target_x": world_pos.x, "target_y": world_pos.y})
 				pending_target_action = ""
 				return
 			if event.pressed:
@@ -525,6 +715,8 @@ func _complete_selection(start_p: Vector2, end_p: Vector2, additive: bool, doubl
 						u.selected = true
 						if not selected_units.has(u):
 							selected_units.append(u)
+				if camera != null:
+					camera.position = _clamp_camera(clicked.global_position)
 			else:
 				clicked.selected = true
 				if not selected_units.has(clicked):
@@ -543,21 +735,43 @@ func _complete_selection(start_p: Vector2, end_p: Vector2, additive: bool, doubl
 					selected_units.append(u)
 
 func _issue_move_order(target: Vector2, is_attack_move: bool = true) -> void:
-	var valid_units: Array = []
-	for u in selected_units:
-		if is_instance_valid(u) and not u.is_exploding:
-			valid_units.append(u)
-	if valid_units.is_empty():
+	var ids := _selected_unit_ids()
+	if ids.is_empty():
 		return
-	var offsets := Formation.grid_offsets(valid_units.size(), 28.0)
-	for i in range(valid_units.size()):
-		valid_units[i].move_to(target + offsets[i], is_attack_move)
-	AudioManager.play_sfx("order_move")
+	var cmd := {
+		"type": "move", "team": 0, "unit_ids": ids,
+		"target_x": target.x, "target_y": target.y,
+		"attack_move": is_attack_move,
+	}
+	if apply_command(cmd):
+		AudioManager.play_sfx("order_move")
+
+func _set_control_group(index: int) -> void:
+	control_groups[index] = selected_units.duplicate()
+	if is_instance_valid(status_label):
+		status_label.text = "Control group %d: %d units" % [index, control_groups[index].size()]
+
+func _recall_control_group(index: int) -> void:
+	if not control_groups.has(index):
+		return
+	for u in selected_units:
+		if is_instance_valid(u):
+			u.selected = false
+	selected_units.clear()
+	var centroid := Vector2.ZERO
+	var count := 0
+	for u in control_groups[index]:
+		if is_instance_valid(u) and not u.is_exploding:
+			u.selected = true
+			selected_units.append(u)
+			centroid += u.global_position
+			count += 1
+	if count > 0 and camera != null:
+		camera.position = _clamp_camera(centroid / float(count))
 
 func _handle_hotkey(event: InputEventKey) -> void:
 	if event.keycode >= KEY_0 and event.keycode <= KEY_9 and Input.is_key_pressed(KEY_CTRL):
-		var grp := int(event.keycode - KEY_0)
-		control_groups[grp] = selected_units.duplicate()
+		_set_control_group(int(event.keycode - KEY_0))
 		return
 	match event.keycode:
 		KEY_1: _player_train_unit("riflebot")
@@ -568,23 +782,18 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		KEY_6: _player_train_unit("fighter_drone")
 		KEY_7: _player_train_unit("hovercraft")
 		KEY_8, KEY_9, KEY_0:
-			var grp_id := int(event.keycode - KEY_0)
-			if control_groups.has(grp_id):
-				for u in selected_units:
-					if is_instance_valid(u):
-						u.selected = false
-				selected_units.clear()
-				for u in control_groups[grp_id]:
-					if is_instance_valid(u) and not u.is_exploding:
-						u.selected = true
-						selected_units.append(u)
+			_recall_control_group(int(event.keycode - KEY_0))
 		KEY_E: _player_embark_selected()
 		KEY_U: _player_disembark_selected()
 		KEY_X: _cancel_selected_building_queue()
 		KEY_B: _enter_build_mode("extractor")
 		KEY_V: _enter_build_mode("turret")
 		KEY_P: _enter_build_mode("power_plant")
+		KEY_F: _enter_build_mode("wall")
+		KEY_G: _enter_build_mode("barbed_wire")
+		KEY_M: _enter_build_mode("missile_tower")
 		KEY_T: _player_upgrade_tech()
+		KEY_R: _open_research_dialog()
 		KEY_L: _enter_target_mode("laser")
 		KEY_N: _enter_target_mode("nuke")
 		KEY_F5: quicksave_match()
@@ -604,13 +813,26 @@ func _wallet_cost(s_cost: Dictionary) -> Dictionary:
 	}
 
 func _player_train_unit(uid: String) -> void:
-	_train_unit_for_team(0, uid)
+	apply_command({"type": "train", "team": 0, "id": uid})
+
+func _selected_unit_ids() -> Array:
+	var ids: Array = []
+	for u in selected_units:
+		if is_instance_valid(u):
+			ids.append(int(u.net_id))
+	return ids
 
 func _player_embark_selected() -> int:
-	return _embark_units_for_team(0, selected_units)
+	var count := _embark_units_for_team(0, selected_units)
+	if count > 0:
+		_record_replay_command({"type": "embark", "unit_ids": _selected_unit_ids()}, "embark", 0)
+	return count
 
 func _player_disembark_selected() -> int:
-	return _disembark_units_for_team(0, selected_units)
+	var count := _disembark_units_for_team(0, selected_units)
+	if count > 0:
+		_record_replay_command({"type": "disembark", "unit_ids": _selected_unit_ids()}, "disembark", 0)
+	return count
 
 func _embark_units_for_team(team: int, candidates: Array) -> int:
 	var transports: Array = []
@@ -651,47 +873,95 @@ func _disembark_units_for_team(team: int, candidates: Array) -> int:
 		status_label.text = "Disembarked %d unit(s)" % unloaded
 	return unloaded
 
+func _command_units(team: int, cmd: Dictionary) -> Array:
+	var ids: Array = cmd.get("unit_ids", [])
+	if ids.is_empty():
+		return _get_team_units(team)
+	var by_id: Dictionary = {}
+	for u in _get_team_units(team):
+		by_id[int(u.net_id)] = u
+	var out: Array = []
+	for value in ids:
+		var unit: Node2D = by_id.get(int(value), null)
+		if unit != null:
+			out.append(unit)
+	return out
+
 func apply_command(cmd: Dictionary) -> bool:
-	_record_replay_command(cmd)
 	var ctype := String(cmd.get("type", ""))
 	var team := int(cmd.get("team", GameManager.local_team))
+	var ok := false
 	match ctype:
 		"train":
-			return _train_unit_for_team(team, String(cmd.get("id", "")))
+			ok = _train_unit_for_team(team, String(cmd.get("id", "")))
 		"build", "fortify":
-			return _build_structure_for_team(team, String(cmd.get("id", "")))
+			ok = _build_structure_for_team(team, String(cmd.get("id", "")), _cmd_world_target(cmd))
 		"embark":
-			return _embark_units_for_team(team, _get_team_units(team)) > 0
+			ok = _embark_units_for_team(team, _command_units(team, cmd)) > 0
 		"disembark":
-			return _disembark_units_for_team(team, _get_team_units(team)) > 0
+			ok = _disembark_units_for_team(team, _command_units(team, cmd)) > 0
 		"move":
-			var tx := float(cmd.get("target_x", 0.0))
-			var ty := float(cmd.get("target_y", 0.0))
+			var target := _cmd_world_target(cmd)
 			var am := bool(cmd.get("attack_move", true))
-			for u in _get_team_units(team):
-				u.move_to(Vector2(tx, ty), am)
-			return true
+			var units := _command_units(team, cmd)
+			var offsets := Formation.grid_offsets(units.size(), 28.0)
+			for i in range(units.size()):
+				units[i].move_to(target + offsets[i], am)
+			ok = not units.is_empty()
 		"hold", "stop":
-			for u in _get_team_units(team):
+			for u in _command_units(team, cmd):
 				u.stop_command()
 				u.hold_position = (ctype == "hold")
-			return true
-	return false
+			ok = true
+		"tech":
+			ok = _research_node(team, String(cmd.get("id", "")))
+		"laser", "nuke":
+			# Strategic weapons are player-controlled only; relay commands from
+			# other teams are rejected rather than silently accepted.
+			if team == GameManager.local_team:
+				var target := _cmd_world_target(cmd)
+				ok = _player_fire_orbital_laser(target) if ctype == "laser" else _player_fire_nuke(target)
+	if ok:
+		_record_replay_command(cmd, ctype, team)
+	return ok
+
+func _cmd_world_target(cmd: Dictionary) -> Vector2:
+	if cmd.has("target_x") and cmd.has("target_y"):
+		return Vector2(float(cmd.get("target_x", 0.0)), float(cmd.get("target_y", 0.0)))
+	if cmd.has("x") and cmd.has("y"):
+		return Vector2(float(cmd.get("x", 0.0)), float(cmd.get("y", 0.0)))
+	return Vector2.INF
 
 ## Record accepted commands into the Replay log (Step 15).
-func _record_replay_command(cmd: Dictionary) -> void:
-	if not (cmd is Dictionary):
-		return
+func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 	replay_log.seed = int(GameManager.match_seed)
-	replay_log.map_name = str(GameManager.map_type)
+	replay_log.map_name = ["Desert", "Island Chain", "Forest", "Custom"][clampi(GameManager.map_type, 0, 3)]
 	var c := Command.new()
-	c.type = Command.Type.MOVE
+	match ctype:
+		"train": c.type = Command.Type.TRAIN
+		"build": c.type = Command.Type.BUILD
+		"fortify": c.type = Command.Type.FORTIFY
+		"embark": c.type = Command.Type.EMBARK
+		"disembark": c.type = Command.Type.DISEMBARK
+		"move": c.type = Command.Type.ATTACK_MOVE if bool(cmd.get("attack_move", true)) else Command.Type.MOVE
+		"hold": c.type = Command.Type.HOLD
+		"stop": c.type = Command.Type.STOP
+		"tech": c.type = Command.Type.TECH
+		"laser": c.type = Command.Type.ORBITAL
+		"nuke": c.type = Command.Type.NUKE
 	c.tick = int(elapsed_time * 60.0)
-	c.player_id = int(GameManager.local_team)
-	var ids = cmd.get("unit_ids", null)
-	if ids is Array:
-		for v in ids as Array:
-			c.unit_ids.append(int(v))
+	c.player_id = team
+	c.target_pos = _cmd_world_target(cmd)
+	if c.target_pos == Vector2.INF:
+		c.target_pos = Vector2.ZERO
+	c.build_type = String(cmd.get("id", ""))
+	var ids: Array = cmd.get("unit_ids", [])
+	if ids.is_empty():
+		for u in selected_units:
+			if is_instance_valid(u):
+				ids.append(u.net_id)
+	for v in ids:
+		c.unit_ids.append(int(v))
 	replay_log.record(c)
 
 ## Save the replay log to user://replays/match.json.
@@ -732,7 +1002,7 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	return true
 
 func _player_build_structure(bid: String) -> void:
-	_build_structure_for_team(0, bid)
+	apply_command({"type": "build", "team": 0, "id": bid})
 
 func _enter_build_mode(bid: String) -> void:
 	pending_target_action = ""
@@ -760,9 +1030,19 @@ func _team_has_builder_for(team: int, bid: String) -> bool:
 			return true
 	return false
 
+func _team_has_worker_near(team: int, pos: Vector2) -> bool:
+	for u in _get_team_units(team):
+		if u.stats and UnitRegistry.is_worker_unit(u.stats.id) and u.global_position.distance_to(pos) <= 96.0:
+			return true
+	return false
+
 func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vector2.INF) -> bool:
 	var bs := GameManager.registry.get_building(bid)
 	if bs == null:
+		return false
+	if bid in ["mech_factory_3", "advanced_shipyard", "aeries_2"] and not team_has_tech(team, "super_heavy"):
+		if team == 0 and is_instance_valid(status_label):
+			status_label.text = "Research Super-Heavy Chassis before building %s" % bid
 		return false
 	if not _team_has_builder_for(team, bid):
 		return false
@@ -775,6 +1055,10 @@ func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vect
 			offset = -offset
 		target_pos = base_pos + offset
 	elif map_data != null:
+		if Fortification.is_fortification(bid) and not _team_has_worker_near(team, target_pos):
+			if team == 0 and is_instance_valid(status_label):
+				status_label.text = "Move a sapper near the site to build %s" % bid
+			return false
 		var origin := Vector2i(int(target_pos.x / TILE_SIZE), int(target_pos.y / TILE_SIZE))
 		if not Placement.can_place_building(map_data, bid, bs.footprint, origin, occupied_tiles):
 			if team == 0 and is_instance_valid(status_label):
@@ -798,62 +1082,122 @@ func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vect
 		ResourceManager.caps[team] = int(ResourceManager.caps.get(team, 20)) + 8
 	return true
 
-func _player_upgrade_tech() -> void:
-	if player_tech_tier >= 4:
-		return
-	var wallet := ResourceManager.get_wallet(0)
-	var unlocked: Array = team_unlocked_tech.get(0, [])
-	var avail := Tech.available_nodes(unlocked)
-	if not avail.is_empty():
-		var nid := avail[0]
-		var info := Tech.node_info(nid)
-		var n_cost: Dictionary = info.get("cost", {})
-		if Tech.research_cost_affordable(wallet, n_cost) and Economy.spend(wallet, n_cost):
-			Tech.unlock(unlocked, nid)
-			team_unlocked_tech[0] = unlocked
-			player_tech_tier = mini(4, player_tech_tier + 1)
-			AudioManager.play_sfx("tech_up")
-			if is_instance_valid(status_label):
-				status_label.text = "Researched %s!" % String(info.get("name", nid))
-			return
-	var cost := {Economy.Res.OIL: 100 * player_tech_tier, Economy.Res.IRON: 180 * player_tech_tier, Economy.Res.GEOTHERMAL: 60 * player_tech_tier}
-	if Economy.spend(wallet, cost):
-		player_tech_tier += 1
-		AudioManager.play_sfx("tech_up")
+func _team_has_research_lab(team: int) -> bool:
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and b.team == team and b.stats and b.stats.id == "research_lab":
+			return true
+	return false
 
-func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF) -> void:
+func team_has_tech(team: int, node_id: String) -> bool:
+	var unlocked: Array = team_unlocked_tech.get(team, [])
+	return unlocked.has(node_id)
+
+## Numeric combat modifiers granted by researched nodes, applied in unit.gd.
+func team_tech_bonus(team: int, key: String) -> float:
+	var bonus := 0.0
+	if team_has_tech(team, "reactive_armor") and key == "armor_hp":
+		bonus += 0.15
+	if team_has_tech(team, "railgun_cal") and key == "weapon_damage":
+		bonus += 0.15
+	if team_has_tech(team, "cloak_caps") and key == "cloak_duration":
+		bonus += 0.25
+	return bonus
+
+func _research_node(team: int, node_id: String) -> bool:
+	var local_feedback := team == GameManager.local_team
+	var info: Dictionary = Tech.node_info(node_id)
+	if info.is_empty():
+		if local_feedback and is_instance_valid(status_label):
+			status_label.text = "Unknown research node: %s" % node_id
+		return false
+	if not _team_has_research_lab(team):
+		if local_feedback and is_instance_valid(status_label):
+			status_label.text = "Build a Research Lab before researching %s" % String(info.get("name", node_id))
+		return false
+	var unlocked: Array = team_unlocked_tech.get(team, [])
+	if unlocked.has(node_id):
+		return false
+	if not Tech.can_research(unlocked, info.get("requires", [])):
+		if local_feedback and is_instance_valid(status_label):
+			status_label.text = "Prerequisites missing for %s" % String(info.get("name", node_id))
+		return false
+	var cost: Dictionary = info.get("cost", {})
+	var wallet := ResourceManager.get_wallet(team)
+	if not Tech.research_cost_affordable(wallet, cost):
+		if local_feedback and is_instance_valid(status_label):
+			status_label.text = "Not enough resources for %s" % String(info.get("name", node_id))
+		return false
+	Economy.spend(wallet, cost)
+	Tech.unlock(unlocked, node_id)
+	team_unlocked_tech[team] = unlocked
+	if team == 0:
+		player_tech_tier = mini(4, player_tech_tier + 1)
+	elif team == 1:
+		ai_tech_tier = mini(4, ai_tech_tier + 1)
+	# Reactive armor also tops up existing units so the bonus is immediate.
+	if node_id == "reactive_armor":
+		for u in _get_team_units(team):
+			if u.stats:
+				u.hp = mini(u.effective_max_hp(), u.hp + maxi(1, int(float(u.stats.hp) * 0.15)))
+	AudioManager.play_sfx("tech_up")
+	if local_feedback and is_instance_valid(status_label):
+		status_label.text = "Researched %s!" % String(info.get("name", node_id))
+	return true
+
+func _player_upgrade_tech() -> void:
+	var unlocked: Array = team_unlocked_tech.get(GameManager.local_team, [])
+	var avail := Tech.available_nodes(unlocked)
+	if avail.is_empty():
+		if is_instance_valid(status_label):
+			status_label.text = "Research tree complete"
+		return
+	_research_node(GameManager.local_team, str(avail[0]))
+
+func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF) -> bool:
 	if laser_cooldown > 0.0:
-		return
-	var wallet := ResourceManager.get_wallet(0)
-	if not Economy.spend(wallet, {Economy.Res.GEOTHERMAL: 100, Economy.Res.OIL: 60}):
-		return
+		return false
+	var wallet := ResourceManager.get_wallet(GameManager.local_team)
+	var uplink_mult := 0.75 if team_has_tech(GameManager.local_team, "strategic_uplinks") else 1.0
+	if not Economy.spend(wallet, {
+		Economy.Res.GEOTHERMAL: int(round(100.0 * uplink_mult)),
+		Economy.Res.OIL: int(round(60.0 * uplink_mult)),
+	}):
+		return false
 	var mods := Faction.modifiers(GameManager.player_faction)
-	laser_cooldown = 25.0 * float(mods.get("orbital_cooldown", 1.0))
+	laser_cooldown = 25.0 * float(mods.get("orbital_cooldown", 1.0)) * uplink_mult
 	var target_pos := world_target
 	if target_pos == Vector2.INF:
 		target_pos = Vector2(1060, 860)
-		var enemy := _find_priority_target_for_team(0)
+		var enemy := _find_priority_target_for_team(GameManager.local_team)
 		if enemy != null:
 			target_pos = enemy.global_position
 	var dmg := Strategic.orbital_laser_damage(180.0, float(wallet.get(Economy.Res.GEOTHERMAL, 0)))
-	_apply_aoe_damage(target_pos, 95.0, dmg, 0)
+	if team_has_tech(GameManager.local_team, "strategic_uplinks"):
+		dmg *= 1.2
+	_apply_aoe_damage(target_pos, 95.0, dmg, GameManager.local_team)
 	active_vfx.append({"type": "laser", "pos": target_pos, "radius": 95.0, "color": Color(0.2, 0.95, 1.0, 0.75), "timer": 1.2, "duration": 1.2})
 	AudioManager.play_sfx("orbital_laser")
+	return true
 
-func _player_fire_nuke(world_target: Vector2 = Vector2.INF) -> void:
+func _player_fire_nuke(world_target: Vector2 = Vector2.INF) -> bool:
 	if nuke_cooldown > 0.0:
-		return
-	var wallet := ResourceManager.get_wallet(0)
-	if not Economy.spend(wallet, {Economy.Res.GEOTHERMAL: 200, Economy.Res.IRON: 300, Economy.Res.OIL: 180}):
-		return
-	nuke_cooldown = 45.0
+		return false
+	var wallet := ResourceManager.get_wallet(GameManager.local_team)
+	var uplink_mult := 0.75 if team_has_tech(GameManager.local_team, "strategic_uplinks") else 1.0
+	if not Economy.spend(wallet, {
+		Economy.Res.GEOTHERMAL: int(round(200.0 * uplink_mult)),
+		Economy.Res.IRON: int(round(300.0 * uplink_mult)),
+		Economy.Res.OIL: int(round(180.0 * uplink_mult)),
+	}):
+		return false
+	nuke_cooldown = 45.0 * uplink_mult
 	var target_pos := world_target
 	if target_pos == Vector2.INF:
 		target_pos = Vector2(1100, 900)
-		var enemy_hq := _find_team_hq(1)
+		var enemy_hq := _find_team_hq(1 if GameManager.local_team == 0 else 0)
 		if enemy_hq != null:
 			target_pos = enemy_hq.global_position
-	_apply_aoe_damage(target_pos, 180.0, 650.0, 0)
+	_apply_aoe_damage(target_pos, 180.0, 650.0, GameManager.local_team)
 	if Strategic.creates_fallout("nuke"):
 		var rad := Strategic.nuke_fallout_radius(4, 1.0)
 		var cx := clampi(int(target_pos.x / 16.0), 0, map_data.width - 1)
@@ -864,13 +1208,14 @@ func _player_fire_nuke(world_target: Vector2 = Vector2.INF) -> void:
 	_update_terrain_image()
 	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": 180.0, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0, "duration": 2.0})
 	AudioManager.play_sfx("nuclear_launch")
+	return true
 
 func _apply_aoe_damage(center: Vector2, radius: float, dmg: float, attacker_team: int) -> void:
 	for u in get_tree().get_nodes_in_group("units"):
-		if is_instance_valid(u) and not u.is_exploding and u.team != attacker_team and u.global_position.distance_to(center) <= radius:
+		if is_instance_valid(u) and not u.is_exploding and not GameManager.is_allied(attacker_team, int(u.team)) and u.global_position.distance_to(center) <= radius:
 			u.take_damage(dmg)
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and not b.is_exploding and b.team != attacker_team and b.global_position.distance_to(center) <= radius:
+		if is_instance_valid(b) and not b.is_exploding and not GameManager.is_allied(attacker_team, int(b.team)) and b.global_position.distance_to(center) <= radius:
 			b.take_damage(dmg)
 	for cr in wildlife_herd:
 		if bool(cr.get("alive", true)) and Vector2(cr["pos"]).distance_to(center) <= radius:
@@ -886,12 +1231,12 @@ func _find_priority_target_for_team(attacker_team: int) -> Node2D:
 	var candidates: Array = []
 	var node_map: Dictionary = {}
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and not b.is_exploding and b.team != attacker_team:
+		if is_instance_valid(b) and not b.is_exploding and not GameManager.is_allied(attacker_team, int(b.team)):
 			var id := b.get_instance_id()
 			node_map[id] = b
 			candidates.append({"id": id, "strength": float(b.hp)})
 	for u in get_tree().get_nodes_in_group("units"):
-		if is_instance_valid(u) and not u.is_exploding and u.team != attacker_team:
+		if is_instance_valid(u) and not u.is_exploding and not GameManager.is_allied(attacker_team, int(u.team)):
 			var id := u.get_instance_id()
 			node_map[id] = u
 			candidates.append({"id": id, "strength": float(u.hp)})
@@ -981,42 +1326,204 @@ func _spawn_resource_deposits() -> void:
 		dep.harvest_rate = 10.0
 		resource_deposits.append({"pos": _tile_world(Vector2i(tx, ty)), "deposit": dep})
 
+func _install_saved_map(raw: Variant) -> void:
+	if not (raw is Dictionary) or map_data == null:
+		return
+	var saved := MapSerializer.from_dict(raw as Dictionary)
+	if saved == null or saved.width <= 0 or saved.height <= 0:
+		return
+	map_data = saved
+	GameManager.current_map = saved
+	_update_terrain_image()
+	if fog != null:
+		fog = FogOfWar.new(map_data.width, map_data.height, map_data)
+		fog_image = Image.create(map_data.width, map_data.height, false, Image.FORMAT_RGBA8)
+		fog_texture = ImageTexture.create_from_image(fog_image)
+		if fog_sprite != null:
+			fog_sprite.texture = fog_texture
+
+## Extractors pull a finite bonus from nearby deposits; depleted nodes stop
+## paying out and disappear from the map (Step 2).
+func _harvest_deposits(delta: float) -> void:
+	for rd in resource_deposits:
+		var dep: ResourceDeposit = rd["deposit"]
+		if dep == null or dep.is_depleted():
+			continue
+		var collector_team := -1
+		var pos: Vector2 = rd["pos"]
+		for b in get_tree().get_nodes_in_group("buildings"):
+			if not is_instance_valid(b) or b.is_exploding or b.stats == null or b.stats.id != "extractor":
+				continue
+			if b.global_position.distance_to(pos) <= 112.0:
+				collector_team = int(b.team)
+				break
+		if collector_team < 0:
+			continue
+		var amount := dep.harvest(delta)
+		if amount <= 0:
+			continue
+		if not ResourceManager.wallets.has(collector_team):
+			ResourceManager.init_player(collector_team)
+		ResourceManager.wallets[collector_team][dep.type] = int(ResourceManager.wallets[collector_team].get(dep.type, 0)) + amount
+		if dep.is_depleted() and is_instance_valid(status_label) and GameManager.is_allied(GameManager.local_team, collector_team):
+			status_label.text = "%s deposit depleted near your extractor" % ["Oil", "Iron", "Geo", "Food"][clampi(dep.type, 0, 3)]
+
 func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 	DirAccess.make_dir_recursive_absolute("user://saves")
 	var gs := GameState.new()
 	gs.tick = int(elapsed_time * 20.0)
-	gs.resources = {0: ResourceManager.get_wallet(0).duplicate(), 1: ResourceManager.get_wallet(1).duplicate()}
+	for pid in [0, 1]:
+		gs.resources[str(pid)] = ResourceManager.get_wallet(pid).duplicate()
 	for u in units_container.get_children():
 		if is_instance_valid(u) and not u.is_exploding and u.stats:
-			gs.units.append({"id": u.stats.id, "team": u.team, "x": u.global_position.x, "y": u.global_position.y, "hp": u.hp})
+			gs.units.append({
+				"id": u.stats.id, "team": u.team, "x": u.global_position.x,
+				"y": u.global_position.y, "hp": u.hp, "faction": u.faction,
+				"net_id": u.net_id,
+			})
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and b.stats:
+			gs.buildings.append({
+				"id": b.stats.id, "team": b.team, "x": b.global_position.x,
+				"y": b.global_position.y, "hp": b.hp,
+				"queue": b.production_queue.duplicate(true),
+				"rally_x": b.rally_point.x, "rally_y": b.rally_point.y,
+				"has_rally": b.has_rally,
+			})
+	var rates: Dictionary = {}
+	var caps: Dictionary = {}
+	var tech: Dictionary = {}
+	for pid in [0, 1]:
+		rates[str(pid)] = ResourceManager.rates.get(pid, Economy.empty_wallet()).duplicate()
+		caps[str(pid)] = int(ResourceManager.caps.get(pid, 20))
+		tech[str(pid)] = team_unlocked_tech.get(pid, []).duplicate()
+	var deposits: Array = []
+	for i in range(resource_deposits.size()):
+		deposits.append(int((resource_deposits[i]["deposit"] as ResourceDeposit).amount))
 	var sg := SaveGame.new()
 	sg.game_state = gs.snapshot()
-	sg.settings = {"elapsed_time": elapsed_time, "player_tech_tier": player_tech_tier}
+	sg.settings = {
+		"elapsed_time": elapsed_time,
+		"match_duration": match_duration,
+		"player_tech_tier": player_tech_tier,
+		"ai_tech_tier": ai_tech_tier,
+		"tech": tech,
+		"rates": rates,
+		"caps": caps,
+		"map_type": GameManager.map_type,
+		"match_seed": GameManager.match_seed,
+		"map": MapSerializer.to_dict(map_data) if map_data != null else {},
+		"deposits": deposits,
+	}
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		return FileAccess.get_open_error()
 	f.store_string(JSON.stringify(sg.to_dict()))
 	f.close()
 	if is_instance_valid(status_label):
-		status_label.text = "Match saved to %s" % path
+		status_label.text = "Match saved (%d units, %d buildings)" % [gs.units.size(), gs.buildings.size()]
 	return OK
+
+func _normalized_wallet(raw: Variant) -> Dictionary:
+	var out := Economy.empty_wallet()
+	if not (raw is Dictionary):
+		return out
+	for k in (raw as Dictionary).keys():
+		out[int(k)] = int((raw as Dictionary)[k])
+	return out
 
 func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 	if not FileAccess.file_exists(path):
+		if is_instance_valid(status_label):
+			status_label.text = "No save file found at %s" % path
 		return false
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
+		if is_instance_valid(status_label):
+			status_label.text = "Cannot open save: %s" % error_string(FileAccess.get_open_error())
 		return false
-	var parsed = JSON.parse_string(f.get_as_text())
+	var text := f.get_as_text()
 	f.close()
+	var parsed = JSON.parse_string(text)
 	if not (parsed is Dictionary):
+		if is_instance_valid(status_label):
+			status_label.text = "Save file is corrupt (invalid JSON)"
 		return false
 	var sg := SaveGame.from_dict(parsed as Dictionary)
+	if sg.version != 1:
+		if is_instance_valid(status_label):
+			status_label.text = "Unsupported save version %d" % sg.version
+		return false
 	var gs := GameState.from_snapshot(sg.game_state)
-	elapsed_time = float(sg.settings.get("elapsed_time", elapsed_time))
-	player_tech_tier = int(sg.settings.get("player_tech_tier", player_tech_tier))
+	_install_saved_map(sg.settings.get("map", {}))
+	resource_deposits.clear()
+	_spawn_resource_deposits()
+
+	# Clear the live match before replaying the snapshot.
+	for u in units_container.get_children():
+		u.queue_free()
+	for b in get_tree().get_nodes_in_group("buildings"):
+		GameManager.unregister_fort_block(b)
+		b.queue_free()
+	occupied_tiles.clear()
+	GameManager.fort_blocks.clear()
+	selected_units.clear()
+	selected_building = null
+
+	for key in gs.resources.keys():
+		var pid := int(key)
+		ResourceManager.wallets[pid] = _normalized_wallet(gs.resources[key])
+	for key in sg.settings.get("rates", {}).keys():
+		ResourceManager.rates[int(key)] = _normalized_wallet(sg.settings["rates"][key])
+	for key in sg.settings.get("caps", {}).keys():
+		ResourceManager.caps[int(key)] = int(sg.settings["caps"][key])
+
+	team_unlocked_tech = {0: [], 1: []}
+	for key in sg.settings.get("tech", {}).keys():
+		var list: Array = []
+		for node_id in sg.settings["tech"][key]:
+			list.append(str(node_id))
+		team_unlocked_tech[int(key)] = list
+
+	for rec in gs.units:
+		var uid := str(rec.get("id", ""))
+		if not GameManager.registry.has_unit(uid):
+			continue
+		var u := _spawn_unit_by_id(uid, Vector2(float(rec.get("x", 0)), float(rec.get("y", 0))), int(rec.get("team", 0)))
+		u.hp = clampi(int(rec.get("hp", u.hp)), 1, u.effective_max_hp())
+		u.faction = int(rec.get("faction", u.faction))
+		u.net_id = int(rec.get("net_id", 0))
+	for rec in gs.buildings:
+		var bid := str(rec.get("id", ""))
+		if not GameManager.registry.has_building(bid):
+			continue
+		var pos := Vector2(float(rec.get("x", 0)), float(rec.get("y", 0)))
+		var b := _spawn_building_by_id(bid, pos, int(rec.get("team", 0)))
+		b.hp = clampi(int(rec.get("hp", b.hp)), 1, b.stats.hp)
+		b.production_queue = (rec.get("queue", []) as Array).duplicate(true)
+		b.rally_point = Vector2(float(rec.get("rally_x", pos.x)), float(rec.get("rally_y", pos.y)))
+		b.has_rally = bool(rec.get("has_rally", false))
+		if b.has_method("_refresh_queue_label"):
+			b._refresh_queue_label()
+		var origin := Vector2i(int(pos.x / TILE_SIZE), int(pos.y / TILE_SIZE))
+		Placement.occupy(occupied_tiles, b.stats.footprint, origin)
+
+	var saved_deposits: Array = sg.settings.get("deposits", [])
+	for i in range(mini(saved_deposits.size(), resource_deposits.size())):
+		(resource_deposits[i]["deposit"] as ResourceDeposit).amount = maxi(0, int(saved_deposits[i]))
+
+	elapsed_time = float(sg.settings.get("elapsed_time", 0.0))
+	match_duration = float(sg.settings.get("match_duration", 0.0))
+	player_tech_tier = int(sg.settings.get("player_tech_tier", 1))
+	ai_tech_tier = int(sg.settings.get("ai_tech_tier", 1))
+	GameManager.match_seed = int(sg.settings.get("match_seed", GameManager.match_seed))
+	_rebuild_spatial_grid()
+	queue_redraw()
+	var hq := _find_team_hq(GameManager.local_team)
+	if hq != null and camera != null:
+		camera.position = hq.global_position
 	if is_instance_valid(status_label):
-		status_label.text = "Loaded save (tick %d, %d units)" % [gs.tick, gs.units.size()]
+		status_label.text = "Loaded save (tick %d, %d units, %d buildings)" % [gs.tick, gs.units.size(), gs.buildings.size()]
 	return true
 
 func _process(delta):
@@ -1042,17 +1549,13 @@ func _process(delta):
 		tactical_pings[i]["timer"] = float(tactical_pings[i]["timer"]) - delta
 		if float(tactical_pings[i]["timer"]) <= 0.0:
 			tactical_pings.remove_at(i)
-	spatial_positions.clear()
-	for u in units_container.get_children():
-		if is_instance_valid(u) and not u.is_exploding:
-			spatial_positions.append(u.global_position)
-	spatial_grid = UnitVisual.build_spatial_grid(spatial_positions, UnitVisual.SpatialCellSize)
 	queue_redraw()
 
 	# Economy 1s tick
 	economy_timer += delta
 	if economy_timer >= 1.0:
 		ResourceManager.tick(1.0)
+		_harvest_deposits(1.0)
 		_tick_power()
 		economy_timer -= 1.0
 
@@ -1220,23 +1723,32 @@ func _tick_power() -> void:
 		ResourceManager.set_power_efficiency(t, eff)
 
 ## Spatial hash over unit positions for fast radius queries (Step 20).
+## Positions and nodes stay index-aligned so callers receive actual units.
 func _rebuild_spatial_grid() -> void:
-	spatial_unit_positions = _get_unit_positions()
+	spatial_unit_positions.clear()
+	spatial_unit_nodes.clear()
+	for u in units_container.get_children():
+		if is_instance_valid(u) and not u.is_exploding:
+			spatial_unit_positions.append(u.global_position)
+			spatial_unit_nodes.append(u)
 	spatial_unit_grid = UnitVisual.build_spatial_grid(spatial_unit_positions)
 
 func _get_unit_positions() -> Array:
+	return spatial_unit_positions.duplicate()
+
+## Units within `radius` of `center`, using the shared spatial grid. Combat,
+## repair and turret callers ask for nodes; `_units_near` keeps the index API
+## used by headless tests.
+func units_near(center: Vector2, radius: float) -> Array:
 	var out: Array = []
-	for u in units_container.get_children():
-		if is_instance_valid(u) and not u.is_exploding:
-			out.append(u.global_position)
+	for i in UnitVisual.query_spatial_radius(spatial_unit_grid, spatial_unit_positions, center, radius):
+		if i >= 0 and i < spatial_unit_nodes.size():
+			out.append(spatial_unit_nodes[i])
 	return out
 
-## Units within `radius` of `center`, using the spatial grid when it is
-## populated (unit.gd), falling back to a scan.
 func _units_near(center: Vector2, radius: float) -> Array[int]:
-	var idx := UnitVisual.query_spatial_radius(spatial_unit_grid, spatial_unit_positions, center, radius)
-	var out: Array = []
-	for i in idx:
+	var out: Array[int] = []
+	for i in UnitVisual.query_spatial_radius(spatial_unit_grid, spatial_unit_positions, center, radius):
 		out.append(i)
 	return out
 
@@ -1275,37 +1787,78 @@ func _update_hud() -> void:
 			mode_str, ai_tactical_state.to_upper(), ai_units, ai_tech_tier
 		]
 
+func _alliance_side_key(team: int) -> String:
+	var ids: Array[int] = [team]
+	for other in GameManager.teams:
+		var value := int(other)
+		if GameManager.is_allied(team, value) and not ids.has(value):
+			ids.append(value)
+	ids.sort()
+	var parts: Array[String] = []
+	for value in ids:
+		parts.append(str(value))
+	return ",".join(parts)
+
+func _side_members(key: String) -> Array[int]:
+	var out: Array[int] = []
+	for part in key.split(","):
+		if not part.is_empty():
+			out.append(int(part))
+	return out
+
+func _show_match_end(title: String, detail: String) -> void:
+	match_duration = elapsed_time
+	if victory_panel != null and is_instance_valid(victory_panel):
+		var result := victory_panel.get_node_or_null("VBoxContainer/ResultLabel")
+		var score := victory_panel.get_node_or_null("VBoxContainer/ScoreLabel")
+		if result is Label:
+			(result as Label).text = title
+		if score is Label:
+			(score as Label).text = detail
+		victory_panel.visible = true
+	if is_instance_valid(status_label):
+		status_label.text = "%s | %s | Duration: %.1fs" % [title, detail, match_duration]
+
 func _check_win():
-	if not is_instance_valid(status_label):
+	if match_over:
 		return
-	# Primary victory: capture/destroy all enemy production buildings
-	# (barracks, factories, airfields, shipyards). Units alone cannot
-	# sustain a faction once production is gone.
+	# Production capacity decides the match; unit-only armies cannot rebuild.
 	var production_ids := [
 		"barracks", "factory", "airfield", "shipyard",
 		"docks", "mech_factory_1", "mech_factory_2", "mech_factory_3",
 		"advanced_shipyard", "aeries_1", "aeries_2",
 	]
-	var alive_teams := {}
+	var alive_sides: Dictionary = {}
+	var all_sides: Dictionary = {}
+	for team in GameManager.teams:
+		all_sides[_alliance_side_key(int(team))] = true
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and not b.is_exploding:
-			if b.stats and production_ids.has(b.stats.id):
-				alive_teams[b.team] = alive_teams.get(b.team, 0) + 1
-	if alive_teams.size() == 1:
-		var t = alive_teams.keys()[0]
-		var w0 := ResourceManager.get_wallet(0)
-		var eco_sum := int(w0.get(Economy.Res.OIL, 0)) + int(w0.get(Economy.Res.IRON, 0)) + int(w0.get(Economy.Res.GEOTHERMAL, 0))
-		var mil := Score.military_score(_get_team_units(0).size(), _get_team_building_counts(0).size())
-		var tot := Score.total(mil, Score.economic_score(eco_sum))
-		status_label.text = "Team %d wins! | Score: %d (Mil %d + Eco %d)" % [t, tot, mil, eco_sum]
+		if is_instance_valid(b) and not b.is_exploding and b.stats and production_ids.has(b.stats.id):
+			alive_sides[_alliance_side_key(int(b.team))] = true
+	if alive_sides.size() == 1 and all_sides.size() > 1:
+		var winning_side: String = alive_sides.keys()[0]
+		var members := _side_members(winning_side)
+		var winner := members[0] if not members.is_empty() else 0
+		var s := _team_score(winner)
+		var local_won := _alliance_side_key(GameManager.local_team) == winning_side
+		var title := ("VICTORY — " if local_won else "DEFEAT — ") + ("Team %s" % winning_side)
+		var detail := "Score %d (Military %d + Economy %d) | Units %d | Buildings %d" % [
+			int(s["total"]), int(s["military"]), int(s["economic"]),
+			_get_team_units(winner).size(), _get_team_building_counts(winner).size(),
+		]
+		_show_match_end(title, detail)
 		match_over = true
-	elif alive_teams.size() == 0:
-		status_label.text = "Draw"
+		GameManager.end_match(winner)
+	elif alive_sides.is_empty() and all_sides.size() > 1:
+		_show_match_end("DRAW", "All production capacity destroyed")
 		match_over = true
+		GameManager.end_match(-1)
 
 func _draw():
 	# Minimal forest tree canopies and shrubs
 	for dec in forest_decorations:
+		if String(dec.get("kind", "")) == "tree":
+			continue  # tree canopies are batch-rendered by forest_multimesh
 		var dpos: Vector2 = dec["pos"]
 		var rad := float(dec["radius"])
 		var shade := float(dec["shade"])
@@ -1504,6 +2057,36 @@ func _rebuild_forest_decorations() -> void:
 						"radius": 6.2 if (h % 2 == 0) else 3.8,
 						"shade": float(h % 10) * 0.015,
 					})
+	_rebuild_forest_multimesh()
+
+## Batch-render every tree canopy in one draw call instead of hundreds of
+## per-frame `_draw()` circles (Step 20).
+func _rebuild_forest_multimesh() -> void:
+	if forest_multimesh == null:
+		forest_multimesh = MultiMeshInstance2D.new()
+		forest_multimesh.name = "ForestMultiMesh"
+		forest_multimesh.z_index = -4
+		add_child(forest_multimesh)
+	var trees: Array = []
+	for dec in forest_decorations:
+		if String(dec.get("kind", "")) == "tree":
+			trees.append(dec)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(2.0, 2.0)
+	var mm := MultiMesh.new()
+	mm.mesh = quad
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	mm.use_colors = true
+	mm.instance_count = trees.size()
+	for i in range(trees.size()):
+		var dec: Dictionary = trees[i]
+		var radius := float(dec.get("radius", 6.2))
+		var shade := float(dec.get("shade", 0.0))
+		var xform := Transform2D().scaled(Vector2(radius, radius))
+		xform.origin = dec["pos"]
+		mm.set_instance_transform_2d(i, xform)
+		mm.set_instance_color(i, Color(0.12 + shade, 0.34 + shade, 0.14 + shade, 0.92))
+	forest_multimesh.multimesh = mm
 
 func _update_wildlife(delta: float) -> void:
 	var threats: Array = []

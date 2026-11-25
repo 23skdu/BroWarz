@@ -748,6 +748,7 @@ func _stage_from_lobby() -> void:
 		str(lobby.setting("transport", "enet")),
 		_net_teams(),
 		local_team(),
+		_net_alliances(),
 	)
 	if (
 		lobby.phase == LobbyState.Phase.STARTING
@@ -787,6 +788,7 @@ func _finish_start() -> void:
 		str(lobby.setting("transport", "enet")),
 		_net_teams(),
 		local_team(),
+		_net_alliances(),
 	)
 	if _has_peer():
 		_srv_begin_match.rpc()
@@ -798,6 +800,15 @@ func _enter_match() -> void:
 		_schedule_sync()
 	if game_node == null:
 		SceneManager.goto_scene("res://scenes/game.tscn")
+
+## Host-pinned alliance graph forwarded to the match. FFA remains empty;
+## paired sides group teams 0+2 and 1+3 when four teams are in play.
+func _net_alliances() -> Dictionary:
+	if clampi(int(lobby.setting("alliance_mode", 0)), 0, 1) == 0:
+		return {}
+	if clampi(int(lobby.setting("num_teams", 2)), 2, 4) <= 2:
+		return {}
+	return {0: [0, 2], 1: [1, 3]}
 
 func _net_teams() -> Array:
 	var teams: Array = []

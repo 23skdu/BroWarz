@@ -21,6 +21,7 @@ var selected_map_type: int = 2  # 0 Desert, 1 Island Chain, 2 Forest, 3 Custom M
 
 func _ready():
 	SettingsManager.apply_to_scene()
+	AudioManager.set_music("menu")
 	if is_instance_valid(skirmish_btn):
 		skirmish_btn.pressed.connect(_on_skirmish)
 	if is_instance_valid(difficulty_btn):
@@ -40,6 +41,13 @@ func _ready():
 		sb.text = "Settings (Audio, Access & Controls)"
 		$VBox.add_child(sb)
 		sb.pressed.connect(_open_settings)
+	var replay_btn := get_node_or_null("VBox/ReplayButton")
+	if replay_btn == null and has_node("VBox"):
+		var rb := Button.new()
+		rb.name = "ReplayButton"
+		rb.text = "Watch Saved Replay"
+		$VBox.add_child(rb)
+		rb.pressed.connect(_open_replay)
 	_refresh_labels()
 	if has_node("VBox/VersionLabel"):
 		$VBox/VersionLabel.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
@@ -48,6 +56,14 @@ func _open_settings() -> void:
 	var dialog := SettingsDialog.new()
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(620, 640))
+
+func _open_replay() -> void:
+	var viewer := get_node_or_null("ReplayViewer")
+	if viewer == null:
+		viewer = ReplayViewer.new()
+		viewer.name = "ReplayViewer"
+		add_child(viewer)
+	viewer.popup_centered(Vector2i(720, 560))
 
 func _refresh_labels() -> void:
 	if is_instance_valid(difficulty_btn):

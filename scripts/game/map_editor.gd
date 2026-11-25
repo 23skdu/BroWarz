@@ -24,9 +24,18 @@ const RESOURCE_COLORS := [
 	Color(0.15, 0.65, 1.0), Color(0.85, 0.85, 0.9),
 	Color(0.35, 0.95, 0.55), Color(1.0, 0.75, 0.25),
 ]
+const STATUS_INFO := 0
+const STATUS_OK := 1
+const STATUS_WARN := 2
+const STATUS_ERROR := 3
+const STATUS_COLORS := [
+	Color(0.85, 0.89, 0.95), Color(0.48, 0.94, 0.62),
+	Color(1.0, 0.82, 0.38), Color(1.0, 0.45, 0.42),
+]
 
 var map_name_edit: LineEdit
 var author_edit: LineEdit
+var map_path_edit: LineEdit
 var share_code_edit: LineEdit
 var status_label: Label
 var brush_btn: Button
@@ -127,6 +136,19 @@ func _build_ui() -> void:
 	erase_btn.pressed.connect(func(): _select_tool(Tool.ERASE, 0, 0))
 	marker_bar.add_child(erase_btn)
 
+	# Row 1c: explicit file path so loading is never guessed from the map name.
+	var file_bar := HBoxContainer.new()
+	top_vbox.add_child(file_bar)
+	var path_label := Label.new()
+	path_label.text = "Map File:"
+	file_bar.add_child(path_label)
+	map_path_edit = LineEdit.new()
+	map_path_edit.name = "MapPathEdit"
+	map_path_edit.placeholder_text = "user://maps/my_map.bwm"
+	map_path_edit.text = "%s/%s.bwm" % [MapSerializer.MAPS_DIR, MapSerializer.sanitize_filename(map_data.name)]
+	map_path_edit.custom_minimum_size = Vector2(320, 0)
+	file_bar.add_child(map_path_edit)
+
 	# Row 2: Map Metadata, Save/Load File, Share Code Export/Import, Test Play, Main Menu
 	var action_bar := HBoxContainer.new()
 	top_vbox.add_child(action_bar)
@@ -144,14 +166,19 @@ func _build_ui() -> void:
 	action_bar.add_child(author_edit)
 
 	var save_btn := Button.new()
-	save_btn.text = "Save Map (.bwm)"
+	save_btn.text = "Save As…"
 	save_btn.pressed.connect(_save_map)
 	action_bar.add_child(save_btn)
 
 	var load_btn := Button.new()
-	load_btn.text = "Load Map (.bwm)"
+	load_btn.text = "Load"
 	load_btn.pressed.connect(_load_map)
 	action_bar.add_child(load_btn)
+
+	var load_default_btn := Button.new()
+	load_default_btn.text = "Load Quick Map"
+	load_default_btn.pressed.connect(_load_default_map)
+	action_bar.add_child(load_default_btn)
 
 	share_code_edit = LineEdit.new()
 	share_code_edit.placeholder_text = "Paste or Copy Share Code (BWM1:...)"
@@ -187,9 +214,11 @@ func _build_ui() -> void:
 	status_label.text = "Hex Map Editor — Paint hexes with LMB, Pan camera with WASD/Arrows, Save or Export Share Code."
 	top_vbox.add_child(status_label)
 
-func _set_status(msg: String) -> void:
+func _set_status(msg: String, severity: int = STATUS_INFO) -> void:
 	if is_instance_valid(status_label):
 		status_label.text = msg
+		var tint: Color = STATUS_COLORS[clampi(severity, 0, STATUS_COLORS.size() - 1)]
+		status_label.modulate = tint
 
 func _cycle_brush_size() -> void:
 	brush_radius = 1 if brush_radius >= 4 else (brush_radius + 1)
@@ -298,81 +327,123 @@ func _refresh_image() -> void:
 	terrain_sprite.texture = terrain_texture
 	queue_redraw()
 
+func _default_map_path(map_name: String = "") -> String:
+	var title := map_name if not map_name.is_empty() else map_data.name
+	return "%s/%s.bwm" % [MapSerializer.MAPS_DIR, MapSerializer.sanitize_filename(title)]
+
+func _map_path() -> String:
+	if is_instance_valid(map_path_edit):
+		var typed := map_path_edit.text.strip_edges()
+		if not typed.is_empty():
+			return typed
+	return _default_map_path()
+
 func _sync_metadata() -> void:
+	var previous_name := map_data.name
 	if is_instance_valid(map_name_edit) and not map_name_edit.text.strip_edges().is_empty():
 		map_data.name = map_name_edit.text.strip_edges()
 	if is_instance_valid(author_edit) and not author_edit.text.strip_edges().is_empty():
 		map_data.author = author_edit.text.strip_edges()
+	# Follow a renamed map unless the user typed a deliberate custom path.
+	if map_data.name != previous_name and is_instance_valid(map_path_edit):
+		if map_path_edit.text.strip_edges().is_empty() or map_path_edit.text.strip_edges() == _default_map_path(previous_name):
+			map_path_edit.text = _default_map_path()
+
+func _apply_loaded_map(loaded: MapData, message: String) -> void:
+	map_data = loaded
+	GameManager.current_map = loaded
+	if is_instance_valid(map_name_edit):
+		map_name_edit.text = map_data.name
+	if is_instance_valid(author_edit):
+		author_edit.text = map_data.author
+	if is_instance_valid(map_path_edit):
+		map_path_edit.text = _default_map_path()
+	_refresh_image()
+	_set_status(message, STATUS_OK)
 
 func _save_map() -> void:
 	_sync_metadata()
-	var err := MapSerializer.save_to_file(map_data)
-	if err == OK:
-		var fname := MapSerializer.sanitize_filename(map_data.name)
-		_set_status("Saved map '%s' to user://maps/%s.bwm (and user://custom_map.bwm)." % [map_data.name, fname])
-	else:
-		_set_status("Failed to save map (error %d)." % err)
+	var path := _map_path()
+	var result := MapSerializer.save_with_result(map_data, path)
+	if not bool(result.get("ok", false)):
+		_set_status("Save failed: %s" % str(result.get("reason", "unknown error")), STATUS_ERROR)
+		return
+	if is_instance_valid(map_path_edit):
+		map_path_edit.text = str(result.get("path", path))
+	_set_status("%s (quick-load map updated)." % str(result.get("reason", "Map saved.")), STATUS_OK)
 
 func _load_map() -> void:
 	_sync_metadata()
-	var fname := MapSerializer.sanitize_filename(map_data.name)
-	var candidate := "%s/%s.bwm" % [MapSerializer.MAPS_DIR, fname]
-	var loaded := MapSerializer.load_from_file(candidate)
+	var path := _map_path()
+	var result := MapSerializer.load_with_result(path)
+	if not bool(result.get("ok", false)):
+		_set_status("Load failed: %s" % str(result.get("reason", "unknown error")), STATUS_ERROR)
+		return
+	var loaded: MapData = result.get("map", null) as MapData
 	if loaded == null:
-		loaded = MapSerializer.load_from_file("user://custom_map.bwm")
-	if loaded != null:
-		map_data = loaded
-		if is_instance_valid(map_name_edit):
-			map_name_edit.text = map_data.name
-		if is_instance_valid(author_edit):
-			author_edit.text = map_data.author
-		_refresh_image()
-		_set_status("Loaded map '%s' by %s." % [map_data.name, map_data.author])
-	else:
-		_set_status("No saved map found for '%s'." % map_data.name)
+		_set_status("Load failed: map data could not be reconstructed.", STATUS_ERROR)
+		return
+	_apply_loaded_map(loaded, str(result.get("reason", "Map loaded.")))
+	if not bool(result.get("playable", false)):
+		_set_status("Loaded '%s', but it is not playable: %s" % [
+			loaded.name, str(result.get("playability_reason", "unknown issue")),
+		], STATUS_WARN)
+
+func _load_default_map() -> void:
+	var result := MapSerializer.load_with_result("user://custom_map.bwm")
+	if not bool(result.get("ok", false)):
+		_set_status("Quick map unavailable: %s" % str(result.get("reason", "unknown error")), STATUS_ERROR)
+		return
+	_apply_loaded_map(result.get("map") as MapData, str(result.get("reason", "Quick map loaded.")))
 
 func _export_share_code() -> void:
 	_sync_metadata()
 	var code := MapSerializer.to_share_code(map_data)
+	if code.is_empty():
+		_set_status("Could not generate a share code for this map.", STATUS_ERROR)
+		return
 	if is_instance_valid(share_code_edit):
 		share_code_edit.text = code
-	DisplayServer.clipboard_set(code)
-	_set_status("Share code generated and copied to clipboard (%d chars)!" % code.length())
+	var copied := false
+	if DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+		DisplayServer.clipboard_set(code)
+		copied = true
+	_set_status("Share code generated (%d chars)%s." % [
+		code.length(), " and copied to clipboard" if copied else " (clipboard unavailable)",
+	], STATUS_OK if copied else STATUS_WARN)
 
 func _import_share_code() -> void:
 	var code := ""
 	if is_instance_valid(share_code_edit) and not share_code_edit.text.strip_edges().is_empty():
 		code = share_code_edit.text.strip_edges()
-	else:
+	elif DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
 		code = DisplayServer.clipboard_get().strip_edges()
-	var imported := MapSerializer.from_share_code(code)
-	if imported != null:
-		map_data = imported
-		if is_instance_valid(map_name_edit):
-			map_name_edit.text = map_data.name
-		if is_instance_valid(author_edit):
-			author_edit.text = map_data.author
-		_refresh_image()
-		_set_status("Imported shared map '%s' by %s!" % [map_data.name, map_data.author])
-	else:
-		_set_status("Invalid share code. Must start with BWM1:...")
+	var result := MapSerializer.from_share_code_detailed(code)
+	if not bool(result.get("ok", false)):
+		_set_status("Import failed: %s" % str(result.get("reason", "unknown error")), STATUS_ERROR)
+		return
+	_apply_loaded_map(result.get("map") as MapData, "Imported shared map '%s'." % (result.get("map") as MapData).name)
 
 func _validate_current_map() -> void:
 	_sync_metadata()
 	var res := MapData.validate_map(map_data)
-	var prefix := "VALID" if bool(res["ok"]) else "INVALID"
+	var valid := bool(res["ok"])
+	var prefix := "VALID" if valid else "INVALID"
 	_set_status("%s: %s (Land: %d, Water: %d, Spawns: %d, Deposits: %d, Path: %s, Balance: %s)" % [
 		prefix, String(res["reason"]), int(res["land_tiles"]), int(res["water_tiles"]),
 		int(res["spawns"]), int(res["deposits"]),
 		"OK" if bool(res["connected"]) else "FAIL",
 		"OK" if bool(res["balanced"]) else "FAIL",
-	])
+	], STATUS_OK if valid else STATUS_ERROR)
 
 func _test_play_map() -> void:
 	_sync_metadata()
 	# Test-play the in-memory map without overwriting the quick-load default
 	# used by the main menu's "Custom Map" option.
-	MapSerializer.save_to_file(map_data, "", false)
+	var result := MapSerializer.save_with_result(map_data, "", false)
+	if not bool(result.get("ok", false)):
+		_set_status("Cannot test play: %s" % str(result.get("reason", "unknown error")), STATUS_ERROR)
+		return
 	GameManager.start_single_player(
 		GameManager.ai_difficulty, map_data,
 		GameManager.player_faction, GameManager.ai_faction, 3,

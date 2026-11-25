@@ -10,6 +10,16 @@ func test_main_menu_skirmish_button_is_wired():
 	assert_true(button.is_connected("pressed", Callable(menu, "_on_skirmish")))
 	var logo: TextureRect = menu.get_node("Logo")
 	assert_not_null(logo.texture)
+	var backdrop: TextureRect = menu.get_node("LogoBackground")
+	assert_not_null(backdrop.texture)
+	assert_eq(AudioManager.current_music, "menu")
+
+func test_menu_music_is_a_looping_ambient_bed():
+	AudioManager.set_music("menu")
+	var stream: AudioStreamWAV = AudioManager._music_player.stream
+	assert_not_null(stream)
+	assert_eq(stream.loop_mode, AudioStreamWAV.LOOP_FORWARD)
+	assert_gt(stream.get_length(), 8.0)
 
 func _queued_units(team: int) -> int:
 	var total := 0

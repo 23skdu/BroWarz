@@ -26,8 +26,14 @@ func is_allied(a: int, b: int) -> bool:
 	if a == b:
 		return true
 	var allies = alliances.get(a, [])
-	if allies is Array:
-		return (allies as Array).has(b)
+	if allies is Array and (allies as Array).has(b):
+		return true
+	# Lobby alliance maps are written once per side ({0:[0,2], 1:[1,3]});
+	# treat them as symmetric so combat/fog behave identically for both peers.
+	for side in alliances.keys():
+		var members = alliances[side]
+		if members is Array and int(side) == b and (members as Array).has(a):
+			return true
 	return false
 
 # Sapper fortification movement blocks: Vector2i tile -> {building id: mask}

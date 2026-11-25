@@ -153,6 +153,10 @@ static func sanitize_settings(raw: Variant) -> Dictionary:
 			var t := (v4 as String).to_lower()
 			if t in ALLOWED_TRANSPORTS:
 				out["transport"] = t
+	if d.has("alliance_mode"):
+		var v5 = d["alliance_mode"]
+		if (v5 is int) or (v5 is float):
+			out["alliance_mode"] = clampi(int(v5), 0, 1)
 	return out
 
 ## Default lobby settings used when nothing has been configured yet.
@@ -162,6 +166,7 @@ static func default_settings() -> Dictionary:
 		"num_teams": 2,
 		"fog_of_war": true,
 		"transport": "enet",
+		"alliance_mode": 0,
 	}
 
 # --- Hello handshake ------------------------------------------------------
@@ -241,7 +246,10 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 				out["x"] = clampf(fx, 0.0, MAX_COORD)
 				out["y"] = clampf(fy, 0.0, MAX_COORD)
 		"tech":
-			pass
+			if d.has("id"):
+				var tech_id = d.get("id", null)
+				if tech_id is String and _is_id(tech_id as String):
+					out["id"] = tech_id
 		"laser", "nuke":
 			var lx := _opt_float(d, "x", NAN)
 			var ly := _opt_float(d, "y", NAN)

@@ -58,7 +58,16 @@ func reset_defaults() -> void:
 func apply_to_scene() -> void:
 	if is_instance_valid(AudioManager):
 		AudioManager.muted = bool(settings.get("muted", false))
+		AudioManager.apply_settings()
 	_apply_ui_scale(float(settings.get("ui_scale", 1.0)))
+	_refresh_faction_colors()
+
+func _refresh_faction_colors() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	tree.call_group("units", "refresh_colorblind")
+	tree.call_group("buildings", "refresh_colorblind")
 
 func hotkey(action: String) -> int:
 	return int(settings.get("hotkey_" + action, KEY_W))
@@ -72,10 +81,14 @@ func colorblind_palette() -> String:
 	return palette if palette in COLORBLIND_PALETTES else "none"
 
 func _apply_setting(key: String, value) -> void:
-	if key == "muted" and is_instance_valid(AudioManager):
-		AudioManager.muted = bool(value)
+	if key in ["muted", "master_volume", "music_volume"] and is_instance_valid(AudioManager):
+		if key == "muted":
+			AudioManager.muted = bool(value)
+		AudioManager.apply_settings()
 	elif key == "ui_scale":
 		_apply_ui_scale(float(value))
+	elif key == "colorblind":
+		_refresh_faction_colors()
 
 func _apply_ui_scale(scale: float) -> void:
 	var tree := get_tree()

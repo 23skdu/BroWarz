@@ -13,6 +13,7 @@ const TRANSPORT_NAMES: Dictionary = {"enet": "ENet", "webrtc": "WebRTC"}
 @onready var teams_btn: Button = $VBox/SettingsBox/TeamsButton
 @onready var fog_btn: Button = $VBox/SettingsBox/FogButton
 @onready var transport_btn: Button = $VBox/SettingsBox/TransportButton
+@onready var alliance_btn: Button = get_node_or_null("VBox/SettingsBox/AllianceButton")
 @onready var passcode_label: Label = $VBox/SettingsBox/PasscodeLabel
 @onready var ready_btn: Button = $VBox/ButtonsHBox/ReadyButton
 @onready var start_btn: Button = $VBox/ButtonsHBox/StartButton
@@ -20,10 +21,17 @@ const TRANSPORT_NAMES: Dictionary = {"enet": "ENet", "webrtc": "WebRTC"}
 @onready var status: Label = $VBox/StatusLabel
 
 func _ready() -> void:
+	if alliance_btn == null and has_node("VBox/SettingsBox"):
+		var ab := Button.new()
+		ab.name = "AllianceButton"
+		ab.text = "Alliances: FFA"
+		$VBox/SettingsBox.add_child(ab)
+		alliance_btn = ab
 	map_btn.pressed.connect(_on_map_pressed)
 	teams_btn.pressed.connect(_on_teams_pressed)
 	fog_btn.pressed.connect(_on_fog_pressed)
 	transport_btn.pressed.connect(_on_transport_pressed)
+	alliance_btn.pressed.connect(_on_alliance_pressed)
 	ready_btn.pressed.connect(_on_ready_pressed)
 	start_btn.pressed.connect(_on_start_pressed)
 	leave_btn.pressed.connect(_on_leave_pressed)
@@ -64,6 +72,9 @@ func _refresh() -> void:
 	teams_btn.visible = host
 	fog_btn.visible = host
 	transport_btn.visible = host
+	alliance_btn.visible = host
+	var alliance_mode := clampi(int(lob.setting("alliance_mode", 0)), 0, 1)
+	alliance_btn.text = "Alliances: %s" % ("Paired Sides" if alliance_mode == 1 else "FFA")
 	map_btn.text = "Map: %s" % MAP_NAMES[clampi(int(lob.setting("map_type", 2)), 0, 2)]
 	teams_btn.text = "Teams: %d" % clampi(int(lob.setting("num_teams", 2)), 2, 4)
 	fog_btn.text = "Fog: %s" % ("On" if bool(lob.setting("fog_of_war", true)) else "Off")
@@ -109,6 +120,12 @@ func _on_transport_pressed() -> void:
 		return
 	var cur := str(NetworkManager.lobby.setting("transport", "enet"))
 	NetworkManager.request_settings({"transport": "webrtc" if cur == "enet" else "enet"})
+
+func _on_alliance_pressed() -> void:
+	if not NetworkManager.is_host():
+		return
+	var cur := clampi(int(NetworkManager.lobby.setting("alliance_mode", 0)), 0, 1)
+	NetworkManager.request_settings({"alliance_mode": 1 - cur})
 
 func _on_ready_pressed() -> void:
 	NetworkManager.set_local_ready(not NetworkManager.lobby.ready_of(multiplayer.get_unique_id()))

@@ -14,6 +14,7 @@ var selected: bool = false
 var is_exploding: bool = false
 var explode_timer: float = 0.0
 var explosion_debris: Array[Dictionary] = []
+var queue_label: Label = null
 
 @onready var body = $Body
 @onready var hp_bar = $HpBar
@@ -24,18 +25,49 @@ func _ready():
 	production_queue = Production.new_queue()
 	rally_point = global_position + Vector2(56, 56) if team == 0 else global_position - Vector2(56, 56)
 	add_to_group("buildings")
+	refresh_colorblind()
+	_refresh_queue_label()
 
 func setup(s: BuildingStats, t: int) -> void:
 	stats = s
 	team = t
 	hp = s.hp
 	rally_point = global_position + Vector2(56, 56) if t == 0 else global_position - Vector2(56, 56)
-	if body:
-		var fac_id := GameManager.player_faction if t == 0 else GameManager.ai_faction
-		var base_c := Faction.color_of(fac_id).darkened(0.12)
-		if s.is_hq:
-			base_c = base_c.lightened(0.22)
-		body.color = base_c
+	_refresh_queue_label()
+	refresh_colorblind()
+
+## Re-apply the live colorblind palette (called when settings change).
+func refresh_colorblind() -> void:
+	if body == null:
+		return
+	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var variant := 0
+	var scene = get_tree().current_scene
+	if scene != null and scene.has_method("color_variant_for_team"):
+		variant = int(scene.color_variant_for_team(team))
+	var base_c := Faction.colorblind_color_of(fac_id, SettingsManager.colorblind_palette(), variant).darkened(0.12)
+	if stats != null and stats.is_hq:
+		base_c = base_c.lightened(0.22)
+	body.color = base_c
+
+func _refresh_queue_label() -> void:
+	if queue_label == null:
+		queue_label = Label.new()
+		queue_label.name = "QueueLabel"
+		queue_label.position = Vector2(-20, 30)
+		queue_label.add_theme_font_size_override("font_size", 10)
+		add_child(queue_label)
+	if production_queue.is_empty():
+		queue_label.text = ""
+		return
+	var names: Array = []
+	for item in production_queue:
+		if item is Dictionary:
+			names.append(str(item.get("id", "?")))
+		else:
+			names.append(str(item))
+	var prog := int(round(Production.current_progress(production_queue) * 100.0))
+	queue_label.text = "Queue: %s (%d%%)" % [", ".join(names), prog]
 
 func set_rally(pos: Vector2) -> void:
 	rally_point = pos
@@ -57,9 +89,26 @@ func _process(delta):
 	var completed = Production.tick(production_queue, delta * eff)
 	for uid in completed:
 		_spawn_unit(uid)
+	_refresh_queue_label()
 	if stats and (stats.id == "turret" or stats.id == "missile_tower"):
 		_process_turret(delta)
 	queue_redraw()
+
+func _game_root() -> Node:
+	var node: Node = self
+	while node != null:
+		if node.has_method("units_near") and node.has_method("spawn_combat_tracer"):
+			return node
+		node = node.get_parent()
+	if not is_inside_tree():
+		return null
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var scene = tree.current_scene
+	if scene != null and scene.has_method("units_near") and scene.has_method("spawn_combat_tracer"):
+		return scene
+	return null
 
 func _process_turret(delta: float) -> void:
 	turret_timer -= delta
@@ -67,8 +116,14 @@ func _process_turret(delta: float) -> void:
 		return
 	var is_aa := stats != null and Fortification.is_anti_air(stats.id)
 	var max_rng := 320.0 if is_aa else 260.0
-	for u in get_tree().get_nodes_in_group("units"):
-		if not is_instance_valid(u) or u.team == team or ("is_exploding" in u and u.is_exploding):
+	var candidates: Array = get_tree().get_nodes_in_group("units")
+	var scene := _game_root()
+	if scene != null:
+		var nearby: Array = scene.units_near(global_position, max_rng)
+		if not nearby.is_empty():
+			candidates = nearby
+	for u in candidates:
+		if not is_instance_valid(u) or GameManager.is_allied(team, int(u.team)) or ("is_exploding" in u and u.is_exploding):
 			continue
 		if is_aa and u.stats and u.stats.unit_class != 3:
 			continue
@@ -78,7 +133,6 @@ func _process_turret(delta: float) -> void:
 			turret_angle = (u.global_position - global_position).angle()
 			var dmg_type := Damage.DamageType.EXPLOSIVE if is_aa else Damage.DamageType.KINETIC
 			var dmg_val := 42.0 if is_aa else 25.0
-			var scene = get_tree().current_scene
 			if scene and scene.has_method("spawn_combat_tracer"):
 				scene.spawn_combat_tracer(global_position + Vector2.RIGHT.rotated(turret_angle) * 16.0, u.global_position, dmg_type, team)
 			u.take_damage(dmg_val)
@@ -139,11 +193,14 @@ func enqueue_unit(uid: String, build_time: float = -1.0) -> void:
 		var s := GameManager.registry.get_unit(uid)
 		btime = s.build_time if s != null else 4.0
 	Production.enqueue(production_queue, uid, btime)
+	_refresh_queue_label()
 
 func cancel_last_queued() -> String:
 	if production_queue.is_empty():
 		return ""
-	return Production.cancel(production_queue, production_queue.size() - 1)
+	var cancelled := Production.cancel(production_queue, production_queue.size() - 1)
+	_refresh_queue_label()
+	return cancelled
 
 func _draw():
 	if is_exploding:
