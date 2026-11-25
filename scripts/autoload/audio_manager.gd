@@ -52,10 +52,14 @@ const SOUNDTRACK_ORDER := [
 const DEFAULT_SOUNDTRACK := "aerodyne"
 const LOGICAL_TRACKS := ["menu", "battle"]
 
+signal bark_subtitle(text: String)
+
 var muted: bool = false
 var current_music: String = "menu"
 var soundtrack: String = DEFAULT_SOUNDTRACK
 var _music_player: AudioStreamPlayer = null
+var _bark_last_sec: Dictionary = {}
+var _weapon_last_sec: float = -1.0
 
 func _ready() -> void:
 	_music_player = AudioStreamPlayer.new()
@@ -66,11 +70,16 @@ func _ready() -> void:
 			soundtrack = configured
 
 const SFX_ALIASES := {
-	"weapon_fire": "click",
-	"order_move": "click",
-	"tech_up": "laser",
-	"unit_explode": "explosion",
-	"building_explode": "explosion",
+	"weapon_fire": "weapon_kinetic",
+	"order_move": "order_move",
+	"order_attack": "order_attack",
+	"tech_up": "tech_up",
+	"unit_explode": "unit_explode",
+	"building_explode": "building_explode",
+	"build_complete": "build_complete",
+	"sonar_ping": "sonar_ping",
+	"capture": "capture",
+	"alert_under_attack": "alert_under_attack",
 	"orbital_laser": "laser",
 	"nuclear_launch": "nuke",
 	"eel_hazard": "eel",
@@ -116,11 +125,40 @@ func set_soundtrack(id: String) -> bool:
 		set_music(current_music)
 	return true
 
+func sfx_path(sfx_name: String) -> String:
+	var resolved := String(SFX_ALIASES.get(sfx_name, sfx_name))
+	return "res://assets/sfx/%s.wav" % resolved
+
+func reset_bark_cooldowns() -> void:
+	_bark_last_sec.clear()
+	_weapon_last_sec = -1.0
+
+func play_weapon_sfx(damage_type: int, now_sec: float = -1.0) -> void:
+	var now := float(Time.get_ticks_msec()) * 0.001 if now_sec < 0.0 else now_sec
+	if not VoiceBark.can_emit(_weapon_last_sec, now, 0.06):
+		return
+	_weapon_last_sec = now
+	play_sfx(VoiceBark.weapon_sfx_for_damage_type(damage_type))
+
+## Play a throttled robotic voice bark and emit its accessible subtitle.
+## Returns the subtitle text when emitted, or "" if throttled.
+func play_bark(event: String, faction_id: int = 0, subject: String = "", now_sec: float = -1.0) -> String:
+	var now := float(Time.get_ticks_msec()) * 0.001 if now_sec < 0.0 else now_sec
+	var last := float(_bark_last_sec.get(event, -1.0))
+	var cooldown := 0.25 if event in ["build_complete", "tech_complete", "capture", "nuke_warning", "victory", "defeat"] else VoiceBark.DEFAULT_COOLDOWN_SEC
+	if not VoiceBark.can_emit(last, now, cooldown):
+		return ""
+	_bark_last_sec[event] = now
+	play_sfx(VoiceBark.sfx_for_event(event))
+	var subtitle := VoiceBark.subtitle_for(event, faction_id, subject)
+	if not is_instance_valid(SettingsManager) or SettingsManager.subtitles_enabled():
+		bark_subtitle.emit(subtitle)
+	return subtitle
+
 func play_sfx(sfx_name: String) -> void:
 	if muted:
 		return
-	var resolved := String(SFX_ALIASES.get(sfx_name, sfx_name))
-	var path := "res://assets/sfx/%s.wav" % resolved
+	var path := sfx_path(sfx_name)
 	if not ResourceLoader.exists(path):
 		return
 	var player := AudioStreamPlayer.new()

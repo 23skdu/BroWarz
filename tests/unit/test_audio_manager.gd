@@ -74,6 +74,41 @@ func test_sfx_players_are_released_even_without_finished_signal():
 	await get_tree().create_timer(0.7).timeout
 	assert_eq(_sfx_player_count(), 0)
 
+func test_dedicated_sfx_and_voice_barks_throttle_and_emit_subtitles():
+	AudioManager.reset_bark_cooldowns()
+	var original_subs := SettingsManager.subtitles_enabled()
+	SettingsManager.set_setting("subtitles", true)
+	var received: Array[String] = []
+	var cb := func(text: String): received.append(text)
+	AudioManager.bark_subtitle.connect(cb)
+
+	# All dedicated aliases resolve to distinct existing WAV files (no click fallback).
+	assert_eq(AudioManager.sfx_path("weapon_fire"), "res://assets/sfx/weapon_kinetic.wav")
+	assert_eq(AudioManager.sfx_path("order_move"), "res://assets/sfx/order_move.wav")
+	assert_eq(AudioManager.sfx_path("tech_up"), "res://assets/sfx/tech_up.wav")
+	assert_eq(AudioManager.sfx_path("unit_explode"), "res://assets/sfx/unit_explode.wav")
+	assert_eq(AudioManager.sfx_path("building_explode"), "res://assets/sfx/building_explode.wav")
+	for alias in AudioManager.SFX_ALIASES.keys():
+		assert_true(ResourceLoader.exists(AudioManager.sfx_path(String(alias))))
+
+	var first := AudioManager.play_bark("move", Faction.Id.AERODYNE, "", 10.0)
+	assert_true(first.contains("[AeroDyne]"))
+	assert_eq(received.size(), 1)
+	# Throttled within cooldown window.
+	assert_eq(AudioManager.play_bark("move", Faction.Id.AERODYNE, "", 10.5), "")
+	assert_eq(received.size(), 1)
+	# Allowed once cooldown elapses.
+	assert_ne(AudioManager.play_bark("move", Faction.Id.AERODYNE, "", 13.0), "")
+	assert_eq(received.size(), 2)
+
+	# Subtitles setting suppresses subtitle signal emission.
+	SettingsManager.set_setting("subtitles", false)
+	assert_ne(AudioManager.play_bark("attack", Faction.Id.FERROCORE, "", 20.0), "")
+	assert_eq(received.size(), 2)
+
+	AudioManager.bark_subtitle.disconnect(cb)
+	SettingsManager.set_setting("subtitles", original_subs)
+
 func _sfx_player_count() -> int:
 	var count := 0
 	for child in AudioManager.get_children():

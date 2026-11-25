@@ -522,3 +522,78 @@ func _new_game_without_staging() -> Node2D:
 	add_child_autofree(game)
 	NetworkManager.attach_game(null)
 	return game
+
+func test_building_inspector_displays_selected_building_and_dispatches_commands():
+	var game := _new_game()
+	assert_not_null(game.building_inspector)
+	assert_false(game.building_inspector.visible)
+	var hq: Node2D = game._find_team_hq(0)
+	game.selected_building = hq
+	game._update_hud()
+	assert_true(game.building_inspector.visible)
+	assert_true(game.building_inspector.demolish_btn.disabled, "HQ cannot be demolished from inspector")
+
+	var barracks: Node2D = game._spawn_building_by_id("barracks", hq.global_position + Vector2(120, 0), 0)
+	game.selected_building = barracks
+	game._update_hud()
+	assert_eq(game.building_inspector.name_label.text, barracks.stats.display_name)
+	assert_false(game.building_inspector.demolish_btn.disabled)
+	assert_not_null(game.building_inspector.train_grid.get_node_or_null("InspectTrain_riflebot"))
+	assert_null(game.building_inspector.train_grid.get_node_or_null("InspectTrain_bone_legionary"))
+
+	# Training via inspector enqueues unit and updates live queue display.
+	ResourceManager.get_wallet(0)[Economy.Res.IRON] = 500
+	ResourceManager.get_wallet(0)[Economy.Res.FOOD] = 500
+	game.building_inspector.train_requested.emit("riflebot")
+	game._update_hud()
+	assert_eq(barracks.production_queue.size(), 1)
+	assert_true(game.building_inspector.queue_label.text.contains("riflebot"))
+	assert_false(game.building_inspector.cancel_btn.disabled)
+
+	# Queue cancel, rally reset, and demolish all wire cleanly.
+	game.building_inspector.cancel_queue_requested.emit()
+	assert_eq(barracks.production_queue.size(), 0)
+	barracks.set_rally(Vector2(900, 900))
+	game.building_inspector.reset_rally_requested.emit()
+	assert_false(barracks.has_rally)
+	game.building_inspector.demolish_requested.emit()
+	assert_true(barracks.is_exploding)
+
+func test_lockstep_dialog_runs_live_soak_and_tracks_desync_checksums():
+	var menu := preload("res://scenes/main_menu.tscn").instantiate()
+	add_child_autofree(menu)
+	var lockstep_btn: Button = menu.get_node_or_null("MenuPanel/Margin/VBox/Columns/OptionsColumn/LockstepButton") as Button
+	assert_not_null(lockstep_btn)
+	assert_true(lockstep_btn.is_connected("pressed", Callable(menu, "_open_lockstep_dialog")))
+
+	var game := _new_game()
+	var c1: int = int(game.compute_match_checksum())
+	var c2: int = int(game.compute_match_checksum())
+	assert_eq(c1, c2, "match checksum must be deterministic on identical state")
+	game._open_lockstep_dialog()
+	assert_not_null(game.lockstep_dialog)
+	var soak: Dictionary = game.lockstep_dialog.run_soak(4, 120, 2030)
+	assert_true(bool(soak["ok"]))
+	assert_eq(int(soak["desyncs"]), 0)
+	assert_gt(int(soak["commands"]), 50)
+	assert_true(game.lockstep_dialog.result_label.text.contains("PASS"))
+
+	# Mismatched remote hash increments desync counter and warns in HUD.
+	var before_desyncs: int = int(game.desync_count)
+	game._on_remote_state_hash(2, c1 ^ 0xFF)
+	assert_eq(int(game.desync_count), before_desyncs + 1)
+	assert_true(String(game.status_label.text).contains("Desync warning"))
+
+func test_voice_bark_subtitles_render_in_hud_and_respect_setting():
+	var game := _new_game()
+	var original_subs := SettingsManager.subtitles_enabled()
+	SettingsManager.set_setting("subtitles", true)
+	AudioManager.reset_bark_cooldowns()
+	AudioManager.play_bark("tech_complete", Faction.Id.AERODYNE, "Reactive Armor", 100.0)
+	assert_true(game.bark_subtitle_label.visible)
+	assert_true(String(game.bark_subtitle_label.text).contains("Reactive Armor"))
+	game.bark_subtitle_label.visible = false
+	SettingsManager.set_setting("subtitles", false)
+	AudioManager.play_bark("build_complete", Faction.Id.AERODYNE, "Riflebot", 105.0)
+	assert_false(game.bark_subtitle_label.visible)
+	SettingsManager.set_setting("subtitles", original_subs)

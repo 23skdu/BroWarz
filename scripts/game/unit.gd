@@ -419,7 +419,10 @@ func _try_capture_enemy_building(delta: float) -> void:
 		b.team = team
 		if b.has_method("refresh_colorblind"):
 			b.refresh_colorblind()
-		AudioManager.play_sfx("tech_up")
+		if team == GameManager.local_team:
+			AudioManager.play_bark("capture", GameManager.faction_for_team(team), b.stats.display_name)
+		else:
+			AudioManager.play_sfx("capture")
 		return
 	# Prune stale keys for buildings we moved away from or that were freed.
 	for k in capture_progress.keys():
@@ -508,7 +511,7 @@ func _perform_attack(enemy: Node2D) -> void:
 	enemy.take_damage(final_dmg)
 	if dmg_type == Damage.DamageType.EMP and enemy.has_method("apply_emp"):
 		enemy.apply_emp(2.5)
-	AudioManager.play_sfx("weapon_fire")
+	AudioManager.play_weapon_sfx(dmg_type)
 
 func _nearest_enemy_in_range() -> Node2D:
 	var e = _nearest_enemy()
@@ -631,6 +634,8 @@ func take_damage(amount: float) -> void:
 		return
 	hp -= int(maxf(1.0, round(amount)))
 	hit_flash_timer = 0.14
+	if team == GameManager.local_team and not GameManager.is_spectator:
+		AudioManager.play_bark("under_attack", GameManager.faction_for_team(team))
 	if hp_bar:
 		hp_bar.value = maxf(0.0, float(hp) / float(effective_max_hp()) * 100.0)
 	if hp <= 0:

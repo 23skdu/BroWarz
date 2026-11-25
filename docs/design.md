@@ -219,9 +219,9 @@ Economy rules:
 - **Camera:** Pan/zoom, edge scroll, top-center minimap click.
 - **Selection:** Box select, shift-add, control groups (0–9).
 - **Commands:** Move, attack, attack-move, patrol, guard, stop, hold, build, repair, unload, cloak toggle, sonar buoy.
-- **Overlays:** Resource rates, power, population, tech, minimap pings; the minimap stays clear of the bottom-right unit corner.
+- **Overlays:** Resource rates, power, population, tech, minimap pings, a bottom-left **Building Inspector** panel (HP, power, radar sweep, live queue progress, unit training buttons, rally reset, and demolish), and bottom-center accessible **voice-bark subtitles**; the minimap stays clear of the bottom-right unit corner.
 - **Comms:** Team chat, ping markers, surrender vote, and the in-match **Diplomacy** panel for 3+ team multiplayer matches.
-- **Accessibility:** Remappable keys, colorblind palettes, UI scale, subtitles for barks.
+- **Accessibility:** Remappable keys, colorblind palettes, UI scale, and toggleable subtitles for robotic voice barks (`SettingsManager` / Settings dialog).
 
 ## 15. Map Editor
 
@@ -238,7 +238,7 @@ Economy rules:
   - The host is peer id 1. Every client command is sent to the host, which re-validates it (whitelist, ownership, cost) before applying it and relaying the sanitized copy back to all peers. A client never applies a command that the host rejected.
   - Commands carry only intent (move/train/build/fortify/tech/laser/nuke/capture/demolish/diplomacy/hold/stop); the host overwrites `team` from its own lobby record, so a forged payload cannot claim another player's economy or accept an alliance for another side.
   - Teams are assigned round-robin from the lobby's `num_teams` setting (2–4) and reused after host migration.
-- **State sync:** Periodic simulation checksums (`NetworkManager.broadcast_hash`) are throttled (≥ 3 s apart) and relayed to the host for desync detection. On mismatch the host's state is authoritative (resync via the next lobby snapshot).
+- **State sync:** Periodic simulation checksums (`game.gd:compute_match_checksum()` → `NetworkManager.broadcast_hash`) are throttled (≥ 3 s apart) and compared across peers via `state_hash_received` for live desync warnings. The **Lockstep Net Self-Test / Soak Check** dialog (`scripts/ui/lockstep_dialog.gd`) also exposes `Lockstep.run_soak_simulation()` live from the main menu and pause menu.
 - **Reconnect & host migration:** A dropped peer keeps its seat for a 30 s grace window (`LobbyState.sweep`); rejoining proves ownership with a crypto-random resume token issued at admission (token is sent only in the targeted welcome, never in broadcast snapshots). If the host vanishes mid-match, the lowest connected peer is elected successor (`next_host_id`) and re-hosts on the same port, marking the other seats disconnected so they can rejoin with their tokens. WebRTC transport degrades gracefully to ENet if signaling fails.
 - **Match settings (networked):** map type (0–2), number of teams (2–4), fog of war, transport (enet/webrtc), seed, and the co-op settings (`coop_vs_ai`, `human_faction`, `ai_difficulty`, `ai_faction`) are pinned by the host in `LobbyState.settings` and staged into `GameManager` before scene load; every peer applies the same map, seed, team layout and AI configuration. New keys are added to `NetSecurity.sanitize_settings()`/`default_settings()` so hostile clients cannot inject unknown match state.
 - **Security (see §21):** fail-closed whitelisting (`NetSecurity`), constant-time passcode compare, crypto-random resume tokens, token-bucket rate limiting with strikes→kick, per-peer monotonic sequence anti-replay (`SeqGuard`), protocol-version handshake, masked addresses in logs, and session bans for kicked peers.
@@ -277,7 +277,7 @@ Economy rules:
 
 - **Style:** Stylized low-poly / clean silhouettes, team colors, readable at zoom-out.
 - **VFX:** Muzzle flashes, explosions, nuke mushroom, laser beam, cloak shimmer.
-- **Audio:** Per-weapon SFX, ambient map audio, UI clicks, alerts, voice barks (robotic).
+- **Audio:** 24 procedural WAV SFX & robotic voice-bark clips (`assets/sfx/`, synthesized by `scripts/tools/generate_audio.gd`), covering all 6 weapon damage types (kinetic, explosive, energy, EMP, thermal, toxic), distinct unit/building explosions, sonar pings, captures, alerts, and throttled robotic voice barks (`scripts/core/voice_bark.gd`) with toggleable HUD subtitles.
 - **Music:** Menu + in-match (adaptive intensity). The menu/settings soundtrack picker supplies the logical `menu`/`battle` cues; each NPC faction also has a theme WAV available to that system, and NPC battle music follows the selected soundtrack unless a dedicated theme is chosen ([`npc.md`](npc.md)).
 
 ## 19. Performance & Scalability

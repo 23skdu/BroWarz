@@ -26,10 +26,10 @@ Work in the pending release:
 - AI uses its own fog knowledge, sweeps scouts ahead, remembers the last visible contact briefly (45 s), and attacks sooner in AI-vs-AI spectator mode.
 - Building thumbnails for every registered building ID are generated into `docs/thumbnails/buildings/` alongside unit thumbnails.
 - Four AI-only NPC factions (IDs 4–7 — Vesper Ascendancy, Thalassa Dominion, Gravebound Legion, Lumen Cabal): AI-only selection for skirmish enemies, co-op AI and both spectator sides (human seats stay IDs 0–3), dedicated banners/colors/theme tracks, 12 unique units with faction-native thumbnails and sprites, per-faction combat modifiers, and updated docs and tests documented in [`npc.md`](npc.md).
+- Dedicated **Building Inspector Panel** (`scripts/ui/building_inspector.gd`): selecting any friendly structure opens a bottom-left panel showing icon, HP, power delta, powered radar sweep, rally coordinates, live queue progress bar, one-click unit training buttons, queue cancellation (`X`), rally reset, and 25% refund demolition.
+- Live runtime **Lockstep Soak & Checksum Sync** (`scripts/ui/lockstep_dialog.gd` + `game.gd`): exposes the multi-peer deterministic soak harness from both the main menu and pause menu, and broadcasts/compares periodic `GameState` checksums over `NetworkManager` during active P2P matches with live desync alerts.
+- Expanded **Per-Weapon SFX & Robotic Voice Barks** (`scripts/core/voice_bark.gd`, 24 synthesized WAVs in `assets/sfx/`): distinct procedural SFX for all 6 weapon damage types, unit/building explosions, orders, sonar pings, captures, tech completion, and throttled robotic voice barks with an accessible HUD subtitle toast toggled in Settings.
 
 ## Deferred / future ideas
 
-- A live runtime hook for the lockstep soak harness; the soak currently runs as a deterministic test rather than an in-game verification path.
-- A dedicated building-inspector panel; the live building HUD already shows queue progress, rally flags and hotkey cancellation.
-- A fuller voice-bark/SFX set beyond the current alias table.
 - Campaign, mods and dedicated server authority (deferred beyond v1).

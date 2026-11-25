@@ -167,6 +167,8 @@ func _spawn_unit(uid: String) -> void:
 		scene.get_node("Units").add_child(u)
 		if has_rally:
 			u.move_to(rally_point, true)
+		if team == GameManager.local_team and not GameManager.is_spectator:
+			AudioManager.play_bark("build_complete", GameManager.faction_for_team(team), s.display_name)
 
 func take_damage(amount: float) -> void:
 	if is_exploding:

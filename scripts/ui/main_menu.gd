@@ -63,6 +63,8 @@ func _ready():
 	settings_btn.pressed.connect(_open_settings)
 	var replay_btn := _ensure_menu_button("ReplayButton", "Watch Saved Replay", options_column)
 	replay_btn.pressed.connect(_open_replay)
+	var lockstep_btn := _ensure_menu_button("LockstepButton", "Lockstep Net Self-Test", options_column)
+	lockstep_btn.pressed.connect(_open_lockstep_dialog)
 	_refresh_labels()
 	_build_custom_map_picker()
 	var version_label := get_node_or_null("MenuPanel/Margin/VBox/VersionLabel") as Label
@@ -107,6 +109,15 @@ func _open_replay() -> void:
 		viewer.name = "ReplayViewer"
 		add_child(viewer)
 	viewer.popup_centered(Vector2i(720, 560))
+
+func _open_lockstep_dialog() -> void:
+	var dialog := get_node_or_null("LockstepDialog") as LockstepDialog
+	if dialog == null or not is_instance_valid(dialog):
+		dialog = LockstepDialog.new()
+		dialog.name = "LockstepDialog"
+		add_child(dialog)
+	dialog.refresh_live_status()
+	dialog.popup_centered(Vector2i(600, 340))
 
 func _ensure_menu_button(node_name: String, text: String, parent: VBoxContainer) -> Button:
 	var btn := parent.get_node_or_null(node_name) as Button

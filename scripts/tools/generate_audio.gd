@@ -42,7 +42,27 @@ func _init() -> void:
 	_write_sfx("%s/sfx/explosion.wav" % asset_root, _noise(0.65, 0.38))
 	_write_sfx("%s/sfx/nuke.wav" % asset_root, _sweep(1.2, 180.0, 32.0, 0.45))
 	_write_sfx("%s/sfx/eel.wav" % asset_root, _sweep(0.28, 420.0, 90.0, 0.28))
-	print("Generated 10 music beds and 5 SFX clips.")
+	# Dedicated per-weapon, tactical event, and robotic voice-bark SFX.
+	_write_sfx("%s/sfx/weapon_kinetic.wav" % asset_root, _sfx_kinetic())
+	_write_sfx("%s/sfx/weapon_explosive.wav" % asset_root, _sfx_explosive())
+	_write_sfx("%s/sfx/weapon_energy.wav" % asset_root, _sfx_energy())
+	_write_sfx("%s/sfx/weapon_emp.wav" % asset_root, _sfx_emp())
+	_write_sfx("%s/sfx/weapon_thermal.wav" % asset_root, _sfx_thermal())
+	_write_sfx("%s/sfx/weapon_toxic.wav" % asset_root, _sfx_toxic())
+	_write_sfx("%s/sfx/unit_explode.wav" % asset_root, _sfx_unit_explode())
+	_write_sfx("%s/sfx/building_explode.wav" % asset_root, _sfx_building_explode())
+	_write_sfx("%s/sfx/order_move.wav" % asset_root, _sfx_chirp_seq([660.0, 880.0], 0.055, 0.24))
+	_write_sfx("%s/sfx/order_attack.wav" % asset_root, _sfx_chirp_seq([520.0, 740.0, 980.0], 0.05, 0.26))
+	_write_sfx("%s/sfx/build_complete.wav" % asset_root, _sfx_chirp_seq([392.0, 523.25, 659.25], 0.08, 0.28))
+	_write_sfx("%s/sfx/tech_up.wav" % asset_root, _sfx_chirp_seq([440.0, 554.37, 659.25, 880.0], 0.09, 0.30))
+	_write_sfx("%s/sfx/sonar_ping.wav" % asset_root, _sfx_sonar_ping())
+	_write_sfx("%s/sfx/capture.wav" % asset_root, _sfx_chirp_seq([330.0, 440.0, 660.0], 0.09, 0.28))
+	_write_sfx("%s/sfx/alert_under_attack.wav" % asset_root, _sfx_alert())
+	_write_sfx("%s/sfx/bark_confirm.wav" % asset_root, _sfx_robot_bark([220.0, 260.0], [720.0, 1450.0], 0.22))
+	_write_sfx("%s/sfx/bark_engage.wav" % asset_root, _sfx_robot_bark([190.0, 240.0, 175.0], [640.0, 1280.0], 0.28))
+	_write_sfx("%s/sfx/bark_alert.wav" % asset_root, _sfx_robot_bark([290.0, 210.0, 290.0], [880.0, 1820.0], 0.32))
+	_write_sfx("%s/sfx/bark_ready.wav" % asset_root, _sfx_robot_bark([205.0, 245.0, 285.0], [760.0, 1620.0], 0.26))
+	print("Generated 10 music beds and 24 SFX/bark clips.")
 	quit()
 
 # ---------------------------------------------------------------------------
@@ -105,6 +125,168 @@ func _noise(seconds: float, amp: float) -> PackedFloat32Array:
 		var t := float(i) / float(SAMPLE_RATE)
 		var env := pow(1.0 - t / seconds, 2.0)
 		out.append((rng.randf_range(-1.0, 1.0)) * amp * env)
+	return out
+
+func _sfx_kinetic() -> PackedFloat32Array:
+	var seconds := 0.11
+	var out := PackedFloat32Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x1101
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var env := exp(-32.0 * t)
+		var snap := rng.randf_range(-1.0, 1.0) * 0.55 + sin(TAU * (320.0 - 180.0 * t / seconds) * t) * 0.45
+		out.append(snap * 0.34 * env)
+	return out
+
+func _sfx_explosive() -> PackedFloat32Array:
+	var seconds := 0.26
+	var out := PackedFloat32Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x2202
+	var phase := 0.0
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var hz := 145.0 * exp(-9.0 * t) + 38.0
+		phase += hz / float(SAMPLE_RATE)
+		var env := exp(-10.0 * t)
+		var s := sin(TAU * phase) * 0.65 + rng.randf_range(-1.0, 1.0) * 0.35 * exp(-16.0 * t)
+		out.append(s * 0.42 * env)
+	return out
+
+func _sfx_energy() -> PackedFloat32Array:
+	var seconds := 0.18
+	var out := PackedFloat32Array()
+	var phase := 0.0
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var hz := 1550.0 * exp(-10.0 * t) + 280.0
+		phase += hz / float(SAMPLE_RATE)
+		var env := exp(-14.0 * t)
+		var s := sin(TAU * phase) * 0.7 + sin(TAU * phase * 2.0) * 0.3
+		out.append(s * 0.32 * env)
+	return out
+
+func _sfx_emp() -> PackedFloat32Array:
+	var seconds := 0.28
+	var out := PackedFloat32Array()
+	var phase := 0.0
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var hz := 640.0 * exp(-4.5 * t) + sin(TAU * 42.0 * t) * 95.0
+		phase += maxf(40.0, hz) / float(SAMPLE_RATE)
+		var env := pow(1.0 - t / seconds, 1.3)
+		out.append(sin(TAU * phase) * 0.32 * env)
+	return out
+
+func _sfx_thermal() -> PackedFloat32Array:
+	var seconds := 0.24
+	var out := PackedFloat32Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x4404
+	var lp := 0.0
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		lp = lp * 0.78 + rng.randf_range(-1.0, 1.0) * 0.22
+		var env := sin(PI * clampf(t / seconds, 0.0, 1.0))
+		out.append((lp * 0.75 + sin(TAU * 130.0 * t) * 0.25) * 0.36 * env)
+	return out
+
+func _sfx_toxic() -> PackedFloat32Array:
+	var seconds := 0.22
+	var out := PackedFloat32Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x5505
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var bubble := sin(TAU * (310.0 + sin(TAU * 28.0 * t) * 140.0) * t) * 0.45
+		var hiss := rng.randf_range(-1.0, 1.0) * 0.55
+		var env := pow(1.0 - t / seconds, 1.4)
+		out.append((bubble + hiss) * 0.28 * env)
+	return out
+
+func _sfx_unit_explode() -> PackedFloat32Array:
+	var seconds := 0.42
+	var out := PackedFloat32Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x6606
+	var phase := 0.0
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		phase += (120.0 * exp(-7.0 * t) + 34.0) / float(SAMPLE_RATE)
+		var env := pow(1.0 - t / seconds, 1.8)
+		var s := sin(TAU * phase) * 0.55 + rng.randf_range(-1.0, 1.0) * 0.45
+		out.append(s * 0.40 * env)
+	return out
+
+func _sfx_building_explode() -> PackedFloat32Array:
+	var seconds := 0.78
+	var out := PackedFloat32Array()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x7707
+	var phase := 0.0
+	var lp := 0.0
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		phase += (88.0 * exp(-4.0 * t) + 26.0) / float(SAMPLE_RATE)
+		lp = lp * 0.85 + rng.randf_range(-1.0, 1.0) * 0.15
+		var burst2 := exp(-14.0 * absf(t - 0.18)) * 0.35
+		var env := pow(1.0 - t / seconds, 1.4)
+		out.append(clampf((sin(TAU * phase) * 0.5 + lp * 0.5 + burst2) * 0.48 * env, -0.95, 0.95))
+	return out
+
+func _sfx_chirp_seq(freqs: Array, step_sec: float, amp: float) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	var step_frames := maxi(1, int(step_sec * float(SAMPLE_RATE)))
+	for f_val in freqs:
+		var hz := float(f_val)
+		for i in range(step_frames):
+			var t := float(i) / float(SAMPLE_RATE)
+			var u := float(i) / float(step_frames)
+			var env := minf(u * 12.0, 1.0) * pow(1.0 - u, 1.2)
+			var s := sin(TAU * hz * t) * 0.75 + sin(TAU * hz * 2.0 * t) * 0.25
+			out.append(s * amp * env)
+	return out
+
+func _sfx_sonar_ping() -> PackedFloat32Array:
+	var seconds := 0.58
+	var out := PackedFloat32Array()
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var env := minf(t * 140.0, 1.0) * exp(-5.8 * t)
+		var s := sin(TAU * 1320.0 * t) * 0.8 + sin(TAU * 2642.0 * t) * 0.2
+		out.append(s * 0.36 * env)
+	return out
+
+func _sfx_alert() -> PackedFloat32Array:
+	var seconds := 0.36
+	var out := PackedFloat32Array()
+	for i in range(int(seconds * float(SAMPLE_RATE))):
+		var t := float(i) / float(SAMPLE_RATE)
+		var pulse := 1.0 if fmod(t, 0.18) < 0.12 else 0.0
+		var hz := 780.0 if fmod(t, 0.18) < 0.06 else 540.0
+		var s := sin(TAU * hz * t) * 0.7 + sin(TAU * hz * 3.0 * t) * 0.2
+		out.append(s * 0.30 * pulse)
+	return out
+
+func _sfx_robot_bark(pitches: Array, formants: Array, seconds: float) -> PackedFloat32Array:
+	# Synthesizes a compact robotic vocoder bark via pulse-train excitation
+	# modulated through two metallic formant resonances.
+	var out := PackedFloat32Array()
+	var total := maxi(1, int(seconds * float(SAMPLE_RATE)))
+	var seg := maxi(1, int(float(total) / float(maxi(1, pitches.size()))))
+	var f1 := float(formants[0])
+	var f2 := float(formants[1])
+	for i in range(total):
+		var t := float(i) / float(SAMPLE_RATE)
+		var idx := mini(pitches.size() - 1, int(float(i) / float(seg)))
+		var f0 := float(pitches[idx])
+		var local_u := fmod(float(i), float(seg)) / float(seg)
+		var env := sin(PI * clampf(local_u, 0.0, 1.0)) * pow(1.0 - float(i) / float(total), 0.5)
+		var carrier := sin(TAU * f0 * t) + 0.5 * sin(TAU * f0 * 2.0 * t) + 0.3 * sin(TAU * f0 * 3.0 * t)
+		var mod := 0.6 * sin(TAU * f1 * t) + 0.4 * sin(TAU * f2 * t)
+		var sample := (carrier * 0.45 + carrier * mod * 0.55) * 0.24 * env
+		out.append(clampf(sample, -0.9, 0.9))
 	return out
 
 # ---------------------------------------------------------------------------

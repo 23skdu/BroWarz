@@ -55,6 +55,13 @@ func _ready() -> void:
 	var palette_row := _labeled_row(vbox, "Colorblind palette")
 	palette_row.add_child(palette)
 
+	var subs := CheckButton.new()
+	subs.name = "SubtitlesToggle"
+	subs.text = "Show voice-bark subtitles"
+	subs.button_pressed = SettingsManager.subtitles_enabled()
+	subs.toggled.connect(func(pressed: bool): SettingsManager.set_setting("subtitles", pressed))
+	vbox.add_child(subs)
+
 	_add_section_title(vbox, "Hotkey Bindings — Camera")
 	for action in SettingsManager.HOTKEY_ACTIONS:
 		var select := OptionButton.new()

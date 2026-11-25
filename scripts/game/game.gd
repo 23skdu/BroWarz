@@ -50,6 +50,13 @@ var spatial_unit_positions: Array = []
 var spatial_unit_nodes: Array = []
 var spatial_unit_grid: Dictionary = {}
 var minimap: Minimap = null
+var building_inspector: BuildingInspector = null
+var lockstep_dialog: LockstepDialog = null
+var bark_subtitle_label: Label = null
+var bark_subtitle_timer: float = 0.0
+var desync_count: int = 0
+var last_state_checksum: int = 0
+var _checksum_timer: float = 0.0
 var pause_panel: Control = null
 var victory_panel: Control = null
 var research_dialog: ResearchDialog = null
@@ -123,6 +130,11 @@ func _ready():
 	_init_team_fogs()
 	GameManager.start_match(map_data)
 	NetworkManager.attach_game(self)
+	if not NetworkManager.state_hash_received.is_connected(_on_remote_state_hash):
+		NetworkManager.state_hash_received.connect(_on_remote_state_hash)
+	AudioManager.reset_bark_cooldowns()
+	if not AudioManager.bark_subtitle.is_connected(_on_bark_subtitle):
+		AudioManager.bark_subtitle.connect(_on_bark_subtitle)
 	AudioManager.set_music("battle")
 
 func _exit_tree() -> void:
@@ -131,6 +143,10 @@ func _exit_tree() -> void:
 	var viewport := get_viewport()
 	if viewport != null and viewport.size_changed.is_connected(_on_viewport_resized):
 		viewport.size_changed.disconnect(_on_viewport_resized)
+	if NetworkManager.state_hash_received.is_connected(_on_remote_state_hash):
+		NetworkManager.state_hash_received.disconnect(_on_remote_state_hash)
+	if AudioManager.bark_subtitle.is_connected(_on_bark_subtitle):
+		AudioManager.bark_subtitle.disconnect(_on_bark_subtitle)
 	if NetworkManager.game_node == self:
 		NetworkManager.attach_game(null)
 	GameManager.clear_match_state()
@@ -166,6 +182,17 @@ func _exit_tree() -> void:
 			minimap.move_requested.disconnect(_on_minimap_order)
 		if minimap.ping_requested.is_connected(_on_minimap_ping):
 			minimap.ping_requested.disconnect(_on_minimap_ping)
+	if building_inspector != null and is_instance_valid(building_inspector):
+		if building_inspector.train_requested.is_connected(_player_train_unit):
+			building_inspector.train_requested.disconnect(_player_train_unit)
+		if building_inspector.cancel_queue_requested.is_connected(_cancel_selected_building_queue):
+			building_inspector.cancel_queue_requested.disconnect(_cancel_selected_building_queue)
+		if building_inspector.reset_rally_requested.is_connected(_reset_selected_building_rally):
+			building_inspector.reset_rally_requested.disconnect(_reset_selected_building_rally)
+		if building_inspector.demolish_requested.is_connected(_demolish_selected_building):
+			building_inspector.demolish_requested.disconnect(_demolish_selected_building)
+		building_inspector = null
+	lockstep_dialog = null
 
 func _generate_map(map_type: int = 2) -> void:
 	# Only an explicitly supplied custom map may override generated terrain.
@@ -323,6 +350,28 @@ func _setup_hud() -> void:
 	minimap.camera_requested.connect(_on_minimap_camera)
 	minimap.move_requested.connect(_on_minimap_order)
 	minimap.ping_requested.connect(_on_minimap_ping)
+
+	building_inspector = BuildingInspector.new()
+	ui.add_child(building_inspector)
+	if pause_node != null:
+		ui.move_child(building_inspector, pause_node.get_index())
+	building_inspector.train_requested.connect(_player_train_unit)
+	building_inspector.cancel_queue_requested.connect(_cancel_selected_building_queue)
+	building_inspector.reset_rally_requested.connect(_reset_selected_building_rally)
+	building_inspector.demolish_requested.connect(_demolish_selected_building)
+
+	bark_subtitle_label = Label.new()
+	bark_subtitle_label.name = "BarkSubtitleLabel"
+	bark_subtitle_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	bark_subtitle_label.offset_left = -320.0
+	bark_subtitle_label.offset_top = -54.0
+	bark_subtitle_label.offset_right = 320.0
+	bark_subtitle_label.offset_bottom = -18.0
+	bark_subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bark_subtitle_label.visible = false
+	ui.add_child(bark_subtitle_label)
+	if pause_node != null:
+		ui.move_child(bark_subtitle_label, pause_node.get_index())
 	if GameManager.is_spectator:
 		help_label.text = "SPECTATOR — VIEW ONLY | Camera: drag/wheel | [F12] Screenshot | [Esc] Pause"
 		var bar := ui.get_node_or_null("CommandBar")
@@ -387,6 +436,7 @@ func _build_pause_panel() -> void:
 	_add_cmd_button(vbox, "Load Match [F9]", func(): quickload_match())
 	_add_cmd_button(vbox, "Diplomacy", func(): _open_diplomacy_dialog())
 	_add_cmd_button(vbox, "Settings", func(): _open_settings())
+	_add_cmd_button(vbox, "Lockstep Soak Check", func(): _open_lockstep_dialog())
 	_add_cmd_button(vbox, "Save Replay", func(): save_replay())
 	_add_cmd_button(vbox, "Watch Replay", func(): _open_replay_viewer())
 	_add_cmd_button(vbox, "Main Menu", func():
@@ -477,6 +527,66 @@ func _open_diplomacy_dialog() -> void:
 	ui.add_child(diplomacy_dialog)
 	diplomacy_dialog.refresh()
 	diplomacy_dialog.popup_centered(Vector2i(620, 520))
+
+func _open_lockstep_dialog() -> void:
+	if lockstep_dialog == null or not is_instance_valid(lockstep_dialog):
+		lockstep_dialog = LockstepDialog.new()
+		lockstep_dialog.name = "LockstepDialog"
+		ui.add_child(lockstep_dialog)
+	last_state_checksum = compute_match_checksum()
+	lockstep_dialog.refresh_live_status(last_state_checksum, desync_count)
+	lockstep_dialog.popup_centered(Vector2i(600, 340))
+
+func _on_bark_subtitle(text: String) -> void:
+	if is_instance_valid(bark_subtitle_label) and SettingsManager.subtitles_enabled():
+		bark_subtitle_label.text = text
+		bark_subtitle_label.visible = true
+		bark_subtitle_timer = 3.2
+
+## Deterministic snapshot checksum for live P2P desync detection and the
+## in-game Lockstep Verification dialog.
+func compute_match_checksum() -> int:
+	var gs := GameState.new()
+	gs.tick = int(elapsed_time * 20.0)
+	for pid in _economy_team_ids():
+		gs.resources[pid] = ResourceManager.get_wallet(pid).duplicate()
+	var unit_records: Array = []
+	for u in units_container.get_children():
+		if is_instance_valid(u) and not u.is_exploding and u.stats != null:
+			unit_records.append({
+				"net_id": int(u.net_id), "id": u.stats.id, "team": int(u.team),
+				"x": roundi(u.global_position.x), "y": roundi(u.global_position.y),
+				"hp": int(u.hp),
+			})
+	unit_records.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["net_id"]) < int(b["net_id"]))
+	gs.units = unit_records
+	var bld_records: Array = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and b.stats != null:
+			bld_records.append({
+				"id": b.stats.id, "team": int(b.team),
+				"x": roundi(b.global_position.x), "y": roundi(b.global_position.y),
+				"hp": int(b.hp),
+			})
+	bld_records.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["x"]) != int(b["x"]):
+			return int(a["x"]) < int(b["x"])
+		return int(a["y"]) < int(b["y"])
+	)
+	gs.buildings = bld_records
+	return gs.checksum()
+
+func _on_remote_state_hash(peer_id: int, remote_hash: int) -> void:
+	var local_hash := compute_match_checksum()
+	last_state_checksum = local_hash
+	if remote_hash != local_hash:
+		desync_count += 1
+		if is_instance_valid(status_label):
+			status_label.text = "Desync warning vs peer %d (local 0x%X != remote 0x%X)" % [
+				peer_id, local_hash, remote_hash,
+			]
+	if is_instance_valid(lockstep_dialog):
+		lockstep_dialog.refresh_live_status(local_hash, desync_count)
 
 func _on_research_selected(node_id: String) -> void:
 	if not submit_player_command({"type": "tech", "id": node_id}):
@@ -916,6 +1026,8 @@ func _complete_selection(start_p: Vector2, end_p: Vector2, additive: bool, doubl
 				u.selected = true
 				if not selected_units.has(u):
 					selected_units.append(u)
+	if not selected_units.is_empty():
+		AudioManager.play_bark("select", GameManager.faction_for_team(GameManager.local_team))
 
 func _issue_move_order(target: Vector2, is_attack_move: bool = true) -> void:
 	var ids := _selected_unit_ids()
@@ -927,7 +1039,10 @@ func _issue_move_order(target: Vector2, is_attack_move: bool = true) -> void:
 		"attack_move": is_attack_move,
 	}
 	if submit_player_command(cmd):
-		AudioManager.play_sfx("order_move")
+		AudioManager.play_bark(
+			"attack" if is_attack_move else "move",
+			GameManager.faction_for_team(GameManager.local_team),
+		)
 
 func _set_control_group(index: int) -> void:
 	control_groups[index] = selected_units.duplicate()
@@ -1106,10 +1221,12 @@ func _deploy_sonar_buoys(team: int, units: Array, world_pos: Vector2) -> bool:
 		sonar_buoys.append(SonarBuoy.make(team, net_id, world_pos, elapsed_time))
 		sonar_cooldowns[net_id] = elapsed_time + SonarBuoy.COOLDOWN_SEC
 		deployed += 1
-	if deployed > 0 and team == GameManager.local_team and is_instance_valid(status_label):
-		status_label.text = "Deployed %d sonar buoy(s): submerged contacts are visible for %.0fs" % [
-			deployed, SonarBuoy.LIFETIME_SEC,
-		]
+	if deployed > 0 and team == GameManager.local_team:
+		AudioManager.play_bark("sonar_buoy", GameManager.faction_for_team(team))
+		if is_instance_valid(status_label):
+			status_label.text = "Deployed %d sonar buoy(s): submerged contacts are visible for %.0fs" % [
+				deployed, SonarBuoy.LIFETIME_SEC,
+			]
 	return deployed > 0
 
 func _cleanup_sonar_buoys() -> void:
@@ -1354,10 +1471,25 @@ func _enter_target_mode(action: String) -> void:
 		status_label.text = "Target %s: Left-Click coordinates, Right-Click to cancel" % action.to_upper()
 
 func _cancel_selected_building_queue() -> void:
-	if is_instance_valid(selected_building) and selected_building.team == 0 and selected_building.has_method("cancel_last_queued"):
+	if is_instance_valid(selected_building) and selected_building.team == GameManager.local_team and selected_building.has_method("cancel_last_queued"):
 		var cancelled: String = selected_building.cancel_last_queued()
 		if not cancelled.is_empty() and is_instance_valid(status_label):
 			status_label.text = "Cancelled queued %s" % cancelled
+
+func _reset_selected_building_rally() -> void:
+	if is_instance_valid(selected_building) and selected_building.team == GameManager.local_team:
+		selected_building.has_rally = false
+		selected_building.rally_point = selected_building.global_position + (Vector2(56, 56) if selected_building.team == 0 else Vector2(-56, -56))
+		if is_instance_valid(status_label):
+			status_label.text = "Reset rally point for %s" % selected_building.stats.display_name
+
+func _demolish_selected_building() -> void:
+	if is_instance_valid(selected_building) and selected_building.team == GameManager.local_team:
+		submit_player_command({
+			"type": "demolish",
+			"target_x": selected_building.global_position.x,
+			"target_y": selected_building.global_position.y,
+		})
 
 func _team_has_builder_for(team: int, bid: String) -> bool:
 	if not UnitRegistry.requires_advanced_builder(bid):
@@ -1571,9 +1703,12 @@ func _research_node(team: int, node_id: String) -> bool:
 		for u in _get_team_units(team):
 			if u.stats:
 				u.hp = mini(u.effective_max_hp(), u.hp + maxi(1, int(float(u.stats.hp) * 0.15)))
-	AudioManager.play_sfx("tech_up")
-	if local_feedback and is_instance_valid(status_label):
-		status_label.text = "Researched %s!" % String(info.get("name", node_id))
+	if local_feedback:
+		AudioManager.play_bark("tech_complete", GameManager.faction_for_team(team), String(info.get("name", node_id)))
+		if is_instance_valid(status_label):
+			status_label.text = "Researched %s!" % String(info.get("name", node_id))
+	else:
+		AudioManager.play_sfx("tech_up")
 	return true
 
 func _player_upgrade_tech() -> void:
@@ -1610,7 +1745,7 @@ func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF, team: int =
 		dmg *= 1.2
 	_apply_aoe_damage(target_pos, 95.0, dmg, actor)
 	active_vfx.append({"type": "laser", "pos": target_pos, "radius": 95.0, "color": Color(0.2, 0.95, 1.0, 0.75), "timer": 1.2, "duration": 1.2})
-	AudioManager.play_sfx("orbital_laser")
+	AudioManager.play_bark("orbital_laser", GameManager.faction_for_team(actor))
 	return true
 
 func _player_fire_nuke(world_target: Vector2 = Vector2.INF, team: int = -1) -> bool:
@@ -1642,7 +1777,7 @@ func _player_fire_nuke(world_target: Vector2 = Vector2.INF, team: int = -1) -> b
 				map_data.set_terrain(cx + dx, cy + dy, MapData.Terrain.WASTELAND)
 	_update_terrain_image()
 	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": 180.0, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0, "duration": 2.0})
-	AudioManager.play_sfx("nuclear_launch")
+	AudioManager.play_bark("nuke_warning", GameManager.faction_for_team(actor))
 	return true
 
 func _apply_aoe_damage(center: Vector2, radius: float, dmg: float, attacker_team: int) -> void:
@@ -2289,6 +2424,19 @@ func _process(delta):
 	if selected_building != null and (not is_instance_valid(selected_building) or selected_building.is_exploding):
 		selected_building = null
 
+	if bark_subtitle_timer > 0.0:
+		bark_subtitle_timer = maxf(0.0, bark_subtitle_timer - delta)
+		if bark_subtitle_timer <= 0.0 and is_instance_valid(bark_subtitle_label):
+			bark_subtitle_label.visible = false
+
+	# Periodic lockstep state checksum broadcast in P2P matches.
+	if NetworkManager.is_network_match():
+		_checksum_timer += delta
+		if _checksum_timer >= 3.0:
+			_checksum_timer = 0.0
+			last_state_checksum = compute_match_checksum()
+			NetworkManager.broadcast_hash(last_state_checksum)
+
 	# Economy 1s tick
 	economy_timer += delta
 	if economy_timer >= 1.0:
@@ -2313,7 +2461,7 @@ func _process(delta):
 				u.trigger_eels()
 				if is_instance_valid(status_label):
 					status_label.text = "My Hovercraft is full of eels!"
-				AudioManager.play_sfx("eel_hazard")
+				AudioManager.play_bark("eel_hazard", GameManager.faction_for_team(int(u.team)))
 	_update_fog()
 	_update_hud()
 	_check_win()
@@ -2631,6 +2779,11 @@ func _get_team_building_ids(team: int) -> Array:
 	return out
 
 func _update_hud() -> void:
+	if is_instance_valid(building_inspector):
+		if GameManager.is_spectator or selected_building == null or not is_instance_valid(selected_building):
+			building_inspector.inspect(null)
+		else:
+			building_inspector.inspect(selected_building, get_team_power_efficiency(int(selected_building.team)))
 	if GameManager.is_spectator:
 		if is_instance_valid(hud_label):
 			hud_label.text = "SPECTATOR | Team 0 %s: %d units | Team 1 %s: %d units" % [
@@ -2746,6 +2899,11 @@ func _check_win():
 			_get_team_units(winner).size(), _team_building_total(winner), elapsed_time,
 		]
 		_show_match_end(title, detail)
+		if not GameManager.is_spectator:
+			AudioManager.play_bark(
+				"victory" if local_won else "defeat",
+				GameManager.faction_for_team(GameManager.local_team),
+			)
 		match_over = true
 		GameManager.end_match(winner)
 	elif alive_sides.is_empty() and all_sides.size() > 1:

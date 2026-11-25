@@ -52,3 +52,8 @@ func test_settings_dialog_builds_and_frees():
 	add_child_autofree(dialog)
 	assert_gt(dialog.get_children().size(), 0)
 	assert_eq(dialog.get_ok_button().text, "Save & Close")
+	assert_true(SettingsManager.subtitles_enabled())
+	SettingsManager.set_setting("subtitles", false)
+	assert_false(SettingsManager.subtitles_enabled())
+	SettingsManager.reset_defaults()
+	assert_true(SettingsManager.subtitles_enabled())

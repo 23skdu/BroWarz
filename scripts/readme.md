@@ -55,6 +55,7 @@ This directory contains every runtime, tool, and verification script in the proj
 - `unit_visual.gd` — Procedural faction-styled sprite frames, terrain images, texture caching, LOD, and spatial-grid helpers.
 - `version_info.gd` — Thin accessor for application version and commit SHA from `ProjectSettings`/`build_info.json`.
 - `vision.gd` — Sight, stealth detection, sonar, fog-state, and shared allied-vision checks.
+- `voice_bark.gd` — Deterministic robotic voice-bark catalog, per-weapon SFX resolver, cooldown throttling, and accessible subtitle formatter.
 - `wildlife.gd` — Ambient deer/dolphin/squid/bird spawning, wandering, fleeing, damage, and per-step movement.
 
 ## Gameplay scenes (`scripts/game/`)
@@ -66,17 +67,19 @@ This directory contains every runtime, tool, and verification script in the proj
 
 ## UI (`scripts/ui/`)
 
+- `building_inspector.gd` — Dedicated bottom-left inspector panel for selected friendly buildings showing icon, HP, power, radar sweep, rally, live queue progress, unit training buttons, cancel, and demolish.
 - `diplomacy_dialog.gd` — Views alliance state and sends host-authorized propose/cancel/accept/decline/break commands.
 - `lobby.gd` — P2P lobby UI showing players/settings and routing ready, start, settings, and leave actions through `NetworkManager`.
+- `lockstep_dialog.gd` — Live runtime UI hook for running multi-peer `Lockstep.run_soak_simulation()` checks and displaying P2P match checksum/desync status.
 - `main_menu.gd` — Skirmish/spectator/host/join/editor entry plus map, difficulty, faction, soundtrack, and tool selection.
 - `minimap.gd` — Top-center tactical minimap rendering terrain and fog-aware blips while emitting camera-jump, move-order, and ping signals.
 - `replay_viewer.gd` — Loads a saved replay and scrubs/plays its validated command stream with readable command descriptions.
 - `research_dialog.gd` — Research-tree picker showing prerequisites, unlock state, and affordability; emits `research_selected`.
-- `settings_dialog.gd` — In-game settings dialog applying volume, soundtrack, mute, camera, UI-scale, and colorblind changes live.
+- `settings_dialog.gd` — In-game settings dialog applying volume, soundtrack, mute, voice-bark subtitles, camera, UI-scale, and colorblind changes live.
 
 ## Tooling (`scripts/tools/`, `scripts/testing/`, and root scripts)
 
-- `tools/generate_audio.gd` — Deterministic headless generator for the six music loops (menu, battle, and four faction soundtracks), the four AI-only NPC theme WAVs in `assets/music/`, and five SFX WAVs.
+- `tools/generate_audio.gd` — Deterministic headless generator for the ten music loops (menu, battle, four corporation soundtracks, and four AI-only NPC theme WAVs in `assets/music/`) and 24 procedural SFX/voice-bark WAVs in `assets/sfx/`.
 - `tools/generate_map_thumbnails.gd` — Headless renderer for desert, islands, and forest terrain thumbnails.
 - `tools/generate_thumbnails.gd` — Headless renderer for four faction thumbnails per registered unit into `docs/thumbnails`, the 12 AI-only unique-unit thumbnails with native `_f4`–`_f7` suffixes, and per-building thumbnails into `docs/thumbnails/buildings`.
 - `run_tests.gd` — Legacy no-op SceneTree smoke script; GUT is the real test runner.

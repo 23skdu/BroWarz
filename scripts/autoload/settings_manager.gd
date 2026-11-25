@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS := {
 	"sfx_volume": 1.0,
 	"soundtrack": "aerodyne",
 	"muted": false,
+	"subtitles": true,
 	"ui_scale": 1.0,
 	"colorblind": "none",
 	"camera_speed": 420.0,
@@ -83,6 +84,9 @@ func bind_hotkey(action: String, keycode: int) -> void:
 func colorblind_palette() -> String:
 	var palette := String(settings.get("colorblind", "none"))
 	return palette if palette in COLORBLIND_PALETTES else "none"
+
+func subtitles_enabled() -> bool:
+	return bool(settings.get("subtitles", true))
 
 func _apply_setting(key: String, value) -> void:
 	if key in ["muted", "master_volume", "music_volume"] and is_instance_valid(AudioManager):
