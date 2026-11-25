@@ -8,11 +8,27 @@ func test_main_menu_skirmish_button_is_wired():
 	add_child_autofree(menu)
 	var button: Button = menu.get_node("VBox/SkirmishButton")
 	assert_true(button.is_connected("pressed", Callable(menu, "_on_skirmish")))
+	var spectator: Button = menu.get_node("VBox/SpectatorButton")
+	assert_true(spectator.is_connected("pressed", Callable(menu, "_on_spectator")))
+	var spectator_faction: Button = menu.get_node("VBox/SpectatorFactionButton")
+	assert_true(spectator_faction.is_connected("pressed", Callable(menu, "_on_cycle_spectator_faction")))
 	var logo: TextureRect = menu.get_node("Logo")
 	assert_not_null(logo.texture)
 	var backdrop: TextureRect = menu.get_node("LogoBackground")
 	assert_not_null(backdrop.texture)
 	assert_eq(AudioManager.current_music, "menu")
+
+func test_main_menu_spectator_faction_selectors_change_both_ai_sides():
+	var menu := preload("res://scenes/main_menu.tscn").instantiate()
+	add_child_autofree(menu)
+	var side_a: int = int(menu.selected_faction)
+	var side_b: int = int(menu.selected_spectator_faction)
+	menu._on_cycle_faction()
+	menu._on_cycle_spectator_faction()
+	assert_eq(menu.selected_faction, (side_a + 1) % 4)
+	assert_eq(menu.selected_spectator_faction, (side_b + 1) % 4)
+	assert_true(String(menu.faction_btn.text).contains(Faction.name_of(menu.selected_faction)))
+	assert_true(String(menu.spectator_faction_btn.text).contains(Faction.name_of(menu.selected_spectator_faction)))
 
 func test_menu_music_is_a_looping_ambient_bed():
 	AudioManager.set_music("menu")
@@ -168,3 +184,58 @@ func test_authored_deposits_are_used_in_match():
 	var dep: ResourceDeposit = game.resource_deposits[0]["deposit"]
 	assert_eq(dep.amount, 777)
 	assert_almost_eq(dep.harvest_rate, 4.0, 0.001)
+
+func test_spectator_stages_two_ai_sides_with_chosen_factions():
+	GameManager.start_spectator(
+		AI.Difficulty.NORMAL, null, Faction.Id.PELAGIC, Faction.Id.VANGUARD, 2,
+	)
+	assert_eq(GameManager.match_mode, GameManager.Mode.SPECTATOR)
+	assert_true(GameManager.is_spectator)
+	assert_eq(GameManager.teams, [0, 1])
+	assert_eq(GameManager.ai_teams, [0, 1])
+	assert_eq(GameManager.local_team, -1)
+	assert_false(GameManager.fog_enabled)
+	assert_eq(GameManager.faction_for_team(0), Faction.Id.PELAGIC)
+	assert_eq(GameManager.faction_for_team(1), Faction.Id.VANGUARD)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	var units_a: Array = game._get_team_units(0)
+	var units_b: Array = game._get_team_units(1)
+	assert_gt(units_a.size(), 0)
+	assert_gt(units_b.size(), 0)
+	assert_eq(units_a[0].faction, Faction.Id.PELAGIC)
+	assert_eq(units_b[0].faction, Faction.Id.VANGUARD)
+	var command_bar := game.ui.get_node_or_null("CommandBar") as CanvasItem
+	assert_not_null(command_bar)
+	assert_false(command_bar.visible)
+
+func test_spectator_blocks_external_commands_but_allows_ai_internal_orders():
+	GameManager.start_spectator(AI.Difficulty.NORMAL, null, 0, 1, 2)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	var cmd := {"type": "stop", "team": 0, "unit_ids": [999999]}
+	assert_false(game.apply_command(cmd))
+	assert_true(game.apply_command(cmd, true))
+
+func test_spectator_runs_both_ai_teams():
+	GameManager.start_spectator(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1, 3)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	for team in [0, 1]:
+		var wallet: Dictionary = ResourceManager.get_wallet(team)
+		wallet[Economy.Res.OIL] = 3000
+		wallet[Economy.Res.IRON] = 3000
+		wallet[Economy.Res.GEOTHERMAL] = 1200
+	var before_a := _queued_units(0)
+	var before_b := _queued_units(1)
+	for i in range(8):
+		game.elapsed_time += 2.0
+		game._tick_power()
+		game._run_skirmish_ai_turn()
+	assert_gt(_queued_units(0), before_a)
+	assert_gt(_queued_units(1), before_b)
+	assert_gt(game._get_team_units(0).size(), 0)
+	assert_gt(game._get_team_units(1).size(), 0)

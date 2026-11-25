@@ -14,6 +14,10 @@ const TRANSPORT_NAMES: Dictionary = {"enet": "ENet", "webrtc": "WebRTC"}
 @onready var fog_btn: Button = $VBox/SettingsBox/FogButton
 @onready var transport_btn: Button = $VBox/SettingsBox/TransportButton
 @onready var alliance_btn: Button = get_node_or_null("VBox/SettingsBox/AllianceButton")
+@onready var coop_btn: Button = get_node_or_null("VBox/SettingsBox/CoopButton")
+@onready var human_faction_btn: Button = get_node_or_null("VBox/SettingsBox/HumanFactionButton")
+@onready var ai_difficulty_btn: Button = get_node_or_null("VBox/SettingsBox/AiDifficultyButton")
+@onready var ai_faction_btn: Button = get_node_or_null("VBox/SettingsBox/AiFactionButton")
 @onready var passcode_label: Label = $VBox/SettingsBox/PasscodeLabel
 @onready var ready_btn: Button = $VBox/ButtonsHBox/ReadyButton
 @onready var start_btn: Button = $VBox/ButtonsHBox/StartButton
@@ -27,6 +31,14 @@ func _ready() -> void:
 		ab.text = "Alliances: FFA"
 		$VBox/SettingsBox.add_child(ab)
 		alliance_btn = ab
+	coop_btn = _ensure_button("CoopButton", "Co-op: Off")
+	human_faction_btn = _ensure_button("HumanFactionButton", "Your Corp: AeroDyne")
+	ai_difficulty_btn = _ensure_button("AiDifficultyButton", "AI Difficulty: Normal")
+	ai_faction_btn = _ensure_button("AiFactionButton", "AI Corp: Vanguard")
+	coop_btn.pressed.connect(_on_coop_pressed)
+	human_faction_btn.pressed.connect(_on_human_faction_pressed)
+	ai_difficulty_btn.pressed.connect(_on_ai_difficulty_pressed)
+	ai_faction_btn.pressed.connect(_on_ai_faction_pressed)
 	map_btn.pressed.connect(_on_map_pressed)
 	teams_btn.pressed.connect(_on_teams_pressed)
 	fog_btn.pressed.connect(_on_fog_pressed)
@@ -54,7 +66,7 @@ func _exit_tree() -> void:
 func _refresh() -> void:
 	var lob := NetworkManager.lobby
 	var host := NetworkManager.is_host()
-	var my_id := multiplayer.get_unique_id()
+	var my_id := multiplayer.get_unique_id() if multiplayer.has_multiplayer_peer() else 1
 	var lines: Array = []
 	for pid in lob.all_ids():
 		var rec: Dictionary = lob.players[pid]
@@ -72,10 +84,20 @@ func _refresh() -> void:
 	teams_btn.visible = host
 	fog_btn.visible = host
 	transport_btn.visible = host
-	alliance_btn.visible = host
+	var coop := lob.is_coop()
+	alliance_btn.visible = host and not coop
+	coop_btn.visible = host
+	human_faction_btn.visible = host and coop
+	ai_difficulty_btn.visible = host and coop
+	ai_faction_btn.visible = host and coop
+	coop_btn.text = "Co-op: %s" % ("On (2 humans vs AI)" if coop else "Off")
+	human_faction_btn.text = "Your Corp: %s" % Faction.name_of(int(lob.setting("human_faction", 0)))
+	ai_difficulty_btn.text = "AI Difficulty: %s" % AI.difficulty_name(int(lob.setting("ai_difficulty", 1)))
+	ai_faction_btn.text = "AI Corp: %s" % Faction.name_of(int(lob.setting("ai_faction", 1)))
 	var alliance_mode := clampi(int(lob.setting("alliance_mode", 0)), 0, 1)
 	alliance_btn.text = "Alliances: %s" % ("Paired Sides" if alliance_mode == 1 else "FFA")
 	map_btn.text = "Map: %s" % MAP_NAMES[clampi(int(lob.setting("map_type", 2)), 0, 2)]
+	teams_btn.visible = host and not coop
 	teams_btn.text = "Teams: %d" % clampi(int(lob.setting("num_teams", 2)), 2, 4)
 	fog_btn.text = "Fog: %s" % ("On" if bool(lob.setting("fog_of_war", true)) else "Off")
 	var transport := str(lob.setting("transport", "enet"))
@@ -127,6 +149,29 @@ func _on_alliance_pressed() -> void:
 	var cur := clampi(int(NetworkManager.lobby.setting("alliance_mode", 0)), 0, 1)
 	NetworkManager.request_settings({"alliance_mode": 1 - cur})
 
+func _on_coop_pressed() -> void:
+	if not NetworkManager.is_host():
+		return
+	NetworkManager.request_settings({"coop_vs_ai": not NetworkManager.lobby.is_coop()})
+
+func _on_human_faction_pressed() -> void:
+	if not NetworkManager.is_host():
+		return
+	var cur := int(NetworkManager.lobby.setting("human_faction", 0))
+	NetworkManager.request_settings({"human_faction": (cur + 1) % 4})
+
+func _on_ai_difficulty_pressed() -> void:
+	if not NetworkManager.is_host():
+		return
+	var cur := int(NetworkManager.lobby.setting("ai_difficulty", 1))
+	NetworkManager.request_settings({"ai_difficulty": (cur + 1) % 3})
+
+func _on_ai_faction_pressed() -> void:
+	if not NetworkManager.is_host():
+		return
+	var cur := int(NetworkManager.lobby.setting("ai_faction", 1))
+	NetworkManager.request_settings({"ai_faction": (cur + 1) % 4})
+
 func _on_ready_pressed() -> void:
 	NetworkManager.set_local_ready(not NetworkManager.lobby.ready_of(multiplayer.get_unique_id()))
 
@@ -139,6 +184,15 @@ func _on_start_pressed() -> void:
 func _on_leave_pressed() -> void:
 	NetworkManager.leave()
 	SceneManager.goto_scene("res://scenes/main_menu.tscn")
+
+func _ensure_button(node_name: String, text: String) -> Button:
+	var btn := get_node_or_null("VBox/SettingsBox/%s" % node_name) as Button
+	if btn == null:
+		btn = Button.new()
+		btn.name = node_name
+		btn.text = text
+		$VBox/SettingsBox.add_child(btn)
+	return btn
 
 func _disconnect_if_connected(sig: Signal, cb: Callable) -> void:
 	if sig.is_connected(cb):

@@ -60,7 +60,7 @@ func _ready():
 func setup(s: UnitStats, t: int, f: int = -1) -> void:
 	stats = s
 	team = t
-	faction = f if f >= 0 else (GameManager.player_faction if t == 0 else GameManager.ai_faction)
+	faction = f if f >= 0 else GameManager.faction_for_team(t)
 	hp = effective_max_hp()
 	facing_angle = 0.0 if t == 0 else PI
 	turret_angle = facing_angle

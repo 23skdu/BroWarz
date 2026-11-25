@@ -17,6 +17,10 @@ const DEFAULT_SETTINGS: Dictionary = {
 	"fog_of_war": true,
 	"transport": "enet",
 	"alliance_mode": 0,  # 0 = free-for-all, 1 = paired sides
+	"coop_vs_ai": false,
+	"human_faction": 0,
+	"ai_difficulty": 1,
+	"ai_faction": 1,
 }
 
 var phase: int = Phase.LOBBY
@@ -156,6 +160,10 @@ func update_settings(from_peer: int, raw: Variant) -> bool:
 func setting(key: String, fallback = null):
 	return settings.get(key, fallback)
 
+## Two human seats share team 0 against one host-driven AI on team 1.
+func is_coop() -> bool:
+	return bool(settings.get("coop_vs_ai", false))
+
 # --- Start gate -----------------------------------------------------------
 
 ## Host-only start authorization. Returns {ok: bool, reason: String}.
@@ -167,6 +175,8 @@ func can_start(from_peer: int) -> Dictionary:
 	var connected := connected_ids()
 	if connected.size() < NetSecurity.MIN_PLAYERS:
 		return {"ok": false, "reason": "need at least %d players" % NetSecurity.MIN_PLAYERS}
+	if is_coop() and connected.size() != 2:
+		return {"ok": false, "reason": "co-op needs exactly two players"}
 	for pid in connected:
 		if not ready_of(pid):
 			return {"ok": false, "reason": "%s is not ready" % player_name(pid)}
@@ -288,7 +298,7 @@ func _reassign_teams() -> void:
 	var ids := all_ids()
 	for i in range(ids.size()):
 		var pid = ids[i]
-		players[pid]["team"] = _team_for_index(i)
+		players[pid]["team"] = 0 if is_coop() else _team_for_index(i)
 	changed.emit()
 
 # --- Snapshots ------------------------------------------------------------

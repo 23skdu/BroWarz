@@ -439,3 +439,71 @@ func test_diplomacy_state_survives_quicksave_and_rejects_bad_saves():
 	assert_true(String(game.status_label.text).contains("invalid alliances"))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(bad_path))
+
+func test_coop_lobby_stages_shared_side_and_ai_opponent():
+	NetworkManager.leave()
+	var lobby := NetworkManager.lobby
+	lobby.add_player(1, "Host", "1.2.3.4")
+	lobby.add_player(2, "Guest", "5.6.7.8")
+	assert_true(lobby.update_settings(1, {
+		"coop_vs_ai": true, "human_faction": Faction.Id.PELAGIC,
+		"ai_difficulty": AI.Difficulty.HARD, "ai_faction": Faction.Id.VANGUARD,
+	}))
+	assert_eq(lobby.team_of(1), 0)
+	assert_eq(lobby.team_of(2), 0)
+	lobby.set_ready(1, true)
+	lobby.set_ready(2, true)
+	assert_true(lobby.can_start(1)["ok"])
+	NetworkManager._stage_match_settings()
+	assert_eq(GameManager.match_mode, GameManager.Mode.MULTIPLAYER)
+	assert_eq(GameManager.teams, [0, 1])
+	assert_eq(GameManager.local_team, 0)
+	assert_true(GameManager.ai_enabled)
+	assert_eq(GameManager.ai_teams, [1])
+	assert_eq(GameManager.faction_for_team(0), Faction.Id.PELAGIC)
+	assert_eq(GameManager.faction_for_team(1), Faction.Id.VANGUARD)
+	assert_eq(GameManager.difficulty_for_team(1), AI.Difficulty.HARD)
+	assert_true(NetworkManager._net_alliances().is_empty())
+	NetworkManager.leave()
+
+func test_coop_match_state_survives_quicksave_and_load():
+	NetworkManager.leave()
+	GameManager.stage_net_match(
+		2, 42, true, "enet", [0, 1], 0, {}, true, [1],
+		{0: Faction.Id.FERROCORE, 1: Faction.Id.VANGUARD},
+		{1: AI.Difficulty.HARD},
+	)
+	var game := _new_game_without_staging()
+	var path := "user://saves/test_coop_match.bws"
+	assert_eq(game.quicksave_match(path), OK)
+	GameManager.start_single_player(AI.Difficulty.EASY, null, 0, 1, 2)
+	assert_true(game.quickload_match(path))
+	assert_eq(GameManager.match_mode, GameManager.Mode.MULTIPLAYER)
+	assert_true(GameManager.ai_enabled)
+	assert_eq(GameManager.ai_teams, [1])
+	assert_eq(GameManager.faction_for_team(0), Faction.Id.FERROCORE)
+	assert_eq(GameManager.faction_for_team(1), Faction.Id.VANGUARD)
+	assert_eq(GameManager.difficulty_for_team(1), AI.Difficulty.HARD)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	NetworkManager.leave()
+
+func test_lobby_exposes_host_only_coop_controls():
+	NetworkManager.leave()
+	var lobby_ui := preload("res://scenes/lobby.tscn").instantiate()
+	add_child_autofree(lobby_ui)
+	var bindings := {
+		"CoopButton": "_on_coop_pressed",
+		"HumanFactionButton": "_on_human_faction_pressed",
+		"AiDifficultyButton": "_on_ai_difficulty_pressed",
+		"AiFactionButton": "_on_ai_faction_pressed",
+	}
+	for node_name in bindings.keys():
+		var button: Button = lobby_ui.get_node_or_null("VBox/SettingsBox/%s" % node_name) as Button
+		assert_not_null(button)
+		assert_true(button.is_connected("pressed", Callable(lobby_ui, bindings[node_name])))
+
+func _new_game_without_staging() -> Node2D:
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	return game

@@ -2,6 +2,16 @@
 
 Every unit has a large, detailed 48×48 pixel-art sprite (rendered below at 64×64) with a strictly uniform silhouette, structural shading, and weapon/chassis geometry across all four corporations (**AeroDyne Industries**, **FerroCore Heavy**, **Pelagic Systems**, and **Vanguard Robotics**), recolored solely by each corporation's primary color ramp.
 
+## Allied Behavior
+
+Unit behavior follows the active alliance graph from [`diplomacy.md`](diplomacy.md), queried through `GameManager.is_allied()`:
+
+- **Shared sight:** allied teams reveal explored tiles and live contacts to each other; enemy buildings still stay hidden under fog until seen.
+- **No friendly fire:** auto-targeting, attack orders, orbital lasers and nuclear strikes skip allied units and structures. Capture and demolish orders reject allied buildings.
+- **Repairs:** Sapperbots and other repair-capable workers mend allied units (`100 px`) and buildings (`110 px`) at `12 HP/s` (`18 HP/s` for the unified Sapperbot worker role).
+- **AI:** skirmish/co-op/spectator AI treats allied teams as non-enemies when picking targets and evaluating threats.
+- **Identity:** an allied team keeps its own corporation color, emblem and upgrades; co-op partners and spectator AI squads remain distinguishable even when they share a side.
+
 ## Infantry Robots
 
 | Unit | AeroDyne | FerroCore | Pelagic | Vanguard | Role |

@@ -9,6 +9,17 @@ All core foundation milestones are implemented, wired into gameplay, and verifie
 - [x] **Combined-Arms Roster & Tiered Factories:** 31 units with 48×48 strictly uniform corporate sprites (`UnitVisual`, `docs/units.md`), tiered factories (`hq`, `docks`, `mech_factory_1..3`, `shipyard`, `advanced_shipyard`, `aeries_1..2`, `adv_engineerbot` builder enforcement in `docs/factories.md`), and amphibious embark/disembark transport commands (`[E]` / `[U]`).
 - [x] **Ambient Wildlife, Fortifications & Performance Scaling:** Roaming/fleeing wildlife (`Wildlife`), sapper fortifications (`Fortification`), shared texture caching & 500-unit LOD/spatial hashing (`UnitVisual.get_cached_unit_texture`, `UnitVisual.build_spatial_grid`).
 
+## Phase 1.1 — v0.1.1 Co-op, Spectator & Diplomacy
+
+All items are wired into the live game/UI and covered by `make check` (265 GUT tests across 50 scripts, 0 orphans):
+
+- [x] **Diplomacy Reference & Docs:** `docs/diplomacy.md` documents proposal states, actions, side merging/splitting, host-authoritative relay, persistence, replay format and functions; `docs/design.md`, `docs/corporations.md`, `docs/units.md` and `README.md` describe the live behavior.
+- [x] **Two-Player Co-op vs AI:** Lobby **Co-op** setting assigns both human seats to team 0, adds a synthetic AI team 1 for victory scoring, and pins the human corporation, AI corporation and AI difficulty through the host whitelist. AI decisions are sanitized and relayed by the host through the normal command pipeline.
+- [x] **View-Only AI-vs-AI Spectator:** Main menu spectator button launches a local two-AI match with selectable corporations for both sides, shared difficulty, symmetric fog-off visibility, hidden command controls, camera-only input and a `SPECTATOR` result banner.
+- [x] **Per-Team AI & Faction Context:** `GameManager.faction_for_team()`, `difficulty_for_team()`, `is_ai_team()` and `ai_teams` replace binary team-0/team-1 assumptions; mirrored corporations keep chess black/white variants.
+- [x] **Save/Load Parity:** Quicksaves restore match mode, AI teams, faction/difficulty maps and spectator state, and corrupt or stale context is rejected on load.
+- [x] **Verification:** Full `make check`, headless Godot import, `actionlint`, and web export stayed green across the release.
+
 ---
 
 ## Phase 2 — Gap Analysis & 20 New Roadmap Steps for v0.2.0 Improvements

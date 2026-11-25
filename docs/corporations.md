@@ -45,4 +45,17 @@ Each playable corporation has a unique identity: motto, background, distinctive 
 - **Signature:** Stealth units cloak longer; mechanized infantry cheaper.
 
 ## Unit Colors
-Unit and building sprites use the corporation color of their owner so factions are identifiable at a glance on the battlefield.
+Unit and building sprites use the corporation color of their owner so factions are identifiable at a glance on the battlefield. A same-corporation mirror match uses the chess black/white variants from `Faction.color_of(id, variant)` so the two sides remain readable.
+
+## Diplomatic Doctrine
+
+The divisions negotiate as rivals inside one megacorp: an alliance is a temporary resource-budget accord, not a merger. Every corporation follows the same in-match rules in [`diplomacy.md`](diplomacy.md); none receives a diplomacy-specific gameplay bonus. Their narrative postures differ:
+
+| Corporation | Negotiating style | Typical alliance goal |
+|---|---|---|
+| **AeroDyne Industries** | Precise, transactional airspace pacts | Protect drone corridors and orbital uplink windows. |
+| **FerroCore Heavy** | Blunt border agreements | Secure flank against armored pushes while siege works finish. |
+| **Pelagic Systems** | Shipping-lane and seabed accords | Keep sea lanes open and submarine deterrents pointed elsewhere. |
+| **Vanguard Robotics** | Quiet non-aggression understandings | Cover covert infantry deployments and reconnaissance. |
+
+Any two divisions can sign a short-lived side agreement in a 3+ team match. Allied teams share vision and refuse friendly fire, but keep their own colors, emblems, resources, factories, research and unit control. In co-op the host picks the shared human corporation, the AI corporation and AI difficulty; in spectator the Corporation and AI Side B Corp selectors pick the two AI divisions. Faction choice changes each squad's color/signature identity, never the alliance rules.

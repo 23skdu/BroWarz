@@ -4,7 +4,7 @@
 **Genre:** Real-time strategy (RTS), peer-to-peer multiplayer
 **Setting:** Year 2030 — rival corporate armies fighting for resource control
 **Map size:** 128 × 128 tiles (configurable, player-created)
-**Status:** Pre-production / design phase
+**Status:** Playable v0.1.1 — live multiplayer diplomacy, co-op and spectator options
 **License:** Unlicense (public domain)
 
 ---
@@ -176,7 +176,7 @@ Economy rules:
 - Each unit has a sight range; terrain/elevation modifies.
 - Fog of war: unexplored (black), explored (grey, last known), visible (full).
 - Radar structures/AWACS reveal stealth in radius.
-- Shared vision within team.
+- Shared vision within a team and across allied sides; `GameManager.is_allied()` is the single source of truth. See [`diplomacy.md`](diplomacy.md).
 
 ## 11. Base Building & Production
 
@@ -206,7 +206,7 @@ Economy rules:
 - **Selection:** Box select, shift-add, control groups (0–9).
 - **Commands:** Move, attack, attack-move, patrol, guard, stop, hold, build, repair, unload, cloak toggle.
 - **Overlays:** Resource rates, power, population, tech, minimap pings.
-- **Comms:** Team chat, ping markers, surrender vote.
+- **Comms:** Team chat, ping markers, surrender vote, and the in-match **Diplomacy** panel for 3+ team multiplayer matches.
 - **Accessibility:** Remappable keys, colorblind palettes, UI scale, subtitles for barks.
 
 ## 15. Map Editor
@@ -222,19 +222,40 @@ Economy rules:
 - **Transport:** Godot `HighLevelMultiplayerAPI` with `ENetMultiplayerPeer` (desktop) and `WebRTCMultiplayerPeer` (web builds) for true P2P. A lobby scene (`scenes/lobby.tscn`) drives host/join: the host pins map, teams, fog of war and transport from `LobbyState` settings; clients adopt a host snapshot and only send ready/start requests.
 - **Topology:** Host-authoritative lobby and gameplay:
   - The host is peer id 1. Every client command is sent to the host, which re-validates it (whitelist, ownership, cost) before applying it and relaying the sanitized copy back to all peers. A client never applies a command that the host rejected.
-  - Commands carry only intent (move/train/build/fortify/tech/laser/nuke/hold/stop); the host overwrites `team` from its own lobby record, so a forged payload cannot claim another player's economy.
+  - Commands carry only intent (move/train/build/fortify/tech/laser/nuke/capture/demolish/diplomacy/hold/stop); the host overwrites `team` from its own lobby record, so a forged payload cannot claim another player's economy or accept an alliance for another side.
   - Teams are assigned round-robin from the lobby's `num_teams` setting (2–4) and reused after host migration.
 - **State sync:** Periodic simulation checksums (`NetworkManager.broadcast_hash`) are throttled (≥ 3 s apart) and relayed to the host for desync detection. On mismatch the host's state is authoritative (resync via the next lobby snapshot).
 - **Reconnect & host migration:** A dropped peer keeps its seat for a 30 s grace window (`LobbyState.sweep`); rejoining proves ownership with a crypto-random resume token issued at admission (token is sent only in the targeted welcome, never in broadcast snapshots). If the host vanishes mid-match, the lowest connected peer is elected successor (`next_host_id`) and re-hosts on the same port, marking the other seats disconnected so they can rejoin with their tokens. WebRTC transport degrades gracefully to ENet if signaling fails.
-- **Match settings (networked):** map type (0–2), number of teams (2–4), fog of war, transport (enet/webrtc), and seed are pinned by the host in `LobbyState.settings` and staged into `GameManager` before scene load; every peer applies the same map, seed and team layout.
+- **Match settings (networked):** map type (0–2), number of teams (2–4), fog of war, transport (enet/webrtc), seed, and the co-op settings (`coop_vs_ai`, `human_faction`, `ai_difficulty`, `ai_faction`) are pinned by the host in `LobbyState.settings` and staged into `GameManager` before scene load; every peer applies the same map, seed, team layout and AI configuration. New keys are added to `NetSecurity.sanitize_settings()`/`default_settings()` so hostile clients cannot inject unknown match state.
 - **Security (see §21):** fail-closed whitelisting (`NetSecurity`), constant-time passcode compare, crypto-random resume tokens, token-bucket rate limiting with strikes→kick, per-peer monotonic sequence anti-replay (`SeqGuard`), protocol-version handshake, masked addresses in logs, and session bans for kicked peers.
 - **NAT:** STUN/TURN fallback documented; web uses signaling server (minimal, out of scope for v1 dedicated infra; LAN/direct IP first).
 
+### Match Modes
+
+| Mode | Entry point | Teams | Command authority |
+|---|---|---|---|
+| Single player vs AI | Main menu **Skirmish** | Human team 0 vs AI team 1 | Local human + local AI |
+| Co-op vs AI | Host lobby, **Co-op: On (2 humans vs AI)** | Both humans share team 0 vs one AI on team 1 | Host validates human and AI commands; both humans may issue orders for the shared side |
+| AI vs AI spectator | Main menu **Watch AI vs AI (View Only)** | Two AI teams, factions selected before launch | No local command authority; camera and pause only |
+| P2P skirmish | Host/join lobby | 2–4 human teams | Host-authoritative command relay |
+
+- **Co-op vs AI** requires exactly two connected players. The host pins the human corporation, AI corporation and AI difficulty in the lobby; both seats are assigned team 0 by `LobbyState._reassign_teams()`, while team 1 is a synthetic AI seat added by `_net_teams()` so victory scoring sees both sides.
+- AI decisions are generated only by the match host. `_issue_ai_command()` sanitizes each build/research/train/move decision and passes it through `NetworkManager.apply_host_command()`, so the co-op partner receives the same validated command stream as the host. Clients can never inject AI orders.
+- **Spectator mode** is a local view-only match driven by the same per-team AI controller for both sides. The main menu's corporation selector chooses AI side A and the new **AI Side B Corp** selector chooses side B; both sides share the chosen difficulty. Fog is disabled so the two AIs have symmetric visibility, and mouse selection/hotkeys/build commands are ignored. The HUD shows both sides and labels the result `SPECTATOR`.
+- Co-op and spectator use fixed sides, so in-match diplomacy is intentionally unavailable there (see [`diplomacy.md`](diplomacy.md)).
+
+### In-Match Diplomacy
+
+- Matches with three or more teams expose a **Diplomacy** panel. Proposals are directional; only the target team can accept or decline, and only the proposer can cancel.
+- Accepting merges connected alliance sides transitively; breaking removes every link between two sides. `Alliance.normalize()` keeps the graph symmetric so combat, fog and victory agree on both peers.
+- All actions travel through the same host-authoritative command pipeline as unit orders. See [`diplomacy.md`](diplomacy.md) for rules, functions, persistence and replay details.
+
 ## 17. AI (Skirmish)
 
-- Optional AI opponent for solo/skirmish and to replace dropped players.
-- Difficulty levels (Easy/Normal/Hard) via economy/scouting/micro bonuses.
-- Behavior: expand, build army, attack weakest, respond to threats. Not required for "playable" multiplayer but included in roadmap.
+- Optional AI opponent for solo, co-op and spectator matches; dropped-player replacement remains a future extension.
+- Difficulty levels (Easy/Normal/Hard) via economy/scouting/micro bonuses, stored per team in `GameManager.team_difficulties`.
+- Behavior: expand, counter enemy composition, rally, defend, harass and attack visible enemies. `_run_ai_turn_for_team()` drives each AI side independently, while the legacy team-1 fields stay synchronized for saves and tests.
+- Faction identity is resolved per team through `GameManager.faction_for_team()`, so mirrored corporations and both spectator sides get readable chess black/white variants.
 
 ## 18. Audio & Visual
 
@@ -263,7 +284,7 @@ Economy rules:
 P2P cannot fully prevent cheating, but BroWarz ships a **defense-in-depth** lobby and command pipeline (`NetSecurity`, `RateLimiter`, `SeqGuard`, `LobbyState`) designed for hostile peers on untrusted networks:
 
 - **Fail closed:** every inbound payload is whitelisted and coerced; unknown keys, types and out-of-range values are dropped (`sanitize_name`, `sanitize_settings`, `sanitize_command`, `is_valid_address`). An empty result always means "reject".
-- **Host authority:** the host overwrites `team` from its own lobby record; clients only accept command relays that originate from peer id 1 (`_from_server`). A forged client payload can never touch another player's economy or units.
+- **Host authority:** the host overwrites `team` from its own lobby record; clients only accept command relays that originate from peer id 1 (`_from_server`). A forged client payload can never touch another player's economy, units or alliance side.
 - **Access control:** optional lobby passcode compared in constant time; resume tokens are 32-byte crypto-random hex and are issued per seat, sent only in the targeted welcome RPC (never in broadcast snapshots); kicked peers are session-banned by token and address (5 min TTL).
 - **Anti-flood:** per-peer token buckets (handshake, lobby, command, hash, WebRTC signaling) with escalating strikes that kick the offending peer.
 - **Anti-replay:** per-sender monotonic sequence guard (`SeqGuard`); out-of-order or duplicate sequences are dropped and counted as violations.
@@ -274,7 +295,9 @@ P2P cannot fully prevent cheating, but BroWarz ships a **defense-in-depth** lobb
 ## 22. Data & Save Formats
 
 - **Maps:** `.bwm` (Godot Resource or JSON) with version field and migration.
-- **Replays:** recorded command streams + initial map seed; deterministic playback.
+- **Replays:** recorded command streams + initial map seed; deterministic playback, including `DIPLOMACY` commands.
+- **Diplomacy:** save settings carry `teams`, `alliances` and `alliance_proposals`; map/reload paths normalize integer team ids after JSON round-trips.
+- **Match context:** saves also persist `match_mode`, `ai_enabled`, `ai_teams`, `team_factions`, `team_difficulties`, `is_spectator` and `local_team`, so quickload restores co-op vs AI and view-only AI-vs-AI matches without leaking stale AI difficulty into a later multiplayer game.
 - **Settings:** `user://settings.cfg`, persisted by the in-game Settings dialog (audio volumes/mute, camera speed, UI scale, colorblind palettes, camera hotkeys) through `SettingsManager`/`SettingsStore`.
 - **Versioning:** semantic versioning; save/map migration on load.
 
@@ -306,20 +329,19 @@ P2P cannot fully prevent cheating, but BroWarz ships a **defense-in-depth** lobb
 The repository now contains a playable single-player skirmish vertical slice and P2P multiplayer lobby/match foundation plus extensive core systems. Implemented:
 
 - Project bootstrap, autoloads (`GameManager`, `NetworkManager`, `ResourceManager`, `SettingsManager`, `AudioManager`, `SceneManager`), and 4 corporations with signature colors, emblems, and gameplay modifiers.
-- Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, fortifications, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, network security/rate-limiting/sequence guards, lobby state, game state/replay/save settings, hex grid & A* pathfinding, AI heuristics, strategic weapons, formation, alliances, scoring, power, resource deposits, and ambient wildlife (`Wildlife`).
+- Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, fortifications, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, network security/rate-limiting/sequence guards, lobby state, game state/replay/save settings, hex grid & A* pathfinding, AI heuristics, strategic weapons, formation, transitive alliances with host-authoritative diplomacy, scoring, power, resource deposits, and ambient wildlife (`Wildlife`).
 - Visuals & Audio:
   - Large 48×48 high-detail procedural unit sprites (`UnitVisual`) across all 31 unit types with 100% uniform geometry across factions, 5 animation states (`IDLE`, `MOVE`, `FIRE`, `HIT`, `EXPLODE`), articulated turret rotation, barrel recoil, muzzle flashes, projectile tracers, and shrapnel/scorch-mark explosions.
   - High-resolution 512×512 terrain rendering (4× sub-tile detail) with forest tree canopies and shrubs, water wave highlights, and mountain ridges.
   - Ambient non-combatant wildlife (Birds on all maps, Dolphins and Squid in sea/river water, and Deer in forests/plains) that wander, flee when chased or shot at, and die when hit.
   - Custom retro-future corporate dystopia main logo (`assets/logo.png`) and minimalist corporation banners (`assets/banners/*.png`).
-- Gameplay: 128×128 maps (Desert, Island Chain, Forest), 31 units across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard), and map editor.
-- Verification: GUT unit/fuzz/regression suites (157 tests, 0 orphans) and `make ci` gate.
+- Gameplay: 128×128 maps (Desert, Island Chain, Forest), 31 units across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard) for solo/co-op/spectator matches, in-match diplomacy, and map editor.
+- Verification: GUT unit/integration/fuzz/regression suites (265 tests across 50 scripts, 0 orphans) and `make ci` gate.
 
 Outstanding gaps (see `docs/roadmap.md`):
 
-- Terrain rendering and map editor UI.
-- Full naval roster (ballistic missile submarine, landing craft).
-- Audio content (music/SFX) beyond stubs.
+- Adaptive in-match music and a fuller SFX/bark set beyond the looping menu bed.
+- Campaign/mods and dedicated server authority (deferred beyond v1).
 - Additional polish/performance passes.
 
 ## 27. High-Resolution Graphics Plan

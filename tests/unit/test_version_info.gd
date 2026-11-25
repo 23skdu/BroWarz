@@ -2,7 +2,7 @@
 extends GutTest
 
 func test_version():
-	assert_eq(VersionInfo.version(), "0.1.0")
+	assert_eq(VersionInfo.version(), "0.1.1")
 
 func test_commit_sha_type():
 	var sha = VersionInfo.commit_sha()

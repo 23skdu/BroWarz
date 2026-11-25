@@ -31,6 +31,10 @@ var ai_retreat_until: Dictionary = {}
 var ai_next_build_time: float = 0.0
 var ai_next_train_time: float = 0.0
 var ai_order_until: Dictionary = {}
+# Per-team AI state for co-op and AI-vs-AI spectator matches. Team 1 keeps the
+# legacy fields above synchronized for existing saves/tests.
+var ai_states: Dictionary = {}
+var ai_command_seq: int = 0
 var replay_log := Replay.new()  # match command record (Step 15)
 var match_duration: float = 0.0
 var drag_selecting: bool = false
@@ -262,6 +266,14 @@ func _setup_hud() -> void:
 	minimap.camera_requested.connect(_on_minimap_camera)
 	minimap.move_requested.connect(_on_minimap_order)
 	minimap.ping_requested.connect(_on_minimap_ping)
+	if GameManager.is_spectator:
+		help_label.text = "SPECTATOR — VIEW ONLY | Camera: drag/wheel | [F12] Screenshot | [Esc] Pause"
+		var bar := ui.get_node_or_null("CommandBar")
+		if bar != null:
+			bar.visible = false
+		var palette := ui.get_node_or_null("FullPaletteScroll")
+		if palette != null:
+			palette.visible = false
 
 func _build_full_palette() -> void:
 	var scroll := ScrollContainer.new()
@@ -467,13 +479,13 @@ func _init_economies() -> void:
 		Economy.Res.GEOTHERMAL: 100,
 		Economy.Res.FOOD: 150,
 	}
-	ResourceManager.init_player(0, start_res)
-	ResourceManager.init_player(1, start_res)
-	_set_base_rates(0, 1.0)
-	var ai_mult := AI.income_multiplier(GameManager.ai_difficulty)
-	_set_base_rates(1, ai_mult)
-	ResourceManager.caps[0] = 20
-	ResourceManager.caps[1] = 20
+	for pid in [0, 1]:
+		ResourceManager.init_player(pid, start_res)
+		var mult := 1.0
+		if GameManager.is_ai_team(pid):
+			mult = AI.income_multiplier(GameManager.difficulty_for_team(pid))
+		_set_base_rates(pid, mult)
+		ResourceManager.caps[pid] = 20
 
 func _set_base_rates(pid: int, mult: float) -> void:
 	# Slower income gives both sides time to scout and field a first wave.
@@ -616,18 +628,18 @@ func _spawn_unit(pos: Vector2, team: int) -> void:
 
 ## Chess-style variant used for mirrored corporations (black/white).
 func color_variant_for_team(team: int) -> int:
-	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var fac_id := GameManager.faction_for_team(team)
 	return Faction.color_for_team(fac_id, _color_variant_count(team))
 
 func _color_variant_count(team: int) -> int:
 	# When several teams run the same corporation, later teams get a
 	# black-or-white variant so players can tell them apart (chess colors).
 	var count := 0
-	var uf := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var uf := GameManager.faction_for_team(team)
 	for t in GameManager.teams:
 		if int(t) >= team:
 			break
-		var other := GameManager.player_faction if int(t) == 0 else GameManager.ai_faction
+		var other := GameManager.faction_for_team(int(t))
 		if other == uf:
 			count += 1
 	return count
@@ -640,7 +652,7 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 		s.id = uid
 		s.display_name = uid.capitalize()
 	u.setup(s, team)
-	var uf = GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var uf = GameManager.faction_for_team(team)
 	var variant := color_variant_for_team(team)
 	var body = u.get_node_or_null("Body")
 	if body:
@@ -661,7 +673,7 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 		s.display_name = bid.capitalize()
 		s.is_hq = (bid == "hq")
 	b.setup(s, team)
-	var bf = GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var bf = GameManager.faction_for_team(team)
 	var variant := color_variant_for_team(team)
 	var bbody = b.get_node_or_null("Body")
 	if bbody:
@@ -694,6 +706,9 @@ func _unhandled_input(event):
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed and camera:
 			camera.zoom = (camera.zoom * 0.89).clamp(Vector2(0.45, 0.45), Vector2(2.0, 2.0))
+			return
+		# Spectators keep camera controls but cannot select, order or place.
+		if GameManager.is_spectator:
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed and Input.is_key_pressed(KEY_ALT):
@@ -808,6 +823,8 @@ func _recall_control_group(index: int) -> void:
 		camera.position = _clamp_camera(centroid / float(count))
 
 func _handle_hotkey(event: InputEventKey) -> void:
+	if GameManager.is_spectator:
+		return
 	if event.keycode >= KEY_0 and event.keycode <= KEY_9 and Input.is_key_pressed(KEY_CTRL):
 		var grp := int(event.keycode - KEY_0)
 		if Input.is_key_pressed(KEY_SHIFT):
@@ -977,7 +994,11 @@ func _apply_diplomacy(team: int, action: String, target_team: int) -> bool:
 		status_label.text = "Diplomacy %s with Team %d" % [action, target_team]
 	return ok
 
-func apply_command(cmd: Dictionary) -> bool:
+## `internal` is reserved for simulation-controlled AI commands: spectators
+## have no human command authority, but the match still needs AI decisions.
+func apply_command(cmd: Dictionary, internal: bool = false) -> bool:
+	if GameManager.is_spectator and not internal:
+		return false
 	var ctype := String(cmd.get("type", ""))
 	var team := int(cmd.get("team", GameManager.local_team))
 	var ok := false
@@ -1101,7 +1122,7 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 			status_label.text = "%s requires: %s" % [uid, ", ".join(PackedStringArray(valid_producers))]
 		return false
 	var wallet := ResourceManager.get_wallet(team)
-	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var fac_id := GameManager.faction_for_team(team)
 	var cost := _wallet_cost(Faction.effective_unit_cost(fac_id, s))
 	if not Economy.spend(wallet, cost):
 		return false
@@ -1581,6 +1602,13 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 		"teams": GameManager.teams.duplicate(),
 		"alliances": GameManager.alliances.duplicate(true),
 		"alliance_proposals": GameManager.alliance_proposals.duplicate(true),
+		"match_mode": GameManager.match_mode,
+		"ai_enabled": GameManager.ai_enabled,
+		"ai_teams": GameManager.ai_teams.duplicate(),
+		"team_factions": GameManager.team_factions.duplicate(),
+		"team_difficulties": GameManager.team_difficulties.duplicate(),
+		"is_spectator": GameManager.is_spectator,
+		"local_team": GameManager.local_team,
 		"map": MapSerializer.to_dict(map_data) if map_data != null else {},
 		"deposits": deposits,
 	}
@@ -1615,6 +1643,8 @@ func _reset_match_transients() -> void:
 	ai_next_build_time = 0.0
 	ai_next_train_time = 0.0
 	ai_order_until.clear()
+	ai_states.clear()
+	ai_command_seq = 0
 	control_groups.clear()
 	active_vfx.clear()
 	active_tracers.clear()
@@ -1663,7 +1693,7 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		if is_instance_valid(status_label):
 			status_label.text = "Save file is corrupt (invalid entity snapshot)"
 		return false
-	for section in ["rates", "base_rates", "power_efficiency", "caps", "tech", "deposits"]:
+	for section in ["rates", "base_rates", "power_efficiency", "caps", "tech", "deposits", "team_factions", "team_difficulties"]:
 		if settings.has(section) and not (settings[section] is Array or settings[section] is Dictionary):
 			if is_instance_valid(status_label):
 				status_label.text = "Save file is corrupt (invalid %s)" % String(section)
@@ -1671,6 +1701,10 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 	if settings.has("teams") and not (settings["teams"] is Array):
 		if is_instance_valid(status_label):
 			status_label.text = "Save file is corrupt (invalid teams)"
+		return false
+	if settings.has("ai_teams") and not (settings["ai_teams"] is Array):
+		if is_instance_valid(status_label):
+			status_label.text = "Save file is corrupt (invalid ai_teams)"
 		return false
 	for section in ["alliances", "alliance_proposals"]:
 		if settings.has(section) and not (settings[section] is Dictionary):
@@ -1729,6 +1763,29 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		settings.get("alliance_proposals", {}),
 		saved_teams if not saved_teams.is_empty() else GameManager.teams,
 	)
+	GameManager.match_mode = clampi(int(settings.get("match_mode", GameManager.match_mode)), 0, 3)
+	GameManager.is_spectator = bool(settings.get("is_spectator", false))
+	GameManager.local_team = clampi(int(settings.get("local_team", GameManager.local_team)), -1, 7)
+	GameManager.ai_enabled = bool(settings.get("ai_enabled", false))
+	GameManager.ai_teams = []
+	for value in settings.get("ai_teams", []):
+		var ai_team := Alliance.team_id(value)
+		if ai_team >= 0 and not GameManager.ai_teams.has(ai_team):
+			GameManager.ai_teams.append(ai_team)
+	GameManager.team_factions = {}
+	for key in (settings.get("team_factions", {}) as Dictionary).keys():
+		var fac_team := Alliance.team_id(key)
+		if fac_team >= 0:
+			GameManager.team_factions[fac_team] = clampi(int((settings["team_factions"] as Dictionary)[key]), 0, 3)
+	GameManager.team_difficulties = {}
+	for key in (settings.get("team_difficulties", {}) as Dictionary).keys():
+		var diff_team := Alliance.team_id(key)
+		if diff_team >= 0:
+			GameManager.team_difficulties[diff_team] = clampi(int((settings["team_difficulties"] as Dictionary)[key]), 0, 2)
+	if not GameManager.team_factions.is_empty():
+		GameManager.player_faction = GameManager.team_factions.get(0, GameManager.player_faction)
+		GameManager.ai_faction = GameManager.team_factions.get(1, GameManager.ai_faction)
+	ai_states.clear()
 
 	team_unlocked_tech = {0: [], 1: []}
 	for key in sg.settings.get("tech", {}).keys():
@@ -1814,8 +1871,9 @@ func _process(delta):
 		_tick_power()
 		economy_timer -= 1.0
 
-	# Single-player Skirmish AI tick
-	if not match_over and GameManager.match_mode == GameManager.Mode.SINGLE_PLAYER:
+	# Host-driven AI tick: single player, co-op and local AI-vs-AI spectator.
+	var ai_authority := not NetworkManager.is_network_match() or NetworkManager.is_host()
+	if not match_over and ai_authority and GameManager.ai_enabled and not GameManager.ai_teams.is_empty():
 		ai_timer += delta
 		var interval := AI.decision_interval(GameManager.ai_difficulty)
 		if ai_timer >= interval:
@@ -1840,102 +1898,179 @@ func _process(delta):
 	if Input.is_key_pressed(SettingsManager.hotkey("camera_right")) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
 	camera.position += pan * float(SettingsManager.get_setting("camera_speed", 420.0)) * delta
 
+## One decision tick for every AI side. Co-op and spectator use the same
+## per-team path; single player simply has one AI team (team 1).
 func _run_skirmish_ai_turn() -> void:
-	var ai_wallet := ResourceManager.get_wallet(1)
-	var b_counts := _get_team_building_counts(1)
-	var ai_units := _get_team_units(1)
-	var player_units := _get_team_units(0)
-	var pop_cap := int(ResourceManager.caps.get(1, 20))
+	for value in GameManager.ai_teams.duplicate():
+		var team := int(value)
+		if GameManager.is_ai_team(team):
+			_run_ai_turn_for_team(team)
 
-	# 1. Economy & Base Expansion
+func _run_ai_turn_for_team(ai_team: int) -> void:
+	var state := _ai_state(ai_team)
+	var difficulty := GameManager.difficulty_for_team(ai_team)
+	var ai_wallet := ResourceManager.get_wallet(ai_team)
+	var b_counts := _get_team_building_counts(ai_team)
+	var ai_units := _get_team_units(ai_team)
+	var enemy_units := _enemy_units(ai_team)
+	var pop_cap := int(ResourceManager.caps.get(ai_team, 20))
+
+	# 1. Economy & base expansion, issued as host-relayed commands.
 	var next_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap)
-	if elapsed_time >= ai_next_build_time \
-			and AI.should_expand(float(ResourceManager.rates[1].get(Economy.Res.IRON, 0)), 10.0):
-		if _build_structure_for_team(1, next_bld):
-			ai_next_build_time = elapsed_time + AI.build_interval(GameManager.ai_difficulty)
+	if elapsed_time >= float(state["next_build_time"]) \
+			and AI.should_expand(float(ResourceManager.rates[ai_team].get(Economy.Res.IRON, 0)), 10.0):
+		if _issue_ai_command(ai_team, {"type": "build", "id": next_bld}):
+			state["next_build_time"] = elapsed_time + AI.build_interval(difficulty)
 
-	# 2. Tech progression
-	if ai_tech_tier < 3 and elapsed_time > 25.0 * ai_tech_tier:
-		var t_cost := {Economy.Res.OIL: 90 * ai_tech_tier, Economy.Res.IRON: 150 * ai_tech_tier}
-		if Economy.spend(ai_wallet, t_cost):
-			ai_tech_tier += 1
+	# 2. Tech progression through the same validated research command peers use.
+	var unlocked: Array = team_unlocked_tech.get(ai_team, [])
+	var available := Tech.available_nodes(unlocked)
+	if int(state["tech_tier"]) < 3 and elapsed_time > 25.0 * float(state["tech_tier"]) and not available.is_empty():
+		if _issue_ai_command(ai_team, {"type": "tech", "id": str(available[0])}):
+			state["tech_tier"] = mini(4, int(state["tech_tier"]) + 1)
 
-	# 3. Counter-production
-	var enemy_comp := _classify_units(player_units)
-	enemy_comp["fortifications"] = _count_team_buildings(0, "turret")
-	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, ai_tech_tier)
-	if elapsed_time >= ai_next_train_time and _train_unit_for_team(1, chosen_uid):
-		ai_next_train_time = elapsed_time + AI.train_interval(GameManager.ai_difficulty)
+	# 3. Counter-production against every enemy side.
+	var enemy_comp := _classify_units(enemy_units)
+	for enemy_team in _enemy_teams(ai_team):
+		enemy_comp["fortifications"] = int(enemy_comp.get("fortifications", 0)) + _count_team_buildings(enemy_team, "turret")
+	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]))
+	if elapsed_time >= float(state["next_train_time"]) and _issue_ai_command(ai_team, {"type": "train", "id": chosen_uid}):
+		state["next_train_time"] = elapsed_time + AI.train_interval(difficulty)
 
-	# 4. Tactical squad coordination
-	var ai_hq := _find_team_hq(1)
-	var ai_base_pos := ai_hq.global_position if ai_hq != null else Vector2(1100, 900)
+	# 4. Tactical squad coordination.
+	var ai_hq := _find_team_hq(ai_team)
+	var fallback_base := Vector2(1100, 900) if ai_team == 1 else Vector2(160, 160)
+	var ai_base_pos := ai_hq.global_position if ai_hq != null else fallback_base
 	var enemy_near_base := 0
 	var closest_intruder: Node2D = null
-	for pu in player_units:
-		if pu.global_position.distance_to(ai_base_pos) <= 320.0:
+	for eu in enemy_units:
+		if eu.global_position.distance_to(ai_base_pos) <= 320.0:
 			enemy_near_base += 1
-			closest_intruder = pu
+			closest_intruder = eu
 
 	var combat_units: Array = []
 	for u in ai_units:
 		if u.stats == null or u.stats.id != "sapperbot":
 			combat_units.append(u)
 
-	var wave_size := AI.attack_wave_threshold(GameManager.ai_difficulty, elapsed_time / 60.0)
-	# Opening grace: starting squads hold at the rally point unless attacked.
-	if enemy_near_base == 0 and elapsed_time < AI.rally_grace(GameManager.ai_difficulty):
-		ai_tactical_state = "rally"
+	var wave_size := AI.attack_wave_threshold(difficulty, elapsed_time / 60.0)
+	if enemy_near_base == 0 and elapsed_time < AI.rally_grace(difficulty):
+		state["tactical_state"] = "rally"
 	else:
-		ai_tactical_state = AI.choose_tactical_state(combat_units.size(), enemy_near_base, wave_size)
+		state["tactical_state"] = AI.choose_tactical_state(combat_units.size(), enemy_near_base, wave_size)
 
-	# Rally relative to the AI HQ so custom/island maps do not send squads into
-	# a hardcoded corner that may be off-map or underwater.
-	var rally_pos := ai_base_pos + Vector2(-220, -180)
-	# Only engage targets the AI can actually see; no global weakest-unit beeline.
+	var rally_offset := Vector2(-220, -180) if ai_team == 1 else Vector2(220, 180)
+	var rally_pos := ai_base_pos + rally_offset
 	var squad_pos := ai_base_pos
 	if not combat_units.is_empty():
 		squad_pos = Vector2.ZERO
 		for u in combat_units:
 			squad_pos += u.global_position
 		squad_pos /= float(combat_units.size())
-	var target := _find_nearest_visible_enemy(1, squad_pos, 900.0)
+	var target := _find_nearest_visible_enemy(ai_team, squad_pos, 900.0)
 	var primary_target_pos := rally_pos
 	if target != null:
 		primary_target_pos = target.global_position
 
-	var offsets := Formation.grid_offsets(combat_units.size(), 30.0)
-	var order_interval := AI.order_interval(GameManager.ai_difficulty)
-	for i in range(combat_units.size()):
-		var u: Node2D = combat_units[i]
+	var order_ids: Array = []
+	var retreating := false
+	for u in combat_units:
 		var max_hp := float(u.stats.hp if u.stats else 100)
 		var hp_ratio := float(u.hp) / maxf(1.0, max_hp)
-		var retreat_key := u.get_instance_id()
-		var retreat_until := float(ai_retreat_until.get(retreat_key, 0.0))
+		var retreat_key: int = int(u.get_instance_id())
+		var retreat_until := float((state["retreat_until"] as Dictionary).get(retreat_key, 0.0))
 		if AI.retreat_threshold(hp_ratio, 0.28):
 			if elapsed_time >= retreat_until:
-				u.move_to(ai_base_pos + Vector2(-40, -40), false)
-				ai_retreat_until[retreat_key] = elapsed_time + 8.0
+				order_ids.append(int(u.net_id))
+				(state["retreat_until"] as Dictionary)[retreat_key] = elapsed_time + 8.0
+				retreating = true
 			continue
-		ai_retreat_until.erase(retreat_key)
-		var may_order := elapsed_time >= float(ai_order_until.get(retreat_key, 0.0))
-		if not may_order and ai_tactical_state != "defend":
+		(state["retreat_until"] as Dictionary).erase(retreat_key)
+		var may_order := elapsed_time >= float((state["order_until"] as Dictionary).get(retreat_key, 0.0))
+		if not may_order and str(state["tactical_state"]) != "defend":
 			continue
-		match ai_tactical_state:
-			"defend":
-				var def_pos := closest_intruder.global_position if closest_intruder != null else ai_base_pos
-				u.move_to(def_pos + offsets[i] * 0.5, true)
-			"attack":
-				u.move_to(primary_target_pos + offsets[i], true)
-			"harass":
-				if i % 2 == 0:
-					u.move_to(primary_target_pos + offsets[i], true)
-				else:
-					u.move_to(rally_pos + offsets[i], true)
-			_:
-				if not u.has_target:
-					u.move_to(rally_pos + offsets[i], true)
-		ai_order_until[retreat_key] = elapsed_time + order_interval
+		order_ids.append(int(u.net_id))
+		(state["order_until"] as Dictionary)[retreat_key] = elapsed_time + AI.order_interval(difficulty)
+
+	var move_target := rally_pos
+	var attack_move := true
+	match str(state["tactical_state"]):
+		"defend":
+			move_target = closest_intruder.global_position if closest_intruder != null else ai_base_pos
+		"attack", "harass":
+			move_target = primary_target_pos
+		_:
+			attack_move = false
+	if retreating:
+		move_target = ai_base_pos + (Vector2(-40, -40) if ai_team == 1 else Vector2(40, 40))
+	if not order_ids.is_empty():
+		_issue_ai_command(ai_team, {
+			"type": "move", "unit_ids": order_ids,
+			"target_x": clampf(move_target.x, 0.0, NetSecurity.MAX_COORD),
+			"target_y": clampf(move_target.y, 0.0, NetSecurity.MAX_COORD),
+			"attack_move": attack_move,
+		})
+	_sync_legacy_ai_state(ai_team, state)
+
+## AI decisions always leave the host through the normal command pipeline so
+## co-op peers receive the same builds, research and orders.
+func _issue_ai_command(team: int, cmd: Dictionary) -> bool:
+	ai_command_seq += 1
+	var full := cmd.duplicate()
+	full["team"] = team
+	full["seq"] = ai_command_seq
+	var clean := NetSecurity.sanitize_command(full)
+	if clean.is_empty():
+		return false
+	if NetworkManager.is_network_match() and NetworkManager.is_host():
+		return NetworkManager.apply_host_command(clean)
+	return apply_command(clean, true)
+
+func _ai_state(team: int) -> Dictionary:
+	if ai_states.has(team):
+		return ai_states[team]
+	var state: Dictionary = {
+		"tech_tier": 1,
+		"tactical_state": "rally",
+		"retreat_until": {},
+		"next_build_time": 0.0,
+		"next_train_time": 0.0,
+		"order_until": {},
+	}
+	if team == 1:
+		state["tech_tier"] = ai_tech_tier
+		state["tactical_state"] = ai_tactical_state
+		state["retreat_until"] = ai_retreat_until
+		state["next_build_time"] = ai_next_build_time
+		state["next_train_time"] = ai_next_train_time
+		state["order_until"] = ai_order_until
+	ai_states[team] = state
+	return state
+
+func _sync_legacy_ai_state(team: int, state: Dictionary) -> void:
+	if team != 1:
+		return
+	ai_tech_tier = int(state["tech_tier"])
+	ai_tactical_state = str(state["tactical_state"])
+	ai_retreat_until = state["retreat_until"]
+	ai_next_build_time = float(state["next_build_time"])
+	ai_next_train_time = float(state["next_train_time"])
+	ai_order_until = state["order_until"]
+
+func _enemy_teams(team: int) -> Array:
+	var out: Array = []
+	for value in GameManager.teams:
+		var other := int(value)
+		if other != team and not GameManager.is_allied(team, other) and not out.has(other):
+			out.append(other)
+	return out
+
+func _enemy_units(team: int) -> Array:
+	var out: Array = []
+	for u in units_container.get_children():
+		if is_instance_valid(u) and not u.is_exploding and int(u.team) != team and not GameManager.is_allied(team, int(u.team)):
+			out.append(u)
+	return out
 
 func _get_team_units(team: int) -> Array:
 	var res: Array = []
@@ -2015,16 +2150,33 @@ func _get_team_building_ids(team: int) -> Array:
 	return out
 
 func _update_hud() -> void:
+	if GameManager.is_spectator:
+		if is_instance_valid(hud_label):
+			hud_label.text = "SPECTATOR | Team 0 %s: %d units | Team 1 %s: %d units" % [
+				Faction.name_of(GameManager.faction_for_team(0)), _get_team_units(0).size(),
+				Faction.name_of(GameManager.faction_for_team(1)), _get_team_units(1).size(),
+			]
+		if is_instance_valid(ai_status_label):
+			var s0 := _ai_state(0)
+			var s1 := _ai_state(1)
+			ai_status_label.text = "AI vs AI (%s) | VIEW ONLY | Posture: %s / %s | Tech: T%d / T%d" % [
+				AI.difficulty_name(GameManager.ai_difficulty),
+				str(s0["tactical_state"]).to_upper(), str(s1["tactical_state"]).to_upper(),
+				int(s0["tech_tier"]), int(s1["tech_tier"]),
+			]
+		return
 	if is_instance_valid(hud_label):
-		var w := ResourceManager.get_wallet(0)
-		var r: Dictionary = ResourceManager.rates.get(0, {})
-		var p_units := _get_team_units(0).size()
-		var p_cap := int(ResourceManager.caps.get(0, 20))
-		var pwr := get_team_power_summary(0)
+		var view_team := maxi(0, GameManager.local_team)
+		var w := ResourceManager.get_wallet(view_team)
+		var r: Dictionary = ResourceManager.rates.get(view_team, {})
+		var p_units := _get_team_units(view_team).size()
+		var p_cap := int(ResourceManager.caps.get(view_team, 20))
+		var pwr := get_team_power_summary(view_team)
 		var pwr_pct := int(round(float(pwr["efficiency"]) * 100.0))
+		var view_tech := player_tech_tier if view_team == 0 else int(_ai_state(view_team)["tech_tier"])
 		hud_label.text = "Corp: %s | Tech: T%d | Pwr: %+d (%d%%) | Oil: %d (+%d/s) | Iron: %d (+%d/s) | Geo: %d (+%d/s) | Food: %d | Units: %d/%d" % [
-			Faction.name_of(GameManager.player_faction),
-			player_tech_tier,
+			Faction.name_of(GameManager.faction_for_team(view_team)),
+			view_tech,
 			int(round(float(pwr["balance"]))), pwr_pct,
 			int(w.get(Economy.Res.OIL, 0)), int(r.get(Economy.Res.OIL, 0)),
 			int(w.get(Economy.Res.IRON, 0)), int(r.get(Economy.Res.IRON, 0)),
@@ -2037,7 +2189,12 @@ func _update_hud() -> void:
 		var mode_str := "Single Player vs %s AI (%s)" % [
 			AI.difficulty_name(GameManager.ai_difficulty),
 			Faction.name_of(GameManager.ai_faction),
-		] if GameManager.match_mode == GameManager.Mode.SINGLE_PLAYER else "Multiplayer P2P"
+		] if GameManager.match_mode == GameManager.Mode.SINGLE_PLAYER else (
+			"Co-op vs %s AI (%s)" % [
+				AI.difficulty_name(GameManager.difficulty_for_team(1)),
+				Faction.name_of(GameManager.faction_for_team(1)),
+			] if GameManager.ai_enabled else "Multiplayer P2P"
+		)
 		ai_status_label.text = "%s | AI Posture: %s | AI Units: %d | AI Tech: T%d" % [
 			mode_str, ai_tactical_state.to_upper(), ai_units, ai_tech_tier
 		]
@@ -2096,7 +2253,11 @@ func _check_win():
 		var winner := members[0] if not members.is_empty() else 0
 		var s := _team_score(winner)
 		var local_won := _alliance_side_key(GameManager.local_team) == winning_side
-		var title := ("VICTORY — " if local_won else "DEFEAT — ") + ("Team %s" % winning_side)
+		var title := "Team %s" % winning_side
+		if GameManager.is_spectator:
+			title = "SPECTATOR — " + title
+		else:
+			title = ("VICTORY — " if local_won else "DEFEAT — ") + title
 		var detail := "Score %d (Military %d + Economy %d) | Units %d | Buildings %d" % [
 			int(s["total"]), int(s["military"]), int(s["economic"]),
 			_get_team_units(winner).size(), _team_building_total(winner),

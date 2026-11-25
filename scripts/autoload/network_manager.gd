@@ -181,10 +181,28 @@ func send_command(cmd: Dictionary) -> void:
 		return
 	var out := cmd.duplicate()
 	out["seq"] = _outbound_seq.advance(_my_id())
+	# Local input is authoritative too: derive the team from this peer's lobby
+	# seat rather than trusting a UI-supplied value (co-op seats all sit on 0).
+	out["team"] = local_team()
 	if is_host():
 		_host_process(_my_id(), out)
 	else:
 		_cli_cmd.rpc_id(1, out)
+
+## True while an ENet/WebRTC match session is active.
+func is_network_match() -> bool:
+	return _has_peer() and state == State.MATCH
+
+## Host-only injection for simulation-controlled commands (e.g. co-op AI).
+## Still passes through the sanitizer and normal apply/relay path.
+func apply_host_command(cmd: Variant) -> bool:
+	if not is_host() or state != State.MATCH:
+		return false
+	var clean := NetSecurity.sanitize_command(cmd)
+	if clean.is_empty() or not clean.has("team"):
+		return false
+	_host_process(_my_id(), clean)
+	return true
 
 ## Ask the host to apply new match settings (host-only on arrival).
 func request_settings(raw: Dictionary) -> void:
@@ -740,7 +758,17 @@ func _on_match_starting() -> void:
 		_cli_match_ready.rpc_id(1)
 
 ## Copy host-pinned match settings into GameManager (single source of truth).
-func _stage_from_lobby() -> void:
+func _stage_match_settings() -> void:
+	var coop := lobby.is_coop()
+	var ai_teams: Array = [1] if coop else []
+	var team_factions: Dictionary = {}
+	var team_difficulties: Dictionary = {}
+	if coop:
+		team_factions = {
+			0: int(lobby.setting("human_faction", 0)),
+			1: int(lobby.setting("ai_faction", 1)),
+		}
+		team_difficulties = {1: int(lobby.setting("ai_difficulty", 1))}
 	GameManager.stage_net_match(
 		int(lobby.setting("map_type", 2)),
 		int(lobby.setting("seed", 1337)),
@@ -749,7 +777,14 @@ func _stage_from_lobby() -> void:
 		_net_teams(),
 		local_team(),
 		_net_alliances(),
+		coop,
+		ai_teams,
+		team_factions,
+		team_difficulties,
 	)
+
+func _stage_from_lobby() -> void:
+	_stage_match_settings()
 	if (
 		lobby.phase == LobbyState.Phase.STARTING
 		and str(lobby.setting("transport", "enet")) == "webrtc"
@@ -781,15 +816,7 @@ func _finish_start() -> void:
 	lobby.mark_in_match()
 	state = State.MATCH
 	_schedule_sync()
-	GameManager.stage_net_match(
-		int(lobby.setting("map_type", 2)),
-		int(lobby.setting("seed", 1337)),
-		bool(lobby.setting("fog_of_war", true)),
-		str(lobby.setting("transport", "enet")),
-		_net_teams(),
-		local_team(),
-		_net_alliances(),
-	)
+	_stage_match_settings()
 	if _has_peer():
 		_srv_begin_match.rpc()
 	_enter_match()
@@ -804,6 +831,8 @@ func _enter_match() -> void:
 ## Host-pinned alliance graph forwarded to the match. FFA remains empty;
 ## paired sides group teams 0+2 and 1+3 when four teams are in play.
 func _net_alliances() -> Dictionary:
+	if lobby.is_coop():
+		return {}  # human side vs one AI; no in-match diplomacy
 	if clampi(int(lobby.setting("alliance_mode", 0)), 0, 1) == 0:
 		return {}
 	if clampi(int(lobby.setting("num_teams", 2)), 2, 4) <= 2:
@@ -812,6 +841,9 @@ func _net_alliances() -> Dictionary:
 
 func _net_teams() -> Array:
 	var teams: Array = []
+	if lobby.is_coop():
+		# The AI seat has no lobby player but must exist for victory scoring.
+		return [0, 1]
 	for pid in lobby.connected_ids():
 		var t := lobby.team_of(pid)
 		if not teams.has(t):

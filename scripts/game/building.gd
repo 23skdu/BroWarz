@@ -40,7 +40,7 @@ func setup(s: BuildingStats, t: int) -> void:
 func refresh_colorblind() -> void:
 	if body == null:
 		return
-	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
+	var fac_id := GameManager.faction_for_team(team)
 	var variant := 0
 	var scene = get_tree().current_scene
 	if scene != null and scene.has_method("color_variant_for_team"):

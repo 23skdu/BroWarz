@@ -158,6 +158,21 @@ static func sanitize_settings(raw: Variant) -> Dictionary:
 		var v5 = d["alliance_mode"]
 		if (v5 is int) or (v5 is float):
 			out["alliance_mode"] = clampi(int(v5), 0, 1)
+	if d.has("coop_vs_ai"):
+		if d["coop_vs_ai"] is bool:
+			out["coop_vs_ai"] = d["coop_vs_ai"]
+	if d.has("human_faction"):
+		var v6 = d["human_faction"]
+		if (v6 is int) or (v6 is float):
+			out["human_faction"] = clampi(int(v6), 0, 3)
+	if d.has("ai_difficulty"):
+		var v7 = d["ai_difficulty"]
+		if (v7 is int) or (v7 is float):
+			out["ai_difficulty"] = clampi(int(v7), 0, 2)
+	if d.has("ai_faction"):
+		var v8 = d["ai_faction"]
+		if (v8 is int) or (v8 is float):
+			out["ai_faction"] = clampi(int(v8), 0, 3)
 	return out
 
 ## Default lobby settings used when nothing has been configured yet.
@@ -168,6 +183,10 @@ static func default_settings() -> Dictionary:
 		"fog_of_war": true,
 		"transport": "enet",
 		"alliance_mode": 0,
+		"coop_vs_ai": false,
+		"human_faction": 0,
+		"ai_difficulty": 1,
+		"ai_faction": 1,
 	}
 
 # --- Hello handshake ------------------------------------------------------

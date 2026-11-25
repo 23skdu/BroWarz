@@ -30,6 +30,13 @@ func test_sanitize_settings_clamps():
 	assert_true(out["fog_of_war"])
 	assert_eq(out["transport"], "webrtc")
 	assert_false(out.has("evil"))
+	var coop := NetSecurity.sanitize_settings({
+		"coop_vs_ai": true, "human_faction": 99, "ai_difficulty": 7, "ai_faction": -4,
+	})
+	assert_true(coop["coop_vs_ai"])
+	assert_eq(coop["human_faction"], 3)
+	assert_eq(coop["ai_difficulty"], 2)
+	assert_eq(coop["ai_faction"], 0)
 
 func test_sanitize_command_move():
 	var c := NetSecurity.sanitize_command({"type": "move", "seq": 5, "unit_ids": [1, 2], "target_x": 10.0, "target_y": 20.0, "attack_move": true})

@@ -6,6 +6,8 @@ const MAP_OPTIONS := ["Desert", "Island Chain", "Forest", "Custom Map (.bwm)"]
 @onready var skirmish_btn = $VBox/SkirmishButton
 @onready var difficulty_btn = $VBox/DifficultyButton
 @onready var faction_btn = $VBox/FactionButton
+@onready var spectator_btn = get_node_or_null("VBox/SpectatorButton")
+@onready var spectator_faction_btn = get_node_or_null("VBox/SpectatorFactionButton")
 @onready var map_btn = get_node_or_null("VBox/MapButton")
 @onready var host_btn = $VBox/HostButton
 @onready var join_btn = $VBox/JoinButton
@@ -17,6 +19,7 @@ const MAP_OPTIONS := ["Desert", "Island Chain", "Forest", "Custom Map (.bwm)"]
 
 var selected_difficulty: int = AI.Difficulty.NORMAL
 var selected_faction: int = Faction.Id.AERODYNE
+var selected_spectator_faction: int = Faction.Id.VANGUARD
 var selected_map_type: int = 2  # 0 Desert, 1 Island Chain, 2 Forest, 3 Custom Map
 var custom_map_path: String = "user://custom_map.bwm"
 var custom_map_picker: OptionButton = null
@@ -30,6 +33,10 @@ func _ready():
 		difficulty_btn.pressed.connect(_on_cycle_difficulty)
 	if is_instance_valid(faction_btn):
 		faction_btn.pressed.connect(_on_cycle_faction)
+	spectator_btn = _ensure_menu_button("SpectatorButton", "Watch AI vs AI (View Only)")
+	spectator_faction_btn = _ensure_menu_button("SpectatorFactionButton", "AI Side B Corp: Vanguard")
+	spectator_btn.pressed.connect(_on_spectator)
+	spectator_faction_btn.pressed.connect(_on_cycle_spectator_faction)
 	if is_instance_valid(map_btn):
 		map_btn.pressed.connect(_on_cycle_map)
 	host_btn.pressed.connect(_on_host)
@@ -86,11 +93,22 @@ func _open_replay() -> void:
 		add_child(viewer)
 	viewer.popup_centered(Vector2i(720, 560))
 
+func _ensure_menu_button(node_name: String, text: String) -> Button:
+	var btn := get_node_or_null("VBox/%s" % node_name) as Button
+	if btn == null:
+		btn = Button.new()
+		btn.name = node_name
+		btn.text = text
+		$VBox.add_child(btn)
+	return btn
+
 func _refresh_labels() -> void:
 	if is_instance_valid(difficulty_btn):
 		difficulty_btn.text = "AI Difficulty: %s" % AI.difficulty_name(selected_difficulty)
 	if is_instance_valid(faction_btn):
-		faction_btn.text = "Corporation: %s" % Faction.name_of(selected_faction)
+		faction_btn.text = "Corporation / AI Side A: %s" % Faction.name_of(selected_faction)
+	if is_instance_valid(spectator_faction_btn):
+		spectator_faction_btn.text = "AI Side B Corp: %s" % Faction.name_of(selected_spectator_faction)
 	if is_instance_valid(map_btn):
 		map_btn.text = "Map: %s" % MAP_OPTIONS[selected_map_type % MAP_OPTIONS.size()]
 
@@ -102,27 +120,52 @@ func _on_cycle_faction() -> void:
 	selected_faction = (selected_faction + 1) % 4
 	_refresh_labels()
 
+func _on_cycle_spectator_faction() -> void:
+	selected_spectator_faction = (selected_spectator_faction + 1) % 4
+	_refresh_labels()
+
 func _on_cycle_map() -> void:
 	# Browsing the menu must not change global match state; the skirmish
 	# handler pins the map type when the match actually starts.
 	selected_map_type = (selected_map_type + 1) % MAP_OPTIONS.size()
 	_refresh_labels()
 
+func _load_selected_map() -> Dictionary:
+	if selected_map_type != 3:
+		return {"ok": true, "map": null}
+	var result := MapSerializer.load_with_result(custom_map_path)
+	if not bool(result.get("ok", false)):
+		status.text = "Cannot load %s: %s" % [custom_map_path, String(result.get("reason", "unknown error"))]
+		return {"ok": false, "map": null}
+	var custom_map := result.get("map", null) as MapData
+	if not bool(result.get("playable", false)):
+		status.text = "Custom map is not playable: %s" % String(result.get("playability_reason", "unknown issue"))
+		return {"ok": false, "map": null}
+	return {"ok": true, "map": custom_map}
+
 func _on_skirmish() -> void:
 	NetworkManager.leave()
+	var loaded := _load_selected_map()
+	if not bool(loaded["ok"]):
+		return
 	var ai_fac := (selected_faction + 1) % 4
-	var custom_map: MapData = null
-	if selected_map_type == 3:
-		var result := MapSerializer.load_with_result(custom_map_path)
-		if not bool(result.get("ok", false)):
-			status.text = "Cannot load %s: %s" % [custom_map_path, String(result.get("reason", "unknown error"))]
-			return
-		custom_map = result.get("map", null) as MapData
-		if not bool(result.get("playable", false)):
-			status.text = "Custom map is not playable: %s" % String(result.get("playability_reason", "unknown issue"))
-			return
-	GameManager.start_single_player(selected_difficulty, custom_map, selected_faction, ai_fac, selected_map_type)
+	GameManager.start_single_player(selected_difficulty, loaded["map"], selected_faction, ai_fac, selected_map_type)
 	status.text = "Starting Single Player vs %s AI..." % AI.difficulty_name(selected_difficulty)
+	_start_game()
+
+func _on_spectator() -> void:
+	NetworkManager.leave()
+	var loaded := _load_selected_map()
+	if not bool(loaded["ok"]):
+		return
+	GameManager.start_spectator(
+		selected_difficulty, loaded["map"], selected_faction,
+		selected_spectator_faction, selected_map_type,
+	)
+	status.text = "Spectating %s vs %s (%s AI, view only)..." % [
+		Faction.name_of(selected_faction), Faction.name_of(selected_spectator_faction),
+		AI.difficulty_name(selected_difficulty),
+	]
 	_start_game()
 
 func _on_host():

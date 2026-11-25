@@ -1,7 +1,7 @@
 # scripts/autoload/game_manager.gd
 extends Node
 
-enum Mode { SINGLE_PLAYER, MULTIPLAYER, MAP_EDITOR }
+enum Mode { SINGLE_PLAYER, MULTIPLAYER, MAP_EDITOR, SPECTATOR }
 
 var current_map: MapData
 var players: Dictionary = {}
@@ -24,6 +24,27 @@ var alliances: Dictionary = {}
 # Pending in-match diplomacy requests: "from>to" -> true. Relayed through the
 # host command pipeline so every peer sees the same offers.
 var alliance_proposals: Dictionary = {}
+# AI match context. Single player uses team 1; co-op uses team 1 as the shared
+# opponent; spectator uses both teams. Faction/difficulty maps are keyed by team
+# so mirrored corporations and AI-vs-AI sides can be staged explicitly.
+var ai_enabled: bool = false
+var ai_teams: Array = []
+var team_factions: Dictionary = {}
+var team_difficulties: Dictionary = {}
+var is_spectator: bool = false
+
+func faction_for_team(team: int) -> int:
+	if team_factions.has(team):
+		return clampi(int(team_factions[team]), 0, 3)
+	return player_faction if team == 0 else ai_faction
+
+func difficulty_for_team(team: int) -> int:
+	if team_difficulties.has(team):
+		return clampi(int(team_difficulties[team]), 0, 2)
+	return clampi(ai_difficulty, 0, 2)
+
+func is_ai_team(team: int) -> bool:
+	return ai_enabled and ai_teams.has(team)
 
 func is_allied(a: int, b: int) -> bool:
 	return Alliance.are_allied_teams(alliances, a, b)
@@ -105,6 +126,39 @@ func start_single_player(difficulty: int = 1, map: MapData = null, p_faction: in
 	local_team = 0
 	fog_enabled = true
 	net_transport = "enet"
+	ai_enabled = true
+	ai_teams = [1]
+	team_factions = {0: player_faction, 1: ai_faction}
+	team_difficulties = {1: ai_difficulty}
+	is_spectator = false
+	if registry.units.is_empty():
+		registry.populate_defaults()
+	current_map = map
+	match_started = true
+
+## Local view-only AI-vs-AI match. There is no human seat and no command
+## authority; both sides are driven by the host-side simulation in the game
+## scene. Fog is disabled so each AI has a symmetric view of the battlefield.
+func start_spectator(
+	difficulty: int = 1, map: MapData = null, faction_a: int = 0,
+	faction_b: int = 1, map_type_value: int = 2,
+) -> void:
+	begin_net_session()
+	match_seed = 1337
+	match_mode = Mode.SPECTATOR
+	map_type = clampi(map_type_value, 0, 3)
+	ai_difficulty = clampi(difficulty, 0, 2)
+	player_faction = clampi(faction_a, 0, 3)
+	ai_faction = clampi(faction_b, 0, 3)
+	team_factions = {0: player_faction, 1: ai_faction}
+	team_difficulties = {0: ai_difficulty, 1: ai_difficulty}
+	ai_enabled = true
+	ai_teams = [0, 1]
+	teams = [0, 1]
+	local_team = -1
+	fog_enabled = false
+	net_transport = "enet"
+	is_spectator = true
 	if registry.units.is_empty():
 		registry.populate_defaults()
 	current_map = map
@@ -129,6 +183,8 @@ func end_match(_winner_id: int) -> void:
 func stage_net_match(
 	map_t: int, seed_value: int, fog: bool, transport: String,
 	match_teams: Array, team: int, match_alliances: Dictionary = {},
+	match_ai_enabled: bool = false, match_ai_teams: Array = [],
+	match_factions: Dictionary = {}, match_difficulties: Dictionary = {},
 ) -> void:
 	begin_net_session()
 	match_mode = Mode.MULTIPLAYER
@@ -141,6 +197,26 @@ func stage_net_match(
 		teams = [0, 1]
 	local_team = clampi(team, 0, 7)
 	set_diplomacy_state(match_alliances, {}, teams)
+	ai_enabled = bool(match_ai_enabled)
+	ai_teams = []
+	for value in match_ai_teams:
+		var ai_team := Alliance.team_id(value)
+		if ai_team >= 0 and not ai_teams.has(ai_team):
+			ai_teams.append(ai_team)
+	team_factions = {}
+	for key in match_factions.keys():
+		var fac_team := Alliance.team_id(key)
+		if fac_team >= 0:
+			team_factions[fac_team] = clampi(int(match_factions[key]), 0, 3)
+	team_difficulties = {}
+	for key in match_difficulties.keys():
+		var diff_team := Alliance.team_id(key)
+		if diff_team >= 0:
+			team_difficulties[diff_team] = clampi(int(match_difficulties[key]), 0, 2)
+	ai_difficulty = clampi(team_difficulties.get(ai_teams[0] if not ai_teams.is_empty() else 1, 1), 0, 2)
+	player_faction = team_factions.get(0, player_faction)
+	ai_faction = team_factions.get(1, ai_faction)
+	is_spectator = false
 
 ## Fresh per-match state: net ids and fortification blocks must not leak
 ## across matches (deterministic ids for replication + clean pathing).
@@ -150,6 +226,11 @@ func begin_net_session() -> void:
 	alliances.clear()
 	alliance_proposals.clear()
 	active_clouds.clear()
+	ai_enabled = false
+	ai_teams = []
+	team_factions = {}
+	team_difficulties = {}
+	is_spectator = false
 	# A stale editor map must never be reused by the next match scene.
 	current_map = null
 

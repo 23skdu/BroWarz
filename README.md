@@ -5,13 +5,23 @@
 **Retro-future corporate dystopia RTS — Godot 4.7.2**
 *Megacorp warfare, 2030.*
 
-BroWarz is a combined-arms RTS set in 2030 where four rival megacorporations (**AeroDyne Industries**, **FerroCore Heavy**, **Pelagic Systems**, and **Vanguard Robotics**) fight for control of **Oil**, **Iron**, **Geothermal**, and **Food**. Command infantry robots, sappers, stealth units, advanced construction bots, tanks, mechanized walkers, sea drones, submarines, frogbot commandos, aerial drones, orbital lasers, and strategic nuclear missiles across a 128×128 hex-pathfound battlefield. Play solo against a tactical Skirmish AI (Easy, Normal, Hard), design custom maps in the built-in Hex Map Editor with portable share codes, or battle over peer-to-peer multiplayer.
+BroWarz is a combined-arms RTS set in 2030 where four rival megacorporations (**AeroDyne Industries**, **FerroCore Heavy**, **Pelagic Systems**, and **Vanguard Robotics**) fight for control of **Oil**, **Iron**, **Geothermal**, and **Food**. Command infantry robots, sappers, stealth units, advanced construction bots, tanks, mechanized walkers, sea drones, submarines, frogbot commandos, aerial drones, orbital lasers, and strategic nuclear missiles across a 128×128 hex-pathfound battlefield. Play solo against a tactical Skirmish AI (Easy, Normal, Hard), team up with a friend against a shared AI, watch two AI factions fight in view-only spectator mode, design custom maps in the built-in Hex Map Editor with portable share codes, or battle over peer-to-peer multiplayer.
 
 ## Status
 
-Playable v0.1.0 release build with Single Player vs AI Skirmish mode, Hex Map Editor (`BWM1:` share codes & `.bwm` files), Amphibious Embark/Disembark transport operations, Drifting Cloud weather systems for aerial units, and P2P Multiplayer with lockstep soak verification. See [`docs/design.md`](docs/design.md) for the game design document, [`docs/units.md`](docs/units.md) for unit visual rosters, [`docs/factories.md`](docs/factories.md) for tiered production buildings, [`docs/corporations.md`](docs/corporations.md) for faction lore, [`docs/maps.md`](docs/maps.md) for terrain/map editor details, and [`docs/roadmap.md`](docs/roadmap.md) for the completed 20-part roadmap.
+Playable v0.1.1 release build with Single Player vs AI Skirmish mode, two-player co-op against a shared AI opponent, view-only AI-vs-AI Spectator mode with selectable factions, in-match host-authoritative Diplomacy, Hex Map Editor (`BWM1:` share codes & `.bwm` files), Amphibious Embark/Disembark transport operations, Drifting Cloud weather systems for aerial units, and P2P Multiplayer with lockstep soak verification. See [`docs/design.md`](docs/design.md) for the game design document, [`docs/units.md`](docs/units.md) for unit visual rosters, [`docs/factories.md`](docs/factories.md) for tiered production buildings, [`docs/corporations.md`](docs/corporations.md) for faction lore, [`docs/diplomacy.md`](docs/diplomacy.md) for alliance rules, [`docs/maps.md`](docs/maps.md) for terrain/map editor details, and [`docs/roadmap.md`](docs/roadmap.md) for the completed roadmap.
 
 ---
+
+## Game Modes
+
+- **Skirmish (single player):** Pick your corporation, AI difficulty and map; fight the AI on team 1.
+- **Co-op vs AI (P2P lobby):** Host sets **Co-op: On (2 humans vs AI)**. Exactly two players share team 0; the host pins the AI corporation/difficulty and drives the AI through the same validated command relay used for player orders.
+- **Spectator (view only):** From the main menu, choose **AI Side A** with the Corporation button and **AI Side B** with the AI Side B Corp button, then press **Watch AI vs AI (View Only)**. Both AIs use the selected difficulty; fog is off and commands are disabled, leaving only camera control and pause.
+- **P2P skirmish:** 2–4 human teams with host-authoritative validation, diplomacy for 3+ teams, and reconnect/host migration.
+- **Map editor:** Build and validate custom maps, then play them in skirmish or share them with `BWM1:` codes.
+
+See [`docs/design.md`](docs/design.md) §16 for the full mode and networking rules.
 
 ## Unit & Combat Mechanics
 
@@ -148,6 +158,7 @@ Open in editor: `make editor`
 - **N**: Launch Strategic Nuclear Missile
 - **H**: Hold position
 - **Diplomacy button** (multiplayer, 3+ teams): propose, accept/decline or break alliances; every change is validated and relayed by the host.
+- **Spectator mode**: Camera drag/wheel, `F12` screenshot and `Esc` pause only; unit selection and commands are intentionally disabled.
 
 ## Development
 

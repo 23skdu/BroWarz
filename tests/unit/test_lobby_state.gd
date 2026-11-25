@@ -56,3 +56,38 @@ func test_snapshot_roundtrip():
 func test_next_host_id():
 	var l := _make_lobby()
 	assert_eq(l.next_host_id, 2)
+
+func test_coop_vs_ai_assigns_both_humans_to_shared_side():
+	var l := _make_lobby()
+	assert_true(l.update_settings(1, {"coop_vs_ai": true}))
+	assert_true(l.is_coop())
+	assert_eq(l.team_of(1), 0)
+	assert_eq(l.team_of(2), 0)
+	l.set_ready(1, true)
+	l.set_ready(2, true)
+	assert_true(l.can_start(1)["ok"])
+
+func test_coop_rejects_third_human_and_restores_teams_when_disabled():
+	var l := _make_lobby()
+	assert_true(l.update_settings(1, {"coop_vs_ai": true}))
+	l.add_player(3, "Third", "9.9.9.9")
+	l.set_ready(1, true)
+	l.set_ready(2, true)
+	l.set_ready(3, true)
+	assert_false(l.can_start(1)["ok"])
+	assert_true(l.update_settings(1, {"coop_vs_ai": false}))
+	assert_eq(l.team_of(1), 0)
+	assert_eq(l.team_of(2), 1)
+	assert_eq(l.team_of(3), 0)
+
+func test_coop_settings_survive_snapshot_roundtrip():
+	var l := _make_lobby()
+	assert_true(l.update_settings(1, {
+		"coop_vs_ai": true, "human_faction": 2, "ai_difficulty": 2, "ai_faction": 3,
+	}))
+	var l2 := LobbyState.new()
+	assert_true(l2.apply_snapshot(l.snapshot()))
+	assert_true(l2.is_coop())
+	assert_eq(l2.setting("human_faction"), 2)
+	assert_eq(l2.setting("ai_difficulty"), 2)
+	assert_eq(l2.setting("ai_faction"), 3)
