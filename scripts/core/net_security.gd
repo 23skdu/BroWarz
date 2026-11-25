@@ -18,6 +18,7 @@ const MIN_PLAYERS: int = 2
 const MAX_PLAYERS: int = 8
 const ALLOWED_COMMAND_TYPES: Array[String] = [
 	"move", "hold", "stop", "train", "build", "fortify", "tech", "laser", "nuke", "embark", "disembark",
+	"capture", "demolish",
 ]
 const ALLOWED_TRANSPORTS: Array[String] = ["enet", "webrtc"]
 
@@ -250,6 +251,16 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 				var tech_id = d.get("id", null)
 				if tech_id is String and _is_id(tech_id as String):
 					out["id"] = tech_id
+		"capture":
+			var ids := _sanitize_ids(d.get("unit_ids", null))
+			if ids.is_empty():
+				return {}
+			out["unit_ids"] = ids
+			if not _sanitize_target(d, out):
+				return {}
+		"demolish":
+			if not _sanitize_target(d, out):
+				return {}
 		"laser", "nuke":
 			var lx := _opt_float(d, "x", NAN)
 			var ly := _opt_float(d, "y", NAN)
@@ -258,6 +269,16 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 			out["x"] = clampf(lx, 0.0, MAX_COORD)
 			out["y"] = clampf(ly, 0.0, MAX_COORD)
 	return out
+
+## Accept both local target_x/target_y input and relayed x/y coordinates.
+static func _sanitize_target(d: Dictionary, out: Dictionary) -> bool:
+	var tx := _opt_float(d, "target_x", _opt_float(d, "x", NAN))
+	var ty := _opt_float(d, "target_y", _opt_float(d, "y", NAN))
+	if is_nan(tx) or is_nan(ty):
+		return false
+	out["x"] = clampf(tx, 0.0, MAX_COORD)
+	out["y"] = clampf(ty, 0.0, MAX_COORD)
+	return true
 
 static func _sanitize_ids(raw: Variant) -> Array:
 	var out: Array = []

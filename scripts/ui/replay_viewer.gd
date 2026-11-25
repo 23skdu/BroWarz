@@ -9,6 +9,7 @@ const REPLAY_PATH := "user://replays/match.json"
 const TYPE_NAMES: Array[String] = [
 	"MOVE", "ATTACK", "ATTACK_MOVE", "BUILD", "STOP", "PATROL", "HOLD",
 	"TRAIN", "FORTIFY", "EMBARK", "DISEMBARK", "TECH", "ORBITAL", "NUKE",
+	"CAPTURE", "DEMOLISH",
 ]
 
 var replay: Replay = null
@@ -120,8 +121,9 @@ func load_replay(path: String = REPLAY_PATH) -> bool:
 		stream_label.text = ""
 		return false
 	replay = Replay.from_dict(parsed as Dictionary)
-	info_label.text = "Map: %s | Seed: %d | Commands: %d | Ticks: %d" % [
+	info_label.text = "Map: %s | Seed: %d | Commands: %d | Ticks: %d%s" % [
 		replay.map_name, replay.seed, replay.command_count(), replay.ticks,
+		" | Skipped %d invalid records" % replay.invalid_commands if replay.invalid_commands > 0 else "",
 	]
 	_render_stream()
 	_update_now()

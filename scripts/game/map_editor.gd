@@ -6,11 +6,10 @@ var terrain_image: Image
 var terrain_texture: ImageTexture
 var terrain_sprite: Sprite2D
 var camera: Camera2D
-var hex_grid: HexGrid = HexGrid.new(16.0)
 var selected_terrain: int = MapData.Terrain.PLAINS
 var brush_radius: int = 1
 var painting: bool = false
-var hover_hex: Vector2i = Vector2i(-1, -1)
+var hover_tile: Vector2i = Vector2i(-1, -1)
 
 enum Tool { TERRAIN, HQ, DEPOSIT, ERASE }
 var selected_tool: int = Tool.TERRAIN
@@ -36,6 +35,7 @@ const STATUS_COLORS := [
 var map_name_edit: LineEdit
 var author_edit: LineEdit
 var map_path_edit: LineEdit
+var saved_map_picker: OptionButton
 var share_code_edit: LineEdit
 var status_label: Label
 var brush_btn: Button
@@ -71,7 +71,7 @@ func _build_ui() -> void:
 	top_vbox.position = Vector2(12, 10)
 	ui.add_child(top_vbox)
 
-	# Row 1: Terrain Hex Brushes (Desert, Water Sea/River, Forest, Plains, Mountain, Hills, Swamp, Urban, Road, Bridge)
+	# Row 1: Terrain Tile Brushes (Desert, Water Sea/River, Forest, Plains, Mountain, Hills, Swamp, Urban, Road, Bridge)
 	var terrain_bar := HBoxContainer.new()
 	top_vbox.add_child(terrain_bar)
 
@@ -99,7 +99,7 @@ func _build_ui() -> void:
 		terrain_bar.add_child(b)
 
 	brush_btn = Button.new()
-	brush_btn.text = "Hex Brush: 1"
+	brush_btn.text = "Tile Brush: 1"
 	brush_btn.pressed.connect(_cycle_brush_size)
 	terrain_bar.add_child(brush_btn)
 
@@ -148,6 +148,11 @@ func _build_ui() -> void:
 	map_path_edit.text = "%s/%s.bwm" % [MapSerializer.MAPS_DIR, MapSerializer.sanitize_filename(map_data.name)]
 	map_path_edit.custom_minimum_size = Vector2(320, 0)
 	file_bar.add_child(map_path_edit)
+	saved_map_picker = OptionButton.new()
+	saved_map_picker.name = "SavedMapPicker"
+	saved_map_picker.item_selected.connect(_on_saved_map_selected)
+	file_bar.add_child(saved_map_picker)
+	_refresh_saved_map_picker()
 
 	# Row 2: Map Metadata, Save/Load File, Share Code Export/Import, Test Play, Main Menu
 	var action_bar := HBoxContainer.new()
@@ -211,7 +216,7 @@ func _build_ui() -> void:
 	action_bar.add_child(menu_btn)
 
 	status_label = Label.new()
-	status_label.text = "Hex Map Editor — Paint hexes with LMB, Pan camera with WASD/Arrows, Save or Export Share Code."
+	status_label.text = "Tile Map Editor — Paint tiles with LMB, Pan camera with WASD/Arrows, Save or Export Share Code."
 	top_vbox.add_child(status_label)
 
 func _set_status(msg: String, severity: int = STATUS_INFO) -> void:
@@ -223,7 +228,7 @@ func _set_status(msg: String, severity: int = STATUS_INFO) -> void:
 func _cycle_brush_size() -> void:
 	brush_radius = 1 if brush_radius >= 4 else (brush_radius + 1)
 	if is_instance_valid(brush_btn):
-		brush_btn.text = "Hex Brush: %d" % brush_radius
+		brush_btn.text = "Tile Brush: %d" % brush_radius
 
 func _select_tool(tool: int, team: int, resource: int) -> void:
 	selected_tool = tool
@@ -233,11 +238,11 @@ func _select_tool(tool: int, team: int, resource: int) -> void:
 		Tool.TERRAIN:
 			_set_status("Terrain brush selected (%s)." % MapData.terrain_name(selected_terrain))
 		Tool.HQ:
-			_set_status("Click a hex to place Team %d's HQ spawn." % team)
+			_set_status("Click a tile to place Team %d's HQ spawn." % team)
 		Tool.DEPOSIT:
-			_set_status("Click a hex to place a %s deposit." % RESOURCE_NAMES[resource])
+			_set_status("Click a tile to place a %s deposit." % RESOURCE_NAMES[resource])
 		Tool.ERASE:
-			_set_status("Click a hex to erase an HQ spawn or deposit marker.")
+			_set_status("Click a tile to erase an HQ spawn or deposit marker.")
 
 func _fill_entire_map() -> void:
 	for i in range(map_data.tiles.size()):
@@ -256,7 +261,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_paint_at_screen(event.position)
 	elif event is InputEventMouseMotion:
 		var world_pos := _screen_to_world(event.position)
-		hover_hex = hex_grid.world_to_hex(world_pos)
+		# Terrain, HQ and deposits are stored in tile coordinates, so the
+		# preview cursor must use the same grid the paint tools write to.
+		hover_tile = Vector2i(int(world_pos.x / TILE_SIZE), int(world_pos.y / TILE_SIZE))
 		if painting:
 			_paint_at_screen(event.position)
 		queue_redraw()
@@ -327,6 +334,26 @@ func _refresh_image() -> void:
 	terrain_sprite.texture = terrain_texture
 	queue_redraw()
 
+func _refresh_saved_map_picker() -> void:
+	if not is_instance_valid(saved_map_picker):
+		return
+	var paths := MapSerializer.list_saved_maps()
+	saved_map_picker.clear()
+	saved_map_picker.add_item("Saved maps…")
+	for path in paths:
+		saved_map_picker.add_item(path.get_file())
+	saved_map_picker.set_item_metadata(0, "")
+
+func _on_saved_map_selected(index: int) -> void:
+	if index <= 0 or not is_instance_valid(saved_map_picker):
+		return
+	var paths := MapSerializer.list_saved_maps()
+	if index > paths.size():
+		return
+	if is_instance_valid(map_path_edit):
+		map_path_edit.text = paths[index - 1]
+	_load_map()
+
 func _default_map_path(map_name: String = "") -> String:
 	var title := map_name if not map_name.is_empty() else map_data.name
 	return "%s/%s.bwm" % [MapSerializer.MAPS_DIR, MapSerializer.sanitize_filename(title)]
@@ -370,6 +397,7 @@ func _save_map() -> void:
 		return
 	if is_instance_valid(map_path_edit):
 		map_path_edit.text = str(result.get("path", path))
+	_refresh_saved_map_picker()
 	_set_status("%s (quick-load map updated)." % str(result.get("reason", "Map saved.")), STATUS_OK)
 
 func _load_map() -> void:
@@ -422,7 +450,13 @@ func _import_share_code() -> void:
 	if not bool(result.get("ok", false)):
 		_set_status("Import failed: %s" % str(result.get("reason", "unknown error")), STATUS_ERROR)
 		return
-	_apply_loaded_map(result.get("map") as MapData, "Imported shared map '%s'." % (result.get("map") as MapData).name)
+	var imported := result.get("map") as MapData
+	_apply_loaded_map(imported, "Imported shared map '%s'." % imported.name)
+	var check: Dictionary = MapData.validate_map(imported)
+	if not bool(check.get("ok", false)):
+		_set_status("Imported '%s' is not playable: %s" % [
+			imported.name, String(check.get("reason", "unknown issue")),
+		], STATUS_WARN)
 
 func _validate_current_map() -> void:
 	_sync_metadata()
@@ -438,6 +472,10 @@ func _validate_current_map() -> void:
 
 func _test_play_map() -> void:
 	_sync_metadata()
+	var check: Dictionary = MapData.validate_map(map_data)
+	if not bool(check.get("ok", false)):
+		_set_status("Cannot test play: %s" % String(check.get("reason", "unknown issue")), STATUS_ERROR)
+		return
 	# Test-play the in-memory map without overwriting the quick-load default
 	# used by the main menu's "Custom Map" option.
 	var result := MapSerializer.save_with_result(map_data, "", false)
@@ -472,12 +510,8 @@ func _draw() -> void:
 		draw_arc(center, 7.0, 0.0, TAU, 16, Color(0, 0, 0, 1), 1.0)
 		draw_string(ThemeDB.fallback_font, center + Vector2(-3, 4), RESOURCE_NAMES[type].substr(0, 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0, 0, 0, 1))
 
-	# Draw hex cursor outline at hover_hex so the user can see exact hex alignment
-	if hover_hex.x >= 0 and hover_hex.y >= 0:
-		var center := hex_grid.hex_to_world(hover_hex)
-		var pts := PackedVector2Array()
-		var rad := hex_grid.size * float(brush_radius)
-		for i in range(7):
-			var ang := deg_to_rad(60.0 * float(i) - 30.0)
-			pts.append(center + Vector2(cos(ang), sin(ang)) * rad)
-		draw_polyline(pts, Color(1.0, 0.95, 0.3, 0.9), 2.0)
+	# Draw the same tile footprint the paint tools will modify.
+	if hover_tile.x >= 0 and hover_tile.y >= 0:
+		var half := TILE_SIZE * maxf(0.5, float(brush_radius) - 0.5)
+		var center := Vector2((float(hover_tile.x) + 0.5) * TILE_SIZE, (float(hover_tile.y) + 0.5) * TILE_SIZE)
+		draw_rect(Rect2(center - Vector2(half, half), Vector2(half * 2.0, half * 2.0)), Color(1.0, 0.95, 0.3, 0.9), false, 2.0)

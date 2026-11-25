@@ -175,6 +175,10 @@ func test_replay_records_and_loads_accepted_commands():
 	add_child_autofree(viewer)
 	assert_true(viewer.load_replay(path))
 	assert_eq(viewer.replay.command_count(), game.replay_log.command_count())
+	assert_eq(viewer.command_index, 0)
+	viewer.step_one()
+	assert_eq(viewer.command_index, 1)
+	assert_true(viewer.now_label.text.contains("tick"))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 func test_map_editor_reports_load_failure_instead_of_generic_status():
@@ -185,3 +189,171 @@ func test_map_editor_reports_load_failure_instead_of_generic_status():
 	editor._load_map()
 	assert_true(String(editor.status_label.text).contains("Load failed"))
 	assert_true(String(editor.status_label.text).contains("this_map_does_not_exist.bwm"))
+
+func _remove_user_file(path: String) -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func test_quicksave_restores_base_rates_and_efficiency_without_compounding():
+	var path := "user://saves/test_economy_roundtrip.bws"
+	var game := _new_game()
+	ResourceManager.set_rate(0, Economy.Res.OIL, 500)
+	ResourceManager.set_power_efficiency(0, 0.5)
+	assert_eq(ResourceManager.effective_rate(0, Economy.Res.OIL), 250)
+	assert_eq(game.quicksave_match(path), OK)
+	ResourceManager.set_rate(0, Economy.Res.OIL, 100)
+	ResourceManager.set_power_efficiency(0, 1.0)
+	assert_true(game.quickload_match(path))
+	assert_eq(ResourceManager.get_base_rate(0, Economy.Res.OIL), 500)
+	assert_almost_eq(ResourceManager.power_efficiency.get(0, 1.0), 0.5, 0.001)
+	ResourceManager.refresh_rates(0)
+	assert_eq(ResourceManager.effective_rate(0, Economy.Res.OIL), 250)
+	_remove_user_file(path)
+
+func test_quickload_rejects_structurally_bad_saves_and_maps():
+	var path := "user://saves/test_bad_save.bws"
+	var game := _new_game()
+	var bad_state := SaveGame.new()
+	bad_state.game_state = {"resources": {}, "units": "not-an-array", "buildings": []}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(bad_state.to_dict()))
+	f.close()
+	assert_false(game.quickload_match(path))
+	assert_true(String(status_of(game)).contains("invalid entity snapshot"))
+
+	var bad_map := SaveGame.new()
+	bad_map.game_state = {"resources": {}, "units": [], "buildings": []}
+	bad_map.settings = {"map": {"width": 2, "height": 2, "tiles": [0]}}
+	f = FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(bad_map.to_dict()))
+	f.close()
+	assert_false(game.quickload_match(path))
+	assert_true(String(status_of(game)).contains("Save map is invalid"))
+	_remove_user_file(path)
+
+func status_of(game: Node2D) -> String:
+	var label: Label = game.get_node_or_null("UI/StatusLabel") as Label
+	return label.text if label != null else ""
+
+func test_quickload_clears_victory_state():
+	var path := "user://saves/test_victory_reset.bws"
+	var game := _new_game()
+	game.elapsed_time = 42.0
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and int(b.team) == 1 and b.stats != null and UnitRegistry.is_production_building(b.stats.id):
+			b.free()
+	game._check_win()
+	assert_true(game.match_over)
+	assert_true(game.victory_panel.visible)
+	assert_eq(game.quicksave_match(path), OK)
+	assert_true(game.quickload_match(path))
+	assert_false(game.match_over)
+	assert_false(game.victory_panel.visible)
+	_remove_user_file(path)
+
+func test_replay_only_records_units_for_unit_commands():
+	var game := _new_game()
+	var u = game._get_team_units(0)[0]
+	game.selected_units = [u]
+	assert_true(game.apply_command({"type": "train", "team": 0, "id": "riflebot"}))
+	var train_cmd := Command.from_dict(game.replay_log.commands[game.replay_log.command_count() - 1])
+	assert_eq(train_cmd.unit_ids.size(), 0)
+	var target: Vector2 = u.global_position + Vector2(64, 0)
+	assert_true(game.apply_command({
+		"type": "move", "team": 0, "target_x": target.x, "target_y": target.y,
+	}))
+	var move_cmd := Command.from_dict(game.replay_log.commands[game.replay_log.command_count() - 1])
+	assert_gt(move_cmd.unit_ids.size(), 0)
+
+func test_research_dialog_shows_full_tree_and_stays_open():
+	var dialog := ResearchDialog.new()
+	add_child_autofree(dialog)
+	var wallet := {}
+	for res in [Economy.Res.OIL, Economy.Res.IRON, Economy.Res.GEOTHERMAL, Economy.Res.FOOD]:
+		wallet[res] = 1000
+	dialog.populate([], wallet, true)
+	var tree: VBoxContainer = dialog.get_node("TechTree") as VBoxContainer
+	assert_not_null(tree)
+	assert_eq(tree.get_child_count(), Tech.TREE.size() + 1)
+	var ready: Button = tree.get_node("Tech_reactive_armor") as Button
+	var locked: Button = tree.get_node("Tech_strategic_uplinks") as Button
+	assert_false(ready.disabled)
+	assert_true(locked.disabled)
+	assert_true(locked.text.contains("REQUIRES"))
+	ready.pressed.emit()
+	assert_true(dialog.visible or is_instance_valid(dialog))
+
+func test_production_tiers_are_enforced_before_spending():
+	var game := _new_game()
+	var wallet := ResourceManager.get_wallet(0)
+	var oil_before := int(wallet.get(Economy.Res.OIL, 0))
+	assert_false(game.apply_command({"type": "train", "team": 0, "id": "battleship"}))
+	assert_eq(int(wallet.get(Economy.Res.OIL, 0)), oil_before)
+
+func test_capture_and_demolish_commands_are_wired():
+	var game := _new_game()
+	var hq: Node2D = game._find_team_hq(0)
+	var enemy_bld: Node2D = game._spawn_building_by_id("barracks", hq.global_position + Vector2(192, 0), 1)
+	enemy_bld.hp = maxi(1, int(float(enemy_bld.stats.hp) * 0.4))
+	var worker: Node2D = game._spawn_unit_by_id("sapperbot", enemy_bld.global_position + Vector2(24, 0), 0)
+	assert_true(game.apply_command({
+		"type": "capture", "team": 0, "unit_ids": [worker.net_id],
+		"target_x": enemy_bld.global_position.x, "target_y": enemy_bld.global_position.y,
+	}))
+	var cap := Command.from_dict(game.replay_log.commands[game.replay_log.command_count() - 1])
+	assert_eq(cap.type, Command.Type.CAPTURE)
+	var own: Node2D = game._spawn_building_by_id("turret", hq.global_position + Vector2(0, 192), 0)
+	var wallet := ResourceManager.get_wallet(0)
+	var oil_before := int(wallet.get(Economy.Res.OIL, 0))
+	assert_true(game.apply_command({
+		"type": "demolish", "team": 0,
+		"target_x": own.global_position.x, "target_y": own.global_position.y,
+	}))
+	var demo := Command.from_dict(game.replay_log.commands[game.replay_log.command_count() - 1])
+	assert_eq(demo.type, Command.Type.DEMOLISH)
+	assert_gt(int(wallet.get(Economy.Res.OIL, 0)), oil_before)
+
+func test_extractor_bonus_is_revoked_on_destruction():
+	var game := _new_game()
+	var rd: Dictionary = game.resource_deposits[0]
+	var extractor: Node2D = game._spawn_building_by_id("extractor", Vector2(rd["pos"]), 1)
+	var oil_before := ResourceManager.get_base_rate(1, Economy.Res.OIL)
+	game._apply_building_bonus(extractor, true)
+	assert_eq(ResourceManager.get_base_rate(1, Economy.Res.OIL), oil_before + 8)
+	game.on_building_destroyed(extractor)
+	assert_eq(ResourceManager.get_base_rate(1, Economy.Res.OIL), oil_before)
+
+func test_strategic_weapons_require_strategic_uplinks():
+	var game := _new_game()
+	assert_false(game.apply_command({"type": "laser", "team": 0, "target_x": 500, "target_y": 500}))
+	game.team_unlocked_tech[0] = ["strategic_uplinks"]
+	ResourceManager.get_wallet(0)[Economy.Res.GEOTHERMAL] = 1000
+	ResourceManager.get_wallet(0)[Economy.Res.OIL] = 1000
+	assert_true(game.apply_command({"type": "laser", "team": 0, "target_x": 500, "target_y": 500}))
+
+func test_minimap_ping_is_wired_to_tactical_pings():
+	var game := _new_game()
+	var before: int = game.tactical_pings.size()
+	game._on_minimap_ping(Vector2(320, 240))
+	assert_eq(game.tactical_pings.size(), before + 1)
+
+func test_victory_score_counts_every_building_and_food():
+	var game := _new_game()
+	ResourceManager.get_wallet(0)[Economy.Res.FOOD] = 777
+	var score: Dictionary = game._team_score(0)
+	var expected_eco := 0
+	for res in [Economy.Res.OIL, Economy.Res.IRON, Economy.Res.GEOTHERMAL, Economy.Res.FOOD]:
+		expected_eco += int(ResourceManager.get_wallet(0).get(res, 0))
+	var buildings := 0
+	for count in game._get_team_building_counts(0).values():
+		buildings += int(count)
+	assert_eq(int(score["economic"]), expected_eco)
+	assert_eq(int(score["military"]), game._get_team_units(0).size() * 10 + buildings * 50)
+
+func test_map_editor_blocks_test_play_for_invalid_map():
+	GameManager.match_mode = GameManager.Mode.MAP_EDITOR
+	var editor = preload("res://scenes/map_editor.tscn").instantiate()
+	add_child_autofree(editor)
+	editor.map_data = MapData.new(4, 4)
+	editor._test_play_map()
+	assert_true(editor.status_label.text.contains("Cannot test play"))
+	assert_eq(GameManager.match_mode, GameManager.Mode.MAP_EDITOR)

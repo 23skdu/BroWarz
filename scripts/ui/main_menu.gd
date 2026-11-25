@@ -18,6 +18,8 @@ const MAP_OPTIONS := ["Desert", "Island Chain", "Forest", "Custom Map (.bwm)"]
 var selected_difficulty: int = AI.Difficulty.NORMAL
 var selected_faction: int = Faction.Id.AERODYNE
 var selected_map_type: int = 2  # 0 Desert, 1 Island Chain, 2 Forest, 3 Custom Map
+var custom_map_path: String = "user://custom_map.bwm"
+var custom_map_picker: OptionButton = null
 
 func _ready():
 	SettingsManager.apply_to_scene()
@@ -49,8 +51,27 @@ func _ready():
 		$VBox.add_child(rb)
 		rb.pressed.connect(_open_replay)
 	_refresh_labels()
+	_build_custom_map_picker()
 	if has_node("VBox/VersionLabel"):
 		$VBox/VersionLabel.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
+
+func _build_custom_map_picker() -> void:
+	if not has_node("VBox"):
+		return
+	var paths := MapSerializer.list_saved_maps()
+	if paths.is_empty():
+		return
+	custom_map_picker = OptionButton.new()
+	custom_map_picker.name = "CustomMapPicker"
+	custom_map_picker.add_item("Custom Map: quick map")
+	for path in paths:
+		custom_map_picker.add_item(path.get_file())
+	custom_map_picker.item_selected.connect(_on_custom_map_selected)
+	$VBox.add_child(custom_map_picker)
+
+func _on_custom_map_selected(index: int) -> void:
+	var paths := MapSerializer.list_saved_maps()
+	custom_map_path = paths[index - 1] if index > 0 and index <= paths.size() else "user://custom_map.bwm"
 
 func _open_settings() -> void:
 	var dialog := SettingsDialog.new()
@@ -92,13 +113,13 @@ func _on_skirmish() -> void:
 	var ai_fac := (selected_faction + 1) % 4
 	var custom_map: MapData = null
 	if selected_map_type == 3:
-		custom_map = MapSerializer.load_from_file("user://custom_map.bwm")
-		if custom_map == null:
-			status.text = "No saved custom map found. Save one in the Map Editor first."
+		var result := MapSerializer.load_with_result(custom_map_path)
+		if not bool(result.get("ok", false)):
+			status.text = "Cannot load %s: %s" % [custom_map_path, String(result.get("reason", "unknown error"))]
 			return
-		var check: Dictionary = MapData.validate_map(custom_map)
-		if not bool(check.get("ok", false)):
-			status.text = "Custom map is invalid: %s" % str(check.get("reason", "unknown error"))
+		custom_map = result.get("map", null) as MapData
+		if not bool(result.get("playable", false)):
+			status.text = "Custom map is not playable: %s" % String(result.get("playability_reason", "unknown issue"))
 			return
 	GameManager.start_single_player(selected_difficulty, custom_map, selected_faction, ai_fac, selected_map_type)
 	status.text = "Starting Single Player vs %s AI..." % AI.difficulty_name(selected_difficulty)

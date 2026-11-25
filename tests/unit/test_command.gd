@@ -20,3 +20,11 @@ func test_unit_ids_packed():
 	var c2 = Command.from_dict(c.to_dict())
 	assert_eq(c2.unit_ids.size(), 2)
 	assert_eq(c2.unit_ids[1], 6)
+
+func test_capture_and_demolish_types_roundtrip():
+	for t in [Command.Type.CAPTURE, Command.Type.DEMOLISH]:
+		var c := Command.new()
+		c.type = t
+		c.tick = 8
+		var c2 := Command.from_dict(c.to_dict())
+		assert_eq(c2.type, t)

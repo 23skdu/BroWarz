@@ -180,6 +180,9 @@ func _trigger_destruction() -> void:
 	if hp_bar:
 		hp_bar.visible = false
 	GameManager.unregister_fort_block(self)
+	var game_root := _game_root()
+	if game_root != null and game_root.has_method("on_building_destroyed"):
+		game_root.on_building_destroyed(self)
 	remove_from_group("buildings")
 	explosion_debris = UnitVisual.generate_explosion_debris(int(get_instance_id()), 14)
 	var scene = get_tree().current_scene

@@ -13,6 +13,9 @@ var pending_target_action: String = ""
 var resource_deposits: Array[Dictionary] = []
 var team_unlocked_tech: Dictionary = {0: [], 1: []}
 var alliances: Dictionary = {}
+# instance id -> {team, rates: Dictionary, cap: int}: production bonuses that
+# must be revoked if the granting structure is destroyed or overwritten.
+var building_bonuses: Dictionary = {}
 var tactical_pings: Array[Dictionary] = []
 var camera: Camera2D
 var match_over: bool = false
@@ -211,8 +214,9 @@ func _setup_hud() -> void:
 	help_label.name = "HelpLabel"
 	help_label.position = Vector2(20, 110)
 	help_label.text = (
-		"[LMB/Drag] Select | [RMB] Move/Attack-Move | [1-7] Train | [F/G/M] Fortify | "
-		+ "[E] Embark | [U] Disembark | [B/V/P] Build | [T/R] Tech | [L] Laser | [N] Nuke | [Esc] Pause"
+		"[LMB/Drag] Select | [RMB] Move (hold A: Attack) | [1-7] Train | [Ctrl+0-9] Set group | "
+		+ "[Ctrl+Shift+0-9] Recall group | [F/G/M] Fortify | [C] Capture | [Del] Demolish | "
+		+ "[E/U] Embark/Disembark | [B/V/P] Build | [T/R] Tech | [L/N] Orbital/Nuke | [Esc] Pause"
 	)
 	ui.add_child(help_label)
 
@@ -256,6 +260,7 @@ func _setup_hud() -> void:
 	ui.add_child(minimap)
 	minimap.camera_requested.connect(_on_minimap_camera)
 	minimap.move_requested.connect(_on_minimap_order)
+	minimap.ping_requested.connect(_on_minimap_ping)
 
 func _build_full_palette() -> void:
 	var scroll := ScrollContainer.new()
@@ -379,19 +384,34 @@ func _open_research_dialog() -> void:
 		research_dialog.queue_free()
 	research_dialog = ResearchDialog.new()
 	ui.add_child(research_dialog)
-	research_dialog.populate(team_unlocked_tech.get(GameManager.local_team, []), ResourceManager.get_wallet(GameManager.local_team))
+	research_dialog.populate(
+		team_unlocked_tech.get(GameManager.local_team, []),
+		ResourceManager.get_wallet(GameManager.local_team),
+		_team_has_research_lab(GameManager.local_team),
+	)
 	research_dialog.research_selected.connect(_on_research_selected)
-	research_dialog.popup_centered(Vector2i(560, 520))
+	research_dialog.popup_centered(Vector2i(620, 560))
 
 func _on_research_selected(node_id: String) -> void:
-	_research_node(GameManager.local_team, node_id)
+	if not _research_node(GameManager.local_team, node_id):
+		return
+	if is_instance_valid(research_dialog):
+		research_dialog.call_deferred("populate",
+			team_unlocked_tech.get(GameManager.local_team, []),
+			ResourceManager.get_wallet(GameManager.local_team),
+			_team_has_research_lab(GameManager.local_team),
+		)
 
 func _on_minimap_camera(world_pos: Vector2) -> void:
 	if camera != null:
 		camera.position = _clamp_camera(world_pos)
 
 func _on_minimap_order(world_pos: Vector2) -> void:
-	_issue_move_order(world_pos, true)
+	_issue_move_order(world_pos, Input.is_key_pressed(KEY_A))
+
+func _on_minimap_ping(world_pos: Vector2) -> void:
+	tactical_pings.append({"pos": world_pos, "timer": 4.0})
+	queue_redraw()
 
 func _clamp_camera(pos: Vector2) -> Vector2:
 	if map_data == null:
@@ -415,10 +435,18 @@ func resume_game() -> void:
 		pause_panel.visible = false
 	get_tree().paused = false
 
+func _team_building_total(team: int) -> int:
+	var total := 0
+	for count in _get_team_building_counts(team).values():
+		total += int(count)
+	return total
+
 func _team_score(team: int) -> Dictionary:
 	var wallet := ResourceManager.get_wallet(team)
-	var eco_sum := int(wallet.get(Economy.Res.OIL, 0)) + int(wallet.get(Economy.Res.IRON, 0)) + int(wallet.get(Economy.Res.GEOTHERMAL, 0))
-	var mil := Score.military_score(_get_team_units(team).size(), _get_team_building_counts(team).size())
+	var eco_sum := 0
+	for res in [Economy.Res.OIL, Economy.Res.IRON, Economy.Res.GEOTHERMAL, Economy.Res.FOOD]:
+		eco_sum += int(wallet.get(res, 0))
+	var mil := Score.military_score(_get_team_units(team).size(), _team_building_total(team))
 	var eco := Score.economic_score(eco_sum)
 	return {"military": mil, "economic": eco, "total": Score.total(mil, eco)}
 
@@ -771,7 +799,11 @@ func _recall_control_group(index: int) -> void:
 
 func _handle_hotkey(event: InputEventKey) -> void:
 	if event.keycode >= KEY_0 and event.keycode <= KEY_9 and Input.is_key_pressed(KEY_CTRL):
-		_set_control_group(int(event.keycode - KEY_0))
+		var grp := int(event.keycode - KEY_0)
+		if Input.is_key_pressed(KEY_SHIFT):
+			_recall_control_group(grp)
+		else:
+			_set_control_group(grp)
 		return
 	match event.keycode:
 		KEY_1: _player_train_unit("riflebot")
@@ -781,8 +813,14 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		KEY_5: _player_train_unit("aa_vehicle")
 		KEY_6: _player_train_unit("fighter_drone")
 		KEY_7: _player_train_unit("hovercraft")
-		KEY_8, KEY_9, KEY_0:
-			_recall_control_group(int(event.keycode - KEY_0))
+		KEY_C: _enter_target_mode("capture")
+		KEY_DELETE:
+			if is_instance_valid(selected_building):
+				apply_command({
+					"type": "demolish", "team": GameManager.local_team,
+					"target_x": selected_building.global_position.x,
+					"target_y": selected_building.global_position.y,
+				})
 		KEY_E: _player_embark_selected()
 		KEY_U: _player_disembark_selected()
 		KEY_X: _cancel_selected_building_queue()
@@ -887,6 +925,42 @@ func _command_units(team: int, cmd: Dictionary) -> Array:
 			out.append(unit)
 	return out
 
+func _capture_with_workers(team: int, units: Array, world_pos: Vector2) -> bool:
+	var target := _building_at(world_pos)
+	if target == null or GameManager.is_allied(team, int(target.team)) or target.stats == null:
+		return false
+	if not UnitRegistry.is_production_building(target.stats.id):
+		if is_instance_valid(status_label) and team == GameManager.local_team:
+			status_label.text = "Only damaged production buildings can be captured"
+		return false
+	var ordered := 0
+	for u in units:
+		if not is_instance_valid(u) or u.stats == null or not UnitRegistry.is_worker_unit(u.stats.id):
+			continue
+		u.stop_command()
+		u.move_to(target.global_position + Vector2(18, 0), false)
+		ordered += 1
+	return ordered > 0
+
+func _demolish_building_for_team(team: int, world_pos: Vector2) -> bool:
+	var target := _building_at(world_pos)
+	if target == null or int(target.team) != team or target.stats == null:
+		return false
+	if target.stats.is_hq:
+		if is_instance_valid(status_label) and team == GameManager.local_team:
+			status_label.text = "HQ cannot be demolished"
+		return false
+	var wallet := ResourceManager.get_wallet(team)
+	var refund := _wallet_cost(target.stats.cost_dict())
+	for res in refund.keys():
+		var value := int(refund[res])
+		wallet[int(res)] = int(wallet.get(int(res), 0)) + maxi(1, int(float(value) * 0.25))
+	var pos := target.global_position
+	target.take_damage(float(target.hp))
+	if is_instance_valid(status_label) and team == GameManager.local_team:
+		status_label.text = "Demolished %s at (%.0f, %.0f); 25%% refunded" % [target.stats.display_name, pos.x, pos.y]
+	return true
+
 func apply_command(cmd: Dictionary) -> bool:
 	var ctype := String(cmd.get("type", ""))
 	var team := int(cmd.get("team", GameManager.local_team))
@@ -915,10 +989,18 @@ func apply_command(cmd: Dictionary) -> bool:
 			ok = true
 		"tech":
 			ok = _research_node(team, String(cmd.get("id", "")))
+		"capture":
+			ok = _capture_with_workers(team, _command_units(team, cmd), _cmd_world_target(cmd))
+		"demolish":
+			ok = _demolish_building_for_team(team, _cmd_world_target(cmd))
 		"laser", "nuke":
 			# Strategic weapons are player-controlled only; relay commands from
 			# other teams are rejected rather than silently accepted.
 			if team == GameManager.local_team:
+				if not team_has_tech(team, "strategic_uplinks"):
+					if is_instance_valid(status_label):
+						status_label.text = "Research Strategic Uplinks (Orbital & Nuke) first"
+					return false
 				var target := _cmd_world_target(cmd)
 				ok = _player_fire_orbital_laser(target) if ctype == "laser" else _player_fire_nuke(target)
 	if ok:
@@ -947,6 +1029,8 @@ func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 		"hold": c.type = Command.Type.HOLD
 		"stop": c.type = Command.Type.STOP
 		"tech": c.type = Command.Type.TECH
+		"capture": c.type = Command.Type.CAPTURE
+		"demolish": c.type = Command.Type.DEMOLISH
 		"laser": c.type = Command.Type.ORBITAL
 		"nuke": c.type = Command.Type.NUKE
 	c.tick = int(elapsed_time * 60.0)
@@ -956,7 +1040,8 @@ func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 		c.target_pos = Vector2.ZERO
 	c.build_type = String(cmd.get("id", ""))
 	var ids: Array = cmd.get("unit_ids", [])
-	if ids.is_empty():
+	# Non-unit orders must not inherit whatever happened to be selected.
+	if ids.is_empty() and ctype in ["move", "hold", "stop", "embark", "disembark"]:
 		for u in selected_units:
 			if is_instance_valid(u):
 				ids.append(u.net_id)
@@ -981,24 +1066,25 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	var s := GameManager.registry.get_unit(uid)
 	if s == null:
 		return false
+	# Production tiers are enforced before spending: no free fallback spawn at
+	# fixed coordinates when the required factory is missing.
+	var valid_producers := UnitRegistry.producer_ids_for_unit(uid, s.unit_class)
+	var producer: Node2D = null
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and b.team == team and b.stats != null:
+			if String(b.stats.id) in valid_producers and b.has_method("enqueue_unit"):
+				producer = b
+				break
+	if producer == null:
+		if team == GameManager.local_team and is_instance_valid(status_label):
+			status_label.text = "%s requires: %s" % [uid, ", ".join(PackedStringArray(valid_producers))]
+		return false
 	var wallet := ResourceManager.get_wallet(team)
 	var fac_id := GameManager.player_faction if team == 0 else GameManager.ai_faction
 	var cost := _wallet_cost(Faction.effective_unit_cost(fac_id, s))
 	if not Economy.spend(wallet, cost):
 		return false
-	var producer: Node2D = null
-	var valid_producers := UnitRegistry.producer_ids_for_unit(uid, s.unit_class)
-	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and not b.is_exploding and b.team == team:
-			if b.stats and b.stats.id in valid_producers:
-				producer = b
-				break
-			if producer == null and b.stats and b.stats.is_hq:
-				producer = b
-	if producer != null and producer.has_method("enqueue_unit"):
-		producer.enqueue_unit(uid, s.build_time)
-		return true
-	_spawn_unit_by_id(uid, Vector2(180, 180) if team == 0 else Vector2(1040, 840), team)
+	producer.enqueue_unit(uid, s.build_time)
 	return true
 
 func _player_build_structure(bid: String) -> void:
@@ -1036,6 +1122,66 @@ func _team_has_worker_near(team: int, pos: Vector2) -> bool:
 			return true
 	return false
 
+func _near_resource_deposit(pos: Vector2) -> bool:
+	for rd in resource_deposits:
+		if pos.distance_to(Vector2(rd.get("pos", Vector2.ZERO))) <= 112.0:
+			return true
+	return false
+
+func _bonus_for_building(b: Node2D) -> Dictionary:
+	if not is_instance_valid(b) or b.stats == null:
+		return {}
+	var team := int(b.team)
+	if b.stats.id == "extractor" and _near_resource_deposit(b.global_position):
+		return {
+			"team": team, "cap": 0,
+			"rates": {
+				Economy.Res.OIL: 8, Economy.Res.IRON: 12, Economy.Res.GEOTHERMAL: 5,
+			},
+		}
+	if b.stats.id == "farm":
+		return {"team": team, "cap": 8, "rates": {}}
+	return {}
+
+func _apply_building_bonus(b: Node2D, apply: bool) -> void:
+	if not is_instance_valid(b):
+		return
+	var key := b.get_instance_id()
+	if not apply:
+		if not building_bonuses.has(key):
+			return
+		var old: Dictionary = building_bonuses[key]
+		building_bonuses.erase(key)
+		var old_team := int(old.get("team", b.team))
+		for res in (old.get("rates", {}) as Dictionary).keys():
+			var amount := int((old["rates"] as Dictionary)[res])
+			ResourceManager.set_rate(old_team, int(res), maxi(0, ResourceManager.get_base_rate(old_team, int(res)) - amount))
+		ResourceManager.caps[old_team] = maxi(0, int(ResourceManager.caps.get(old_team, 20)) - int(old.get("cap", 0)))
+		return
+	if building_bonuses.has(key):
+		return
+	var bonus := _bonus_for_building(b)
+	if bonus.is_empty():
+		return
+	building_bonuses[key] = bonus
+	var team := int(bonus.get("team", b.team))
+	for res in (bonus.get("rates", {}) as Dictionary).keys():
+		var amount := int((bonus["rates"] as Dictionary)[res])
+		ResourceManager.set_rate(team, int(res), ResourceManager.get_base_rate(team, int(res)) + amount)
+	ResourceManager.caps[team] = int(ResourceManager.caps.get(team, 20)) + int(bonus.get("cap", 0))
+
+func _rebuild_building_bonuses() -> void:
+	building_bonuses.clear()
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b) or ("is_exploding" in b and b.is_exploding):
+			continue
+		var bonus := _bonus_for_building(b)
+		if not bonus.is_empty():
+			building_bonuses[b.get_instance_id()] = bonus
+
+func on_building_destroyed(b: Node2D) -> void:
+	_apply_building_bonus(b, false)
+
 func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vector2.INF) -> bool:
 	var bs := GameManager.registry.get_building(bid)
 	if bs == null:
@@ -1069,17 +1215,10 @@ func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vect
 	var cost := _wallet_cost(bs.cost_dict())
 	if not Economy.spend(wallet, cost):
 		return false
-	_spawn_building_by_id(bid, target_pos, team)
-	if bid == "extractor":
-		# Expand base production, not the efficiency-scaled effective rate.
-		var cur_iron := ResourceManager.get_base_rate(team, Economy.Res.IRON)
-		var cur_oil := ResourceManager.get_base_rate(team, Economy.Res.OIL)
-		var cur_geo := ResourceManager.get_base_rate(team, Economy.Res.GEOTHERMAL)
-		ResourceManager.set_rate(team, Economy.Res.IRON, cur_iron + 12)
-		ResourceManager.set_rate(team, Economy.Res.OIL, cur_oil + 8)
-		ResourceManager.set_rate(team, Economy.Res.GEOTHERMAL, cur_geo + 5)
-	elif bid == "farm":
-		ResourceManager.caps[team] = int(ResourceManager.caps.get(team, 20)) + 8
+	var placed := _spawn_building_by_id(bid, target_pos, team)
+	_apply_building_bonus(placed, true)
+	if bid == "extractor" and not building_bonuses.has(placed.get_instance_id()) and team == GameManager.local_team and is_instance_valid(status_label):
+		status_label.text = "Extractor built away from a deposit: no collection bonus or payout."
 	return true
 
 func _team_has_research_lab(team: int) -> bool:
@@ -1391,10 +1530,14 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 				"has_rally": b.has_rally,
 			})
 	var rates: Dictionary = {}
+	var base_rates: Dictionary = {}
+	var power_efficiency: Dictionary = {}
 	var caps: Dictionary = {}
 	var tech: Dictionary = {}
 	for pid in [0, 1]:
 		rates[str(pid)] = ResourceManager.rates.get(pid, Economy.empty_wallet()).duplicate()
+		base_rates[str(pid)] = ResourceManager.base_rates.get(pid, Economy.empty_wallet()).duplicate()
+		power_efficiency[str(pid)] = clampf(float(ResourceManager.power_efficiency.get(pid, 1.0)), 0.0, 1.0)
 		caps[str(pid)] = int(ResourceManager.caps.get(pid, 20))
 		tech[str(pid)] = team_unlocked_tech.get(pid, []).duplicate()
 	var deposits: Array = []
@@ -1409,6 +1552,8 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 		"ai_tech_tier": ai_tech_tier,
 		"tech": tech,
 		"rates": rates,
+		"base_rates": base_rates,
+		"power_efficiency": power_efficiency,
 		"caps": caps,
 		"map_type": GameManager.map_type,
 		"match_seed": GameManager.match_seed,
@@ -1432,6 +1577,34 @@ func _normalized_wallet(raw: Variant) -> Dictionary:
 		out[int(k)] = int((raw as Dictionary)[k])
 	return out
 
+func _reset_match_transients() -> void:
+	match_over = false
+	pending_build_id = ""
+	pending_target_action = ""
+	drag_selecting = false
+	laser_cooldown = 0.0
+	nuke_cooldown = 0.0
+	economy_timer = 0.0
+	ai_timer = 0.0
+	ai_tactical_state = "rally"
+	ai_retreat_until.clear()
+	ai_next_build_time = 0.0
+	ai_next_train_time = 0.0
+	ai_order_until.clear()
+	control_groups.clear()
+	active_vfx.clear()
+	active_tracers.clear()
+	tactical_pings.clear()
+	scorch_marks.clear()
+	replay_log = Replay.new()
+	if is_instance_valid(victory_panel):
+		victory_panel.hide()
+	if is_instance_valid(pause_panel):
+		pause_panel.hide()
+	if is_instance_valid(research_dialog):
+		research_dialog.hide()
+	get_tree().paused = false
+
 func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 	if not FileAccess.file_exists(path):
 		if is_instance_valid(status_label):
@@ -1454,8 +1627,32 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		if is_instance_valid(status_label):
 			status_label.text = "Unsupported save version %d" % sg.version
 		return false
-	var gs := GameState.from_snapshot(sg.game_state)
-	_install_saved_map(sg.settings.get("map", {}))
+	if not (sg.game_state is Dictionary) or not (sg.settings is Dictionary):
+		if is_instance_valid(status_label):
+			status_label.text = "Save file is corrupt (missing game state)"
+		return false
+	var snap := sg.game_state as Dictionary
+	var settings := sg.settings as Dictionary
+	if not (snap.get("units", []) is Array) or not (snap.get("buildings", []) is Array) or not (snap.get("resources", {}) is Dictionary):
+		if is_instance_valid(status_label):
+			status_label.text = "Save file is corrupt (invalid entity snapshot)"
+		return false
+	for section in ["rates", "base_rates", "power_efficiency", "caps", "tech", "deposits"]:
+		if settings.has(section) and not (settings[section] is Array or settings[section] is Dictionary):
+			if is_instance_valid(status_label):
+				status_label.text = "Save file is corrupt (invalid %s)" % String(section)
+			return false
+	var map_check := MapSerializer.validate_detailed(settings.get("map", {}))
+	if not bool(map_check.get("ok", false)):
+		if is_instance_valid(status_label):
+			status_label.text = "Save map is invalid: %s" % String(map_check.get("reason", "unknown error"))
+		return false
+	var gs := GameState.from_snapshot(snap)
+
+	# Clear transient match state before replaying the snapshot; loading after
+	# a victory must not leave the end panel or stale orders active.
+	_reset_match_transients()
+	_install_saved_map(settings.get("map", {}))
 	resource_deposits.clear()
 	_spawn_resource_deposits()
 
@@ -1467,16 +1664,25 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		b.queue_free()
 	occupied_tiles.clear()
 	GameManager.fort_blocks.clear()
+	building_bonuses.clear()
 	selected_units.clear()
 	selected_building = null
 
 	for key in gs.resources.keys():
 		var pid := int(key)
 		ResourceManager.wallets[pid] = _normalized_wallet(gs.resources[key])
-	for key in sg.settings.get("rates", {}).keys():
-		ResourceManager.rates[int(key)] = _normalized_wallet(sg.settings["rates"][key])
-	for key in sg.settings.get("caps", {}).keys():
-		ResourceManager.caps[int(key)] = int(sg.settings["caps"][key])
+	var restored_rates: Dictionary = settings.get("rates", {})
+	var restored_base: Dictionary = settings.get("base_rates", restored_rates)
+	var restored_eff: Dictionary = settings.get("power_efficiency", {})
+	for key in restored_base.keys():
+		var pid2 := int(key)
+		if not ResourceManager.wallets.has(pid2):
+			ResourceManager.init_player(pid2)
+		ResourceManager.base_rates[pid2] = _normalized_wallet(restored_base[key])
+		ResourceManager.power_efficiency[pid2] = clampf(float(restored_eff.get(key, 1.0)), 0.0, 1.0)
+		ResourceManager.refresh_rates(pid2)
+	for key in settings.get("caps", {}).keys():
+		ResourceManager.caps[int(key)] = int(settings["caps"][key])
 
 	team_unlocked_tech = {0: [], 1: []}
 	for key in sg.settings.get("tech", {}).keys():
@@ -1507,6 +1713,9 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 			b._refresh_queue_label()
 		var origin := Vector2i(int(pos.x / TILE_SIZE), int(pos.y / TILE_SIZE))
 		Placement.occupy(occupied_tiles, b.stats.footprint, origin)
+	# Base rates in the save already include these bonuses; re-track them so a
+	# later demolition revokes exactly what was restored.
+	_rebuild_building_bonuses()
 
 	var saved_deposits: Array = sg.settings.get("deposits", [])
 	for i in range(mini(saved_deposits.size(), resource_deposits.size())):
@@ -1844,7 +2053,7 @@ func _check_win():
 		var title := ("VICTORY — " if local_won else "DEFEAT — ") + ("Team %s" % winning_side)
 		var detail := "Score %d (Military %d + Economy %d) | Units %d | Buildings %d" % [
 			int(s["total"]), int(s["military"]), int(s["economic"]),
-			_get_team_units(winner).size(), _get_team_building_counts(winner).size(),
+			_get_team_units(winner).size(), _team_building_total(winner),
 		]
 		_show_match_end(title, detail)
 		match_over = true

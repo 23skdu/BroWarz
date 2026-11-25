@@ -155,7 +155,17 @@ func _refresh_sprite_texture() -> void:
 	var f_idx := UnitVisual.frame_index(anim_state, anim_elapsed, anim_state != UnitVisual.AnimState.EXPLODE)
 	var uid := stats.id if stats else ""
 	var uclass := stats.unit_class if stats else 0
-	sprite_node.texture = UnitVisual.get_cached_unit_texture(uclass, anim_state, f_idx, _team_base_color(), UnitVisual.DEFAULT_SPRITE_SIZE, uid)
+	var zoom := 1.0
+	var active_units := 0
+	var game := _game_root()
+	if game != null:
+		if game.camera != null:
+			zoom = maxf(0.01, float(game.camera.zoom.x))
+		var nodes: Variant = game.get("spatial_unit_nodes")
+		if nodes is Array:
+			active_units = (nodes as Array).size()
+	var sprite_size := UnitVisual.lod_sprite_size(zoom, active_units)
+	sprite_node.texture = UnitVisual.get_cached_unit_texture(uclass, anim_state, f_idx, _team_base_color(), sprite_size, uid)
 	sprite_node.rotation = 0.0 if is_exploding else facing_angle
 	var alpha := 0.42 if is_cloaked() else 1.0
 	sprite_node.modulate = Color(1, 1, 1, alpha)

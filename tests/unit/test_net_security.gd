@@ -46,3 +46,18 @@ func test_new_token_length():
 func test_validate_hello_protocol_mismatch():
 	var v := NetSecurity.validate_hello(999, "x", "Alice", "1.2.3.4", "")
 	assert_false(v["ok"])
+func test_sanitize_capture_and_demolish_commands():
+	var cap := NetSecurity.sanitize_command({
+		"type": "capture", "seq": 6, "unit_ids": [1, 2], "target_x": 32.0, "target_y": 48.0,
+	})
+	assert_false(cap.is_empty())
+	assert_eq(cap["unit_ids"].size(), 2)
+	assert_eq(cap["x"], 32.0)
+	assert_eq(cap["y"], 48.0)
+	assert_true(NetSecurity.sanitize_command({
+		"type": "capture", "seq": 7, "unit_ids": [], "target_x": 32.0, "target_y": 48.0,
+	}).is_empty())
+	var demo := NetSecurity.sanitize_command({"type": "demolish", "seq": 8, "x": 20.0, "y": 30.0})
+	assert_false(demo.is_empty())
+	assert_eq(demo["x"], 20.0)
+	assert_eq(demo["y"], 30.0)

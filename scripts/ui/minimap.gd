@@ -6,6 +6,7 @@ extends Control
 
 signal camera_requested(world_pos: Vector2)
 signal move_requested(world_pos: Vector2)
+signal ping_requested(world_pos: Vector2)
 
 const SIZE_PX: float = 164.0
 const REFRESH_INTERVAL: float = 0.5
@@ -47,7 +48,10 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	var world_pos := _world_from_local(event.position)
 	if event.button_index == MOUSE_BUTTON_LEFT:
-		camera_requested.emit(world_pos)
+		if Input.is_key_pressed(KEY_ALT):
+			ping_requested.emit(world_pos)
+		else:
+			camera_requested.emit(world_pos)
 		accept_event()
 	elif event.button_index == MOUSE_BUTTON_RIGHT:
 		move_requested.emit(world_pos)
@@ -94,21 +98,45 @@ func _draw() -> void:
 	var sx := size.x / (float(map.width) * tile_size)
 	var sy := size.y / (float(map.height) * tile_size)
 	var local_team := GameManager.local_team
+	var palette := SettingsManager.colorblind_palette()
 	var fog: FogOfWar = scene.get("fog") if scene != null else null
+	var deposits: Array = scene.get("resource_deposits") if scene != null else []
+	for rd in deposits:
+		if not (rd is Dictionary):
+			continue
+		var dep_pos: Vector2 = rd.get("pos", Vector2.ZERO)
+		var dep: ResourceDeposit = rd.get("deposit", null) as ResourceDeposit
+		if dep == null or dep.is_depleted():
+			continue
+		var dep_col: Color = [
+			Color(0.2, 0.65, 1.0), Color(0.85, 0.85, 0.9),
+			Color(0.35, 0.95, 0.55), Color(1.0, 0.75, 0.25),
+		][clampi(dep.type, 0, 3)]
+		draw_circle(Vector2(dep_pos.x * sx, dep_pos.y * sy), 2.0, dep_col)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b) or ("is_exploding" in b and b.is_exploding):
 			continue
+		var bcol := Faction.colorblind_color_of(clampi(int(b.team), 0, 3), palette, 0)
 		if GameManager.is_allied(local_team, int(b.team)):
-			_draw_blip(b.global_position, sx, sy, Color(0.25, 0.95, 1.0), 3.0)
+			_draw_blip(b.global_position, sx, sy, bcol, 3.0)
 		elif fog == null or not GameManager.fog_enabled or _is_visible(fog, b.global_position, tile_size):
-			_draw_blip(b.global_position, sx, sy, Color(1.0, 0.35, 0.3), 3.0)
+			_draw_blip(b.global_position, sx, sy, bcol.lightened(0.15), 3.0)
 	for u in get_tree().get_nodes_in_group("units"):
 		if not is_instance_valid(u) or ("is_exploding" in u and u.is_exploding):
 			continue
+		var ucol := Faction.colorblind_color_of(clampi(int(u.team), 0, 3), palette, 0)
 		if GameManager.is_allied(local_team, int(u.team)):
-			_draw_blip(u.global_position, sx, sy, Color(0.35, 1.0, 0.5), 2.0)
+			_draw_blip(u.global_position, sx, sy, ucol, 2.0)
 		elif fog == null or not GameManager.fog_enabled or _is_visible(fog, u.global_position, tile_size):
-			_draw_blip(u.global_position, sx, sy, Color(1.0, 0.5, 0.25), 2.0)
+			_draw_blip(u.global_position, sx, sy, ucol.lightened(0.15), 2.0)
+	var cam: Camera2D = scene.get("camera") if scene != null else null
+	if cam != null:
+		var view := get_viewport_rect().size / maxf(cam.zoom.x, 0.01)
+		var rect := Rect2(
+			Vector2((cam.position.x - view.x * 0.5) * sx, (cam.position.y - view.y * 0.5) * sy),
+			Vector2(view.x * sx, view.y * sy),
+		)
+		draw_rect(rect, Color(1.0, 1.0, 1.0, 0.75), false, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.55, 0.65, 0.7, 0.85), false, 1.5)
 
 func _draw_blip(world_pos: Vector2, sx: float, sy: float, col: Color, radius: float) -> void:

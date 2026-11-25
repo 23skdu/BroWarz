@@ -15,12 +15,18 @@ the follow-up phases below are the fuller redesign.
   `load_with_result()`, `validate_detailed()`, and
   `from_share_code_detailed()` replace silent `null`/error-code returns. The
   editor shows the reason verbatim, color-coded as info/success/warning/error.
-- **Safe test play.** Test play writes a temporary `.bwm` without replacing the
-  main menu's quick-load map; if that write fails, the match is not started.
+- **Safe test play.** Test play first checks `MapData.validate_map()` and then
+  writes a temporary `.bwm` without replacing the main menu's quick-load map;
+  an unplayable map or failed write never starts a match.
 - **Share-code diagnostics.** Import failures explain whether the code is
-  empty, mis-prefixed, truncated, non-Base64, non-JSON, or has bad tile data.
+  empty, mis-prefixed, truncated, non-Base64, non-JSON, or has bad tile data;
+  unplayable imports load with a warning naming the reason.
 - **Load validation warning.** A syntactically valid but unplayable map loads
   with a warning instead of being silently accepted or rejected.
+- **Tile-accurate cursor.** Hover, brush preview and status text use the same
+  tile coordinates as terrain, HQ and deposit paint tools.
+- **Saved-map picker.** Both the editor and main menu can select any map in
+  `user://maps/` instead of only the quick-load file.
 
 ## Phase 2 — workspace layout
 
@@ -30,7 +36,7 @@ Split the single canvas into three named panels using a `HSplitContainer`:
    - `Terrain` — grouped brush buttons; active brush highlighted.
    - `Markers` — HQ Team 0–3, Oil/Iron/Geo/Food deposits, Erase.
    - `Brush` — radius slider (1–4), Fill, Mirror-X, Mirror-Y toggles.
-2. **Canvas (center).** Hex cursor, hover coordinates, grid overlay toggle,
+2. **Canvas (center).** Tile cursor, hover coordinates, grid overlay toggle,
    zoom controls, and a small legend for team colors/resource markers.
 3. **Inspector (right, ~280 px).** Metadata, map statistics, validation
    checklist, file path, share code, and recent status history.
