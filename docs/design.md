@@ -4,7 +4,7 @@
 **Genre:** Real-time strategy (RTS), peer-to-peer multiplayer
 **Setting:** Year 2030 — rival corporate armies fighting for resource control
 **Map size:** 128 × 128 tiles (configurable, player-created)
-**Status:** Playable v0.1.1 — live multiplayer diplomacy, co-op and spectator options
+**Status:** Playable v0.1.2 — live multiplayer diplomacy, co-op and spectator options, grouped menu and full-screen map framing
 **License:** Unlicense (public domain)
 
 ---
@@ -336,7 +336,7 @@ The repository now contains a playable single-player skirmish vertical slice and
   - Ambient non-combatant wildlife (Birds on all maps, Dolphins and Squid in sea/river water, and Deer in forests/plains) that wander, flee when chased or shot at, and die when hit.
   - Custom retro-future corporate dystopia main logo (`assets/logo.png`) and minimalist corporation banners (`assets/banners/*.png`).
 - Gameplay: 128×128 maps (Desert, Island Chain, Forest), 31 units across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard) for solo/co-op/spectator matches, in-match diplomacy, and map editor.
-- Verification: GUT unit/integration/fuzz/regression suites (265 tests across 50 scripts, 0 orphans) and `make ci` gate.
+- Verification: GUT unit/integration/fuzz/regression suites (268 tests across 50 scripts, 0 orphans) and `make ci` gate.
 
 Outstanding gaps (see `docs/roadmap.md`):
 

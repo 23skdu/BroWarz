@@ -3,19 +3,24 @@ extends Control
 
 const MAP_OPTIONS := ["Desert", "Island Chain", "Forest", "Custom Map (.bwm)"]
 
-@onready var skirmish_btn = $VBox/SkirmishButton
-@onready var difficulty_btn = $VBox/DifficultyButton
-@onready var faction_btn = $VBox/FactionButton
-@onready var spectator_btn = get_node_or_null("VBox/SpectatorButton")
-@onready var spectator_faction_btn = get_node_or_null("VBox/SpectatorFactionButton")
-@onready var map_btn = get_node_or_null("VBox/MapButton")
-@onready var host_btn = $VBox/HostButton
-@onready var join_btn = $VBox/JoinButton
-@onready var editor_btn = $VBox/EditorButton
-@onready var ip_edit = $VBox/IpEdit
-@onready var name_edit = $VBox/NameEdit
-@onready var passcode_edit = $VBox/PasscodeEdit
-@onready var status = $VBox/Status
+const PLAY_COLUMN := "MenuPanel/Margin/VBox/Columns/PlayColumn"
+const OPTIONS_COLUMN := "MenuPanel/Margin/VBox/Columns/OptionsColumn"
+
+@onready var play_column: VBoxContainer = $MenuPanel/Margin/VBox/Columns/PlayColumn
+@onready var options_column: VBoxContainer = $MenuPanel/Margin/VBox/Columns/OptionsColumn
+@onready var skirmish_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/SkirmishButton
+@onready var difficulty_btn = $MenuPanel/Margin/VBox/Columns/OptionsColumn/DifficultyButton
+@onready var faction_btn = $MenuPanel/Margin/VBox/Columns/OptionsColumn/FactionButton
+@onready var spectator_btn = get_node_or_null("%s/SpectatorButton" % PLAY_COLUMN)
+@onready var spectator_faction_btn = get_node_or_null("%s/SpectatorFactionButton" % OPTIONS_COLUMN)
+@onready var map_btn = get_node_or_null("%s/MapButton" % OPTIONS_COLUMN)
+@onready var host_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/HostButton
+@onready var join_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/JoinButton
+@onready var editor_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/EditorButton
+@onready var ip_edit = $MenuPanel/Margin/VBox/Columns/OptionsColumn/IpEdit
+@onready var name_edit = $MenuPanel/Margin/VBox/Columns/OptionsColumn/NameEdit
+@onready var passcode_edit = $MenuPanel/Margin/VBox/Columns/OptionsColumn/PasscodeEdit
+@onready var status = $MenuPanel/Margin/VBox/Status
 
 var selected_difficulty: int = AI.Difficulty.NORMAL
 var selected_faction: int = Faction.Id.AERODYNE
@@ -33,8 +38,8 @@ func _ready():
 		difficulty_btn.pressed.connect(_on_cycle_difficulty)
 	if is_instance_valid(faction_btn):
 		faction_btn.pressed.connect(_on_cycle_faction)
-	spectator_btn = _ensure_menu_button("SpectatorButton", "Watch AI vs AI (View Only)")
-	spectator_faction_btn = _ensure_menu_button("SpectatorFactionButton", "AI Side B Corp: Vanguard")
+	spectator_btn = _ensure_menu_button("SpectatorButton", "Watch AI vs AI (View Only)", play_column)
+	spectator_faction_btn = _ensure_menu_button("SpectatorFactionButton", "AI Side B Corp: Vanguard", options_column)
 	spectator_btn.pressed.connect(_on_spectator)
 	spectator_faction_btn.pressed.connect(_on_cycle_spectator_faction)
 	if is_instance_valid(map_btn):
@@ -43,27 +48,18 @@ func _ready():
 	join_btn.pressed.connect(_on_join)
 	if is_instance_valid(editor_btn):
 		editor_btn.pressed.connect(_on_editor)
-	var settings_btn := get_node_or_null("VBox/SettingsButton")
-	if settings_btn == null and has_node("VBox"):
-		var sb := Button.new()
-		sb.name = "SettingsButton"
-		sb.text = "Settings (Audio, Access & Controls)"
-		$VBox.add_child(sb)
-		sb.pressed.connect(_open_settings)
-	var replay_btn := get_node_or_null("VBox/ReplayButton")
-	if replay_btn == null and has_node("VBox"):
-		var rb := Button.new()
-		rb.name = "ReplayButton"
-		rb.text = "Watch Saved Replay"
-		$VBox.add_child(rb)
-		rb.pressed.connect(_open_replay)
+	var settings_btn := _ensure_menu_button("SettingsButton", "Settings (Audio, Access & Controls)", options_column)
+	settings_btn.pressed.connect(_open_settings)
+	var replay_btn := _ensure_menu_button("ReplayButton", "Watch Saved Replay", options_column)
+	replay_btn.pressed.connect(_open_replay)
 	_refresh_labels()
 	_build_custom_map_picker()
-	if has_node("VBox/VersionLabel"):
-		$VBox/VersionLabel.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
+	var version_label := get_node_or_null("MenuPanel/Margin/VBox/VersionLabel") as Label
+	if version_label != null:
+		version_label.text = "v%s (%s)" % [VersionInfo.version(), VersionInfo.commit_sha()]
 
 func _build_custom_map_picker() -> void:
-	if not has_node("VBox"):
+	if not is_instance_valid(options_column):
 		return
 	var paths := MapSerializer.list_saved_maps()
 	if paths.is_empty():
@@ -74,7 +70,10 @@ func _build_custom_map_picker() -> void:
 	for path in paths:
 		custom_map_picker.add_item(path.get_file())
 	custom_map_picker.item_selected.connect(_on_custom_map_selected)
-	$VBox.add_child(custom_map_picker)
+	options_column.add_child(custom_map_picker)
+	var map_button := options_column.get_node_or_null("MapButton")
+	if map_button != null:
+		options_column.move_child(custom_map_picker, map_button.get_index() + 1)
 
 func _on_custom_map_selected(index: int) -> void:
 	var paths := MapSerializer.list_saved_maps()
@@ -93,13 +92,13 @@ func _open_replay() -> void:
 		add_child(viewer)
 	viewer.popup_centered(Vector2i(720, 560))
 
-func _ensure_menu_button(node_name: String, text: String) -> Button:
-	var btn := get_node_or_null("VBox/%s" % node_name) as Button
+func _ensure_menu_button(node_name: String, text: String, parent: VBoxContainer) -> Button:
+	var btn := parent.get_node_or_null(node_name) as Button
 	if btn == null:
 		btn = Button.new()
 		btn.name = node_name
 		btn.text = text
-		$VBox.add_child(btn)
+		parent.add_child(btn)
 	return btn
 
 func _refresh_labels() -> void:

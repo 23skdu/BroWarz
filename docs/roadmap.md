@@ -20,6 +20,15 @@ All items are wired into the live game/UI and covered by `make check` (265 GUT t
 - [x] **Save/Load Parity:** Quicksaves restore match mode, AI teams, faction/difficulty maps and spectator state, and corrupt or stale context is rejected on load.
 - [x] **Verification:** Full `make check`, headless Godot import, `actionlint`, and web export stayed green across the release.
 
+## Phase 1.2 — v0.1.2 Menu & Map Framing Polish
+
+All items are covered by `make check` (268 GUT tests across 50 scripts, 0 orphans):
+
+- [x] **Grouped Main Menu:** Play actions, match options, connection fields and tools now live in dedicated columns instead of one flat button list; dynamic buttons are created in their owning group.
+- [x] **Full-Viewport Camo:** A full-rect `TextureRect` with `STRETCH_KEEP_ASPECT_COVERED` covers the entire main-menu background, with a readability scrim behind the menu panel.
+- [x] **Full-Screen Map Framing:** Camera bounds, spawn framing, keyboard panning, wheel zoom, minimap jumps, viewport resizes and loaded maps now share one clamp path; minimum zoom is derived from the viewport/map ratio so the terrain always covers the screen.
+- [x] **Verification:** Full `make check`, headless Godot import, `actionlint`, and web export stayed green across the release.
+
 ---
 
 ## Phase 2 — Gap Analysis & 20 New Roadmap Steps for v0.2.0 Improvements

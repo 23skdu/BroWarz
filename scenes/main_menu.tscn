@@ -1,8 +1,24 @@
-[gd_scene load_steps=4 format=3 uid="uid://menu001"]
+[gd_scene load_steps=5 format=3 uid="uid://menu001"]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1"]
 [ext_resource type="Texture2D" path="res://assets/logo.png" id="2"]
 [ext_resource type="Texture2D" path="res://assets/urban_camo.png" id="3"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu"]
+bg_color = Color(0.02, 0.035, 0.05, 0.9)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.35, 0.42, 0.45, 0.95)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+content_margin_left = 18.0
+content_margin_top = 16.0
+content_margin_right = 18.0
+content_margin_bottom = 16.0
 
 [node name="MainMenu" type="Control"]
 script = ExtResource("1")
@@ -10,6 +26,27 @@ layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+
+[node name="CamoBackground" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("3")
+stretch_mode = 6
+expand_mode = 1
+modulate = Color(0.72, 0.75, 0.78, 1.0)
+mouse_filter = 2
+
+[node name="Scrim" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.0, 0.0, 0.0, 0.35)
+mouse_filter = 2
 
 [node name="LogoBackground" type="TextureRect" parent="."]
 layout_mode = 1
@@ -37,55 +74,130 @@ texture = ExtResource("2")
 stretch_mode = 5
 expand_mode = 1
 
-[node name="VBox" type="VBoxContainer" parent="."]
+[node name="MenuPanel" type="PanelContainer" parent="."]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -160.0
-offset_top = -180.0
-offset_right = 160.0
-offset_bottom = 180.0
+offset_left = -380.0
+offset_top = -330.0
+offset_right = 380.0
+offset_bottom = 330.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu")
 
-[node name="TitleLabel" type="Label" parent="VBox"]
+[node name="Margin" type="MarginContainer" parent="MenuPanel"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="MenuPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="MenuPanel/Margin/VBox"]
+layout_mode = 2
 text = "BROWARZ — CORPORATE RTS 2030"
 horizontal_alignment = 1
 
-[node name="SkirmishButton" type="Button" parent="VBox"]
+[node name="Columns" type="HBoxContainer" parent="MenuPanel/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 20
+
+[node name="PlayColumn" type="VBoxContainer" parent="MenuPanel/Margin/VBox/Columns"]
+layout_mode = 2
+custom_minimum_size = Vector2(300, 0)
+size_flags_horizontal = 3
+theme_override_constants/separation = 7
+
+[node name="PlayHeading" type="Label" parent="MenuPanel/Margin/VBox/Columns/PlayColumn"]
+layout_mode = 2
+text = "PLAY"
+horizontal_alignment = 1
+
+[node name="SkirmishButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/PlayColumn"]
+layout_mode = 2
 text = "Single Player vs AI"
 
-[node name="DifficultyButton" type="Button" parent="VBox"]
-text = "AI Difficulty: Normal"
+[node name="SpectatorButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/PlayColumn"]
+layout_mode = 2
+text = "Watch AI vs AI (View Only)"
 
-[node name="FactionButton" type="Button" parent="VBox"]
-text = "Corporation: AeroDyne Industries"
-
-[node name="MapButton" type="Button" parent="VBox"]
-text = "Map: Forest"
-
-[node name="HostButton" type="Button" parent="VBox"]
+[node name="HostButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/PlayColumn"]
+layout_mode = 2
 text = "Host P2P Multiplayer"
 
-[node name="JoinButton" type="Button" parent="VBox"]
+[node name="JoinButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/PlayColumn"]
+layout_mode = 2
 text = "Join P2P Multiplayer"
 
-[node name="EditorButton" type="Button" parent="VBox"]
+[node name="EditorButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/PlayColumn"]
+layout_mode = 2
 text = "Map Editor"
 
-[node name="IpEdit" type="LineEdit" parent="VBox"]
+[node name="OptionsColumn" type="VBoxContainer" parent="MenuPanel/Margin/VBox/Columns"]
+layout_mode = 2
+custom_minimum_size = Vector2(340, 0)
+size_flags_horizontal = 3
+theme_override_constants/separation = 7
+
+[node name="OptionsHeading" type="Label" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "MATCH OPTIONS"
+horizontal_alignment = 1
+
+[node name="DifficultyButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "AI Difficulty: Normal"
+
+[node name="FactionButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "Corporation: AeroDyne Industries"
+
+[node name="SpectatorFactionButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "AI Side B Corp: Vanguard"
+
+[node name="MapButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "Map: Forest"
+
+[node name="ConnectionHeading" type="Label" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "CONNECTION"
+horizontal_alignment = 1
+
+[node name="IpEdit" type="LineEdit" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
 placeholder_text = "Host address (127.0.0.1)"
 
-[node name="NameEdit" type="LineEdit" parent="VBox"]
+[node name="NameEdit" type="LineEdit" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
 placeholder_text = "Commander name"
 
-[node name="PasscodeEdit" type="LineEdit" parent="VBox"]
+[node name="PasscodeEdit" type="LineEdit" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
 placeholder_text = "Lobby passcode (optional)"
 secret = true
 
-[node name="Status" type="Label" parent="VBox"]
-text = ""
+[node name="ToolsHeading" type="Label" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "TOOLS"
+horizontal_alignment = 1
 
-[node name="VersionLabel" type="Label" parent="VBox"]
+[node name="SettingsButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "Settings (Audio, Access & Controls)"
+
+[node name="ReplayButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "Watch Saved Replay"
+
+[node name="Status" type="Label" parent="MenuPanel/Margin/VBox"]
+layout_mode = 2
+text = ""
+autowrap_mode = 2
+
+[node name="VersionLabel" type="Label" parent="MenuPanel/Margin/VBox"]
+layout_mode = 2
 text = ""

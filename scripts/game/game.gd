@@ -107,8 +107,11 @@ func _ready():
 	fog_sprite.z_index = 10
 	add_child(fog_sprite)
 	camera = $Camera2D
+	_apply_camera_bounds()
+	if get_viewport() != null and not get_viewport().size_changed.is_connected(_on_viewport_resized):
+		get_viewport().size_changed.connect(_on_viewport_resized)
 	# Final position follows the resolved player HQ in _spawn_starting_bases().
-	camera.position = Vector2(360, 300)
+	camera.position = _clamp_camera(Vector2(360, 300))
 	_setup_hud()
 	_init_economies()
 	_spawn_starting_bases()
@@ -435,13 +438,46 @@ func _on_minimap_ping(world_pos: Vector2) -> void:
 	tactical_pings.append({"pos": world_pos, "timer": 4.0})
 	queue_redraw()
 
-func _clamp_camera(pos: Vector2) -> Vector2:
+func _map_world_size() -> Vector2:
 	if map_data == null:
+		return Vector2.ONE
+	return Vector2(float(map_data.width) * TILE_SIZE, float(map_data.height) * TILE_SIZE)
+
+## Zooming out past this level would expose empty space beyond the terrain.
+func _min_cover_zoom() -> float:
+	var view := get_viewport_rect().size
+	var world := _map_world_size()
+	if view.x <= 0.0 or view.y <= 0.0 or world.x <= 0.0 or world.y <= 0.0:
+		return 0.45
+	return maxf(0.45, maxf(view.x / world.x, view.y / world.y))
+
+func _clamp_camera_zoom(zoom: Vector2) -> Vector2:
+	var minimum := _min_cover_zoom()
+	var maximum := maxf(2.0, minimum)
+	return Vector2(clampf(zoom.x, minimum, maximum), clampf(zoom.y, minimum, maximum))
+
+func _apply_camera_bounds() -> void:
+	if camera == null:
+		return
+	camera.zoom = _clamp_camera_zoom(camera.zoom)
+	var world := _map_world_size()
+	camera.limit_left = 0
+	camera.limit_top = 0
+	camera.limit_right = int(world.x)
+	camera.limit_bottom = int(world.y)
+	camera.position = _clamp_camera(camera.position)
+
+func _on_viewport_resized() -> void:
+	_apply_camera_bounds()
+
+func _clamp_camera(pos: Vector2) -> Vector2:
+	if map_data == null or camera == null:
 		return pos
+	var world := _map_world_size()
 	var half_view := get_viewport_rect().size * 0.5 / maxf(camera.zoom.x, 0.01)
 	return Vector2(
-		clampf(pos.x, half_view.x, float(map_data.width) * TILE_SIZE - half_view.x),
-		clampf(pos.y, half_view.y, float(map_data.height) * TILE_SIZE - half_view.y)
+		clampf(pos.x, half_view.x, world.x - half_view.x),
+		clampf(pos.y, half_view.y, world.y - half_view.y)
 	)
 
 func toggle_pause() -> void:
@@ -532,7 +568,7 @@ func _spawn_starting_bases() -> void:
 
 	# Open the camera on the player's actual spawn rather than a fixed corner.
 	if camera != null:
-		camera.position = player_base
+		camera.position = _clamp_camera(player_base)
 
 func _tile_world(tile: Vector2i) -> Vector2:
 	var t := tile
@@ -702,10 +738,12 @@ func _unhandled_input(event):
 	if event is InputEventMouseButton:
 		var world_pos := _world_mouse_pos(event.position)
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed and camera:
-			camera.zoom = (camera.zoom * 1.12).clamp(Vector2(0.45, 0.45), Vector2(2.0, 2.0))
+			camera.zoom = _clamp_camera_zoom(camera.zoom * 1.12)
+			camera.position = _clamp_camera(camera.position)
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed and camera:
-			camera.zoom = (camera.zoom * 0.89).clamp(Vector2(0.45, 0.45), Vector2(2.0, 2.0))
+			camera.zoom = _clamp_camera_zoom(camera.zoom * 0.89)
+			camera.position = _clamp_camera(camera.position)
 			return
 		# Spectators keep camera controls but cannot select, order or place.
 		if GameManager.is_spectator:
@@ -1516,6 +1554,7 @@ func _install_saved_map(raw: Variant) -> void:
 	map_data = saved
 	GameManager.current_map = saved
 	_update_terrain_image()
+	_apply_camera_bounds()
 	if fog != null:
 		fog = FogOfWar.new(map_data.width, map_data.height, map_data)
 		fog_image = Image.create(map_data.width, map_data.height, false, Image.FORMAT_RGBA8)
@@ -1897,6 +1936,7 @@ func _process(delta):
 	if Input.is_key_pressed(SettingsManager.hotkey("camera_left")) or Input.is_key_pressed(KEY_LEFT): pan.x -= 1
 	if Input.is_key_pressed(SettingsManager.hotkey("camera_right")) or Input.is_key_pressed(KEY_RIGHT): pan.x += 1
 	camera.position += pan * float(SettingsManager.get_setting("camera_speed", 420.0)) * delta
+	camera.position = _clamp_camera(camera.position)
 
 ## One decision tick for every AI side. Co-op and spectator use the same
 ## per-team path; single player simply has one AI team (team 1).

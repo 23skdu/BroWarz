@@ -6,17 +6,38 @@ extends GutTest
 func test_main_menu_skirmish_button_is_wired():
 	var menu := preload("res://scenes/main_menu.tscn").instantiate()
 	add_child_autofree(menu)
-	var button: Button = menu.get_node("VBox/SkirmishButton")
+	var button: Button = menu.get_node("MenuPanel/Margin/VBox/Columns/PlayColumn/SkirmishButton")
 	assert_true(button.is_connected("pressed", Callable(menu, "_on_skirmish")))
-	var spectator: Button = menu.get_node("VBox/SpectatorButton")
+	var spectator: Button = menu.get_node("MenuPanel/Margin/VBox/Columns/PlayColumn/SpectatorButton")
 	assert_true(spectator.is_connected("pressed", Callable(menu, "_on_spectator")))
-	var spectator_faction: Button = menu.get_node("VBox/SpectatorFactionButton")
+	var spectator_faction: Button = menu.get_node("MenuPanel/Margin/VBox/Columns/OptionsColumn/SpectatorFactionButton")
 	assert_true(spectator_faction.is_connected("pressed", Callable(menu, "_on_cycle_spectator_faction")))
 	var logo: TextureRect = menu.get_node("Logo")
 	assert_not_null(logo.texture)
-	var backdrop: TextureRect = menu.get_node("LogoBackground")
+	var backdrop: TextureRect = menu.get_node("CamoBackground")
 	assert_not_null(backdrop.texture)
+	var logo_backdrop: TextureRect = menu.get_node("LogoBackground")
+	assert_not_null(logo_backdrop.texture)
 	assert_eq(AudioManager.current_music, "menu")
+
+func test_main_menu_camo_covers_the_full_viewport():
+	var menu := preload("res://scenes/main_menu.tscn").instantiate()
+	add_child_autofree(menu)
+	var backdrop: TextureRect = menu.get_node("CamoBackground")
+	assert_eq(backdrop.anchor_right, 1.0)
+	assert_eq(backdrop.anchor_bottom, 1.0)
+	assert_eq(backdrop.offset_left, 0.0)
+	assert_eq(backdrop.offset_top, 0.0)
+	assert_eq(backdrop.offset_right, 0.0)
+	assert_eq(backdrop.offset_bottom, 0.0)
+	assert_eq(backdrop.stretch_mode, TextureRect.STRETCH_KEEP_ASPECT_COVERED)
+
+func test_main_menu_match_options_are_grouped_together():
+	var menu := preload("res://scenes/main_menu.tscn").instantiate()
+	add_child_autofree(menu)
+	var options: VBoxContainer = menu.get_node("MenuPanel/Margin/VBox/Columns/OptionsColumn")
+	for node_name in ["DifficultyButton", "FactionButton", "SpectatorFactionButton", "MapButton", "SettingsButton", "ReplayButton"]:
+		assert_not_null(options.get_node_or_null(node_name))
 
 func test_main_menu_spectator_faction_selectors_change_both_ai_sides():
 	var menu := preload("res://scenes/main_menu.tscn").instantiate()
@@ -101,6 +122,34 @@ func test_world_mouse_position_respects_camera_zoom():
 	var offset_world: Vector2 = game._world_mouse_pos(center + Vector2(100, 50))
 	assert_almost_eq(offset_world.x, 840.0, 0.01)
 	assert_almost_eq(offset_world.y, 580.0, 0.01)
+
+func test_camera_never_zooms_out_past_the_terrain():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+
+	var view := game.get_viewport_rect().size
+	var world: Vector2 = game._map_world_size()
+	var minimum := maxf(0.45, maxf(view.x / world.x, view.y / world.y))
+	assert_almost_eq(game._min_cover_zoom(), minimum, 0.001)
+	assert_true(game.camera.zoom.x >= minimum - 0.001)
+	assert_true(game.camera.zoom.y >= minimum - 0.001)
+	var zoomed_out: Vector2 = game._clamp_camera_zoom(Vector2(0.05, 0.05))
+	assert_true(zoomed_out.x >= minimum - 0.001)
+	assert_true(zoomed_out.y >= minimum - 0.001)
+	var clamped: Vector2 = game._clamp_camera(Vector2(-9999.0, -9999.0))
+	var half_view: Vector2 = view * 0.5 / game.camera.zoom.x
+	assert_true(clamped.x >= half_view.x - 0.01)
+	assert_true(clamped.y >= half_view.y - 0.01)
+	# The spawn camera itself must start inside the map, otherwise the terrain
+	# appears only in the bottom-right corner with empty space above and left.
+	assert_true(game.camera.position.x >= half_view.x - 0.01)
+	assert_true(game.camera.position.y >= half_view.y - 0.01)
+	assert_eq(game.camera.limit_left, 0)
+	assert_eq(game.camera.limit_top, 0)
+	assert_eq(game.camera.limit_right, int(world.x))
+	assert_eq(game.camera.limit_bottom, int(world.y))
 
 func test_editor_state_does_not_leak_into_skirmish():
 	var editor_map := MapData.new(32, 32)
