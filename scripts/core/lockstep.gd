@@ -15,9 +15,6 @@ func queue_command(cmd: Command) -> void:
 		command_buffer[t] = []
 	command_buffer[t].append(cmd)
 
-func commands_for_tick(t: int) -> Array:
-	return command_buffer.get(t, [])
-
 func advance() -> int:
 	tick += 1
 	return tick

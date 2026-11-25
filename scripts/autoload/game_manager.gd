@@ -4,7 +4,6 @@ extends Node
 enum Mode { SINGLE_PLAYER, MULTIPLAYER, MAP_EDITOR, SPECTATOR }
 
 var current_map: MapData
-var players: Dictionary = {}
 var match_started: bool = false
 var match_mode: int = Mode.SINGLE_PLAYER
 var ai_difficulty: int = 1  # 0 Easy, 1 Normal, 2 Hard
@@ -178,6 +177,15 @@ func is_in_cloud(world_pos: Vector2) -> bool:
 func end_match(_winner_id: int) -> void:
 	match_started = false
 
+## Drop per-match context when the match scene leaves the tree. The next
+## start still calls begin_net_session(), but clearing here prevents a full
+## MapData and cloud/fortification arrays from lingering at the main menu.
+func clear_match_state() -> void:
+	match_started = false
+	current_map = null
+	fort_blocks.clear()
+	active_clouds.clear()
+
 ## Called by NetworkManager before a P2P match scene loads: pin every
 ## setting the simulation must agree on (map, seed, fog, teams, transport).
 func stage_net_match(
@@ -222,6 +230,7 @@ func stage_net_match(
 ## across matches (deterministic ids for replication + clean pathing).
 func begin_net_session() -> void:
 	_net_id_counter = 0
+	ResourceManager.reset()
 	fort_blocks.clear()
 	alliances.clear()
 	alliance_proposals.clear()

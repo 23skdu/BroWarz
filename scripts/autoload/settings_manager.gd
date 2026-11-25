@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS := {
 	"master_volume": 1.0,
 	"music_volume": 0.8,
 	"sfx_volume": 1.0,
+	"soundtrack": "aerodyne",
 	"muted": false,
 	"ui_scale": 1.0,
 	"colorblind": "none",
@@ -58,6 +59,9 @@ func reset_defaults() -> void:
 func apply_to_scene() -> void:
 	if is_instance_valid(AudioManager):
 		AudioManager.muted = bool(settings.get("muted", false))
+		var track := String(settings.get("soundtrack", AudioManager.DEFAULT_SOUNDTRACK))
+		if AudioManager.has_soundtrack(track):
+			AudioManager.set_soundtrack(track)
 		AudioManager.apply_settings()
 	_apply_ui_scale(float(settings.get("ui_scale", 1.0)))
 	_refresh_faction_colors()
@@ -85,9 +89,15 @@ func _apply_setting(key: String, value) -> void:
 		if key == "muted":
 			AudioManager.muted = bool(value)
 		AudioManager.apply_settings()
+	elif key == "soundtrack":
+		if is_instance_valid(AudioManager):
+			AudioManager.set_soundtrack(str(value))
 	elif key == "ui_scale":
 		_apply_ui_scale(float(value))
 	elif key == "colorblind":
+		# Palette textures are keyed by color; drop old entries before units
+		# rebuild their sprites for the new palette.
+		UnitVisual.clear_shared_cache()
 		_refresh_faction_colors()
 
 func _apply_ui_scale(scale: float) -> void:

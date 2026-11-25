@@ -32,6 +32,18 @@ func _ready() -> void:
 	mute.toggled.connect(func(pressed: bool): SettingsManager.set_setting("muted", pressed))
 	vbox.add_child(mute)
 
+	var soundtrack := OptionButton.new()
+	var soundtrack_ids: Array = AudioManager.SOUNDTRACK_ORDER
+	for id in soundtrack_ids:
+		soundtrack.add_item(AudioManager.soundtrack_label(String(id)))
+	var current_track := String(SettingsManager.get_setting("soundtrack", AudioManager.DEFAULT_SOUNDTRACK))
+	soundtrack.selected = maxi(0, soundtrack_ids.find(current_track))
+	soundtrack.item_selected.connect(func(idx: int):
+		SettingsManager.set_setting("soundtrack", String(soundtrack_ids[idx]))
+	)
+	var soundtrack_row := _labeled_row(vbox, "Soundtrack")
+	soundtrack_row.add_child(soundtrack)
+
 	_add_section_title(vbox, "Accessibility & Interface")
 	_add_slider(vbox, "camera_speed", "Camera pan speed", 100.0, 1200.0, 20.0, 0)
 	_add_slider(vbox, "ui_scale", "UI scale", 0.5, 2.0, 0.05, 2)

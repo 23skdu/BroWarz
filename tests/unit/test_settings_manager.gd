@@ -14,6 +14,7 @@ func after_each() -> void:
 func test_defaults_and_setting_access():
 	assert_eq(SettingsManager.get_setting("master_volume"), 1.0)
 	assert_eq(SettingsManager.get_setting("colorblind"), "none")
+	assert_eq(SettingsManager.get_setting("soundtrack"), "aerodyne")
 	assert_true(SettingsManager.get_setting("missing", 42) == 42)
 	SettingsManager.set_setting("camera_speed", 640.0)
 	assert_eq(SettingsManager.store.get_value("camera_speed"), 640.0)
@@ -34,12 +35,16 @@ func test_save_load_and_reset():
 	var path := "user://browarz_test_settings.cfg"
 	SettingsManager.set_setting("sfx_volume", 0.25)
 	SettingsManager.set_setting("colorblind", "protanopia")
+	SettingsManager.set_setting("soundtrack", "vanguard")
 	assert_eq(SettingsManager.save_settings(path), OK)
 	SettingsManager.reset_defaults()
 	assert_eq(SettingsManager.get_setting("sfx_volume"), 1.0)
+	assert_eq(SettingsManager.get_setting("soundtrack"), "aerodyne")
 	SettingsManager.load_settings(path)
 	assert_eq(SettingsManager.get_setting("sfx_volume"), 0.25)
 	assert_eq(SettingsManager.colorblind_palette(), "protanopia")
+	assert_eq(SettingsManager.get_setting("soundtrack"), "vanguard")
+	assert_eq(AudioManager.soundtrack, "vanguard")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 func test_settings_dialog_builds_and_frees():

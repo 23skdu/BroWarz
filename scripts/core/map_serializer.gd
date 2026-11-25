@@ -221,10 +221,6 @@ static func save_with_result(map: MapData, path: String = "", update_default: bo
 		def.close()
 	return {"ok": true, "path": target, "reason": "Saved %s" % target}
 
-static func save_to_file(map: MapData, path: String = "", update_default: bool = true) -> Error:
-	var result := save_with_result(map, path, update_default)
-	return OK if bool(result.get("ok", false)) else ERR_CANT_OPEN
-
 ## Load with structured errors: missing file, unreadable file, invalid JSON,
 ## invalid dimensions/tiles are all reported with actionable text.
 static func load_with_result(path: String) -> Dictionary:
@@ -254,10 +250,6 @@ static func load_with_result(path: String) -> Dictionary:
 		"playable": bool(playability.get("ok", false)),
 		"playability_reason": String(playability.get("reason", "")),
 	}
-
-static func load_from_file(path: String) -> MapData:
-	var result := load_with_result(path)
-	return result.get("map", null) as MapData
 
 static func list_saved_maps() -> Array[String]:
 	var files: Array[String] = []

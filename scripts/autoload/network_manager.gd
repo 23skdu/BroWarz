@@ -171,8 +171,13 @@ func leave() -> void:
 
 ## Route a local gameplay command: single player applies immediately, P2P
 ## sends it to the host for validation (host applies + relays back).
+## A freed game scene is not equal to null, so always validate the ObjectID
+## before routing gameplay commands through it.
+func _has_game() -> bool:
+	return is_instance_valid(game_node)
+
 func send_command(cmd: Dictionary) -> void:
-	if game_node == null:
+	if not _has_game():
 		return
 	if not _has_peer():
 		game_node.call("apply_command", cmd)
@@ -219,11 +224,6 @@ func request_start() -> void:
 	if _has_peer() and state != State.IDLE:
 		_cli_start.rpc_id(1)
 
-## Host-only: remove a player and ban their seat for this session.
-func request_kick(target: int) -> void:
-	if _has_peer() and is_host():
-		_cli_kick.rpc_id(1, target)
-
 ## Periodic simulation checksum for desync detection (throttled).
 func broadcast_hash(value: int) -> void:
 	if not _has_peer() or state != State.MATCH:
@@ -244,14 +244,8 @@ func attach_game(node: Node) -> void:
 func is_host() -> bool:
 	return state == State.HOSTING or (state == State.MATCH and lobby.host_id == _my_id() and _i_am_server())
 
-func in_match() -> bool:
-	return state == State.MATCH
-
 func local_team() -> int:
 	return lobby.team_of(_my_id())
-
-func peer_count() -> int:
-	return lobby.connected_ids().size()
 
 # =====================================================================
 # Testable validation pipeline (no socket access)
@@ -311,7 +305,7 @@ func sender_is_banned(sender_id: int) -> bool:
 # =====================================================================
 
 func _host_process(sender_id: int, clean: Dictionary) -> void:
-	if game_node == null or clean.is_empty():
+	if not _has_game() or clean.is_empty():
 		return
 	var applied := bool(game_node.call("apply_command", clean))
 	if not applied:
@@ -637,7 +631,7 @@ func _srv_welcome(snap: Dictionary, token: String) -> void:
 	else:
 		state = State.MATCH
 		_stage_from_lobby()
-		if game_node == null:
+		if not _has_game():
 			_enter_match()
 	connected_to_lobby.emit()
 
@@ -825,7 +819,7 @@ func _enter_match() -> void:
 	state = State.MATCH
 	if lobby.host_id == _my_id() and _i_am_server():
 		_schedule_sync()
-	if game_node == null:
+	if not _has_game():
 		SceneManager.goto_scene("res://scenes/game.tscn")
 
 ## Host-pinned alliance graph forwarded to the match. FFA remains empty;
@@ -1001,7 +995,7 @@ func _close_rtc() -> void:
 # =====================================================================
 
 func _deliver(clean: Dictionary) -> void:
-	if game_node == null:
+	if not _has_game():
 		_pending_cmds.append(clean)
 		if _pending_cmds.size() > 256:
 			_pending_cmds.pop_front()

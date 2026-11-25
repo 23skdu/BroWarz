@@ -331,16 +331,17 @@ The repository now contains a playable single-player skirmish vertical slice and
 - Project bootstrap, autoloads (`GameManager`, `NetworkManager`, `ResourceManager`, `SettingsManager`, `AudioManager`, `SceneManager`), and 4 corporations with signature colors, emblems, and gameplay modifiers.
 - Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, fortifications, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, network security/rate-limiting/sequence guards, lobby state, game state/replay/save settings, hex grid & A* pathfinding, AI heuristics, strategic weapons, formation, transitive alliances with host-authoritative diplomacy, scoring, power, resource deposits, and ambient wildlife (`Wildlife`).
 - Visuals & Audio:
-  - Large 48×48 high-detail procedural unit sprites (`UnitVisual`) across all 31 unit types with 100% uniform geometry across factions, 5 animation states (`IDLE`, `MOVE`, `FIRE`, `HIT`, `EXPLODE`), articulated turret rotation, barrel recoil, muzzle flashes, projectile tracers, and shrapnel/scorch-mark explosions.
+  - Large 48×48 high-detail procedural unit sprites (`UnitVisual`) across all 29 base unit roles (32 registry IDs including worker aliases) with 100% uniform geometry across factions, 5 animation states (`IDLE`, `MOVE`, `FIRE`, `HIT`, `EXPLODE`), articulated turret rotation, barrel recoil, muzzle flashes, projectile tracers, and shrapnel/scorch-mark explosions.
   - High-resolution 512×512 terrain rendering (4× sub-tile detail) with forest tree canopies and shrubs, water wave highlights, and mountain ridges.
   - Ambient non-combatant wildlife (Birds on all maps, Dolphins and Squid in sea/river water, and Deer in forests/plains) that wander, flee when chased or shot at, and die when hit.
   - Custom retro-future corporate dystopia main logo (`assets/logo.png`) and minimalist corporation banners (`assets/banners/*.png`).
-- Gameplay: 128×128 maps (Desert, Island Chain, Forest), 31 units across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard) for solo/co-op/spectator matches, in-match diplomacy, and map editor.
-- Verification: GUT unit/integration/fuzz/regression suites (268 tests across 50 scripts, 0 orphans) and `make ci` gate.
+- Gameplay: 128×128 maps (Desert, Island Chain, Forest), 29 base unit roles across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard) for solo/co-op/spectator matches, multiplayer diplomacy, and map editor.
+- Audio: procedural looping menu/battle beds plus four selectable faction soundtracks (AeroDyne, FerroCore, Pelagic, Vanguard) with main-menu and settings switchers, and an aliased SFX set.
+- Verification: GUT unit/integration/fuzz/regression suites (278 tests across 52 scripts, 0 orphans), the post-run orphan guard, and the `make ci` gate.
 
 Outstanding gaps (see `docs/roadmap.md`):
 
-- Adaptive in-match music and a fuller SFX/bark set beyond the looping menu bed.
+- A fuller voice-bark/SFX set beyond the current alias table.
 - Campaign/mods and dedicated server authority (deferred beyond v1).
 - Additional polish/performance passes.
 

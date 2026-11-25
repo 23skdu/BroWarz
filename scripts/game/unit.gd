@@ -32,7 +32,6 @@ var is_exploding: bool = false
 var explode_timer: float = 0.0
 var facing_angle: float = 0.0
 var turret_angle: float = 0.0
-var last_target_world_pos: Vector2 = Vector2.ZERO
 var explosion_debris: Array[Dictionary] = []
 var sprite_node: Sprite2D = null
 var deck_label: Label = null
@@ -432,7 +431,6 @@ func _perform_attack(enemy: Node2D) -> void:
 	fire_anim_timer = 0.26
 	anim_state = UnitVisual.AnimState.FIRE
 	anim_elapsed = 0.0
-	last_target_world_pos = enemy.global_position
 	var aim_dir := (enemy.global_position - global_position)
 	if aim_dir.length_squared() > 0.01:
 		turret_angle = aim_dir.angle()

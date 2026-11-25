@@ -8,10 +8,18 @@ var wallets: Dictionary = {}
 var base_rates: Dictionary = {}
 # Effective rates used for income and HUD display.
 var rates: Dictionary = {}
-var populations: Dictionary = {}
 var caps: Dictionary = {}
 # team -> last efficiency applied by the power grid (0.0..1.0, 1.0 = powered)
 var power_efficiency: Dictionary = {}
+
+## Clear all per-team economy state so saved/multiplayer teams do not leak
+## into the next match.
+func reset() -> void:
+	wallets.clear()
+	base_rates.clear()
+	rates.clear()
+	caps.clear()
+	power_efficiency.clear()
 
 func init_player(pid: int, starting: Dictionary = {}) -> void:
 	var w = Economy.empty_wallet()
@@ -20,7 +28,6 @@ func init_player(pid: int, starting: Dictionary = {}) -> void:
 	wallets[pid] = w
 	base_rates[pid] = Economy.empty_wallet()
 	rates[pid] = Economy.empty_wallet()
-	populations[pid] = 0
 	caps[pid] = 10
 	power_efficiency[pid] = 1.0
 

@@ -119,6 +119,14 @@ func _ready():
 	NetworkManager.attach_game(self)
 	AudioManager.set_music("battle")
 
+func _exit_tree() -> void:
+	# Autoloads outlive the match scene. Drop the command sink and per-match
+	# state here so a later session cannot observe a freed node or stale map.
+	if NetworkManager.game_node == self:
+		NetworkManager.attach_game(null)
+	GameManager.clear_match_state()
+	UnitVisual.clear_shared_cache()
+
 func _generate_map(map_type: int = 2) -> void:
 	# Only an explicitly supplied custom map may override generated terrain.
 	# No silent disk fallback: that let an old editor session leak into matches.
@@ -697,9 +705,6 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 	units_container.add_child(u)
 	return u
 
-func _spawn_building(pos: Vector2, team: int) -> void:
-	_spawn_building_by_id("hq", pos, team)
-
 func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 	var b = preload("res://scenes/building.tscn").instantiate()
 	var s: BuildingStats = GameManager.registry.get_building(bid)
@@ -1166,9 +1171,6 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 		return false
 	producer.enqueue_unit(uid, s.build_time)
 	return true
-
-func _player_build_structure(bid: String) -> void:
-	apply_command({"type": "build", "team": 0, "id": bid})
 
 func _enter_build_mode(bid: String) -> void:
 	pending_target_action = ""
@@ -2163,9 +2165,6 @@ func _rebuild_spatial_grid() -> void:
 			spatial_unit_nodes.append(u)
 	spatial_unit_grid = UnitVisual.build_spatial_grid(spatial_unit_positions)
 
-func _get_unit_positions() -> Array:
-	return spatial_unit_positions.duplicate()
-
 ## Units within `radius` of `center`, using the shared spatial grid. Combat,
 ## repair and turret callers ask for nodes; `_units_near` keeps the index API
 ## used by headless tests.
@@ -2269,7 +2268,7 @@ func _show_match_end(title: String, detail: String) -> void:
 			(score as Label).text = detail
 		victory_panel.visible = true
 	if is_instance_valid(status_label):
-		status_label.text = "%s | %s | Duration: %.1fs" % [title, detail, match_duration]
+		status_label.text = "%s | %s" % [title, detail]
 
 func _check_win():
 	if match_over:
@@ -2298,15 +2297,15 @@ func _check_win():
 			title = "SPECTATOR — " + title
 		else:
 			title = ("VICTORY — " if local_won else "DEFEAT — ") + title
-		var detail := "Score %d (Military %d + Economy %d) | Units %d | Buildings %d" % [
+		var detail := "Score %d (Military %d + Economy %d) | Units %d | Buildings %d | Duration %.1fs" % [
 			int(s["total"]), int(s["military"]), int(s["economic"]),
-			_get_team_units(winner).size(), _team_building_total(winner),
+			_get_team_units(winner).size(), _team_building_total(winner), elapsed_time,
 		]
 		_show_match_end(title, detail)
 		match_over = true
 		GameManager.end_match(winner)
 	elif alive_sides.is_empty() and all_sides.size() > 1:
-		_show_match_end("DRAW", "All production capacity destroyed")
+		_show_match_end("DRAW", "All production capacity destroyed | Duration %.1fs" % elapsed_time)
 		match_over = true
 		GameManager.end_match(-1)
 

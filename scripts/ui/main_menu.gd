@@ -14,6 +14,7 @@ const OPTIONS_COLUMN := "MenuPanel/Margin/VBox/Columns/OptionsColumn"
 @onready var spectator_btn = get_node_or_null("%s/SpectatorButton" % PLAY_COLUMN)
 @onready var spectator_faction_btn = get_node_or_null("%s/SpectatorFactionButton" % OPTIONS_COLUMN)
 @onready var map_btn = get_node_or_null("%s/MapButton" % OPTIONS_COLUMN)
+@onready var soundtrack_btn = get_node_or_null("%s/SoundtrackButton" % OPTIONS_COLUMN)
 @onready var host_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/HostButton
 @onready var join_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/JoinButton
 @onready var editor_btn = $MenuPanel/Margin/VBox/Columns/PlayColumn/EditorButton
@@ -44,6 +45,8 @@ func _ready():
 	spectator_faction_btn.pressed.connect(_on_cycle_spectator_faction)
 	if is_instance_valid(map_btn):
 		map_btn.pressed.connect(_on_cycle_map)
+	soundtrack_btn = _ensure_menu_button("SoundtrackButton", "Soundtrack: %s" % AudioManager.soundtrack_label(), options_column)
+	soundtrack_btn.pressed.connect(_on_cycle_soundtrack)
 	host_btn.pressed.connect(_on_host)
 	join_btn.pressed.connect(_on_join)
 	if is_instance_valid(editor_btn):
@@ -110,6 +113,8 @@ func _refresh_labels() -> void:
 		spectator_faction_btn.text = "AI Side B Corp: %s" % Faction.name_of(selected_spectator_faction)
 	if is_instance_valid(map_btn):
 		map_btn.text = "Map: %s" % MAP_OPTIONS[selected_map_type % MAP_OPTIONS.size()]
+	if is_instance_valid(soundtrack_btn):
+		soundtrack_btn.text = "Soundtrack: %s" % AudioManager.soundtrack_label(AudioManager.soundtrack)
 
 func _on_cycle_difficulty() -> void:
 	selected_difficulty = (selected_difficulty + 1) % 3
@@ -127,6 +132,12 @@ func _on_cycle_map() -> void:
 	# Browsing the menu must not change global match state; the skirmish
 	# handler pins the map type when the match actually starts.
 	selected_map_type = (selected_map_type + 1) % MAP_OPTIONS.size()
+	_refresh_labels()
+
+func _on_cycle_soundtrack() -> void:
+	# Persist through SettingsManager so the live stream, the next match and
+	# user://settings.cfg all agree on the selected faction bed.
+	SettingsManager.set_setting("soundtrack", AudioManager.next_soundtrack())
 	_refresh_labels()
 
 func _load_selected_map() -> Dictionary:

@@ -18,10 +18,6 @@ func accept(peer_id: int, seq: int) -> bool:
 	_next[peer_id] = seq + 1
 	return true
 
-## Next sequence number a local sender should use for `peer_id` (self = 0).
-func next_seq(peer_id: int) -> int:
-	return int(_next.get(peer_id, 0))
-
 ## Reserve/advance the local counter without validation (sender side).
 func advance(peer_id: int) -> int:
 	var n := int(_next.get(peer_id, 0))
@@ -30,9 +26,6 @@ func advance(peer_id: int) -> int:
 
 func expected(peer_id: int) -> int:
 	return int(_next.get(peer_id, 0))
-
-func forget(peer_id: int) -> void:
-	_next.erase(peer_id)
 
 func clear() -> void:
 	_next.clear()

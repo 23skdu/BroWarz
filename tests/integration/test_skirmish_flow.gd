@@ -12,6 +12,9 @@ func test_main_menu_skirmish_button_is_wired():
 	assert_true(spectator.is_connected("pressed", Callable(menu, "_on_spectator")))
 	var spectator_faction: Button = menu.get_node("MenuPanel/Margin/VBox/Columns/OptionsColumn/SpectatorFactionButton")
 	assert_true(spectator_faction.is_connected("pressed", Callable(menu, "_on_cycle_spectator_faction")))
+	var soundtrack: Button = menu.get_node("MenuPanel/Margin/VBox/Columns/OptionsColumn/SoundtrackButton")
+	assert_true(soundtrack.is_connected("pressed", Callable(menu, "_on_cycle_soundtrack")))
+	assert_true(soundtrack.text.contains(AudioManager.soundtrack_label(AudioManager.soundtrack)))
 	var logo: TextureRect = menu.get_node("Logo")
 	assert_not_null(logo.texture)
 	var backdrop: TextureRect = menu.get_node("CamoBackground")
@@ -36,7 +39,7 @@ func test_main_menu_match_options_are_grouped_together():
 	var menu := preload("res://scenes/main_menu.tscn").instantiate()
 	add_child_autofree(menu)
 	var options: VBoxContainer = menu.get_node("MenuPanel/Margin/VBox/Columns/OptionsColumn")
-	for node_name in ["DifficultyButton", "FactionButton", "SpectatorFactionButton", "MapButton", "SettingsButton", "ReplayButton"]:
+	for node_name in ["DifficultyButton", "FactionButton", "SpectatorFactionButton", "MapButton", "SoundtrackButton", "SettingsButton", "ReplayButton"]:
 		assert_not_null(options.get_node_or_null(node_name))
 
 func test_main_menu_spectator_faction_selectors_change_both_ai_sides():
@@ -288,3 +291,28 @@ func test_spectator_runs_both_ai_teams():
 	assert_gt(_queued_units(1), before_b)
 	assert_gt(game._get_team_units(0).size(), 0)
 	assert_gt(game._get_team_units(1).size(), 0)
+
+func test_game_scene_detaches_from_network_manager_on_exit():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(16, 16), 0, 1, 2)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child(game)
+	assert_eq(NetworkManager.game_node, game)
+	game.free()
+	assert_null(NetworkManager.game_node)
+
+func test_begin_net_session_clears_stale_team_economies():
+	var saved := {
+		"wallets": ResourceManager.wallets.duplicate(true),
+		"base_rates": ResourceManager.base_rates.duplicate(true),
+		"rates": ResourceManager.rates.duplicate(true),
+		"caps": ResourceManager.caps.duplicate(true),
+		"power_efficiency": ResourceManager.power_efficiency.duplicate(true),
+	}
+	ResourceManager.init_player(3, {Economy.Res.OIL: 999})
+	assert_true(ResourceManager.wallets.has(3))
+	GameManager.begin_net_session()
+	assert_false(ResourceManager.wallets.has(3))
+	assert_eq(ResourceManager.wallets.size(), 0)
+	assert_eq(ResourceManager.rates.size(), 0)
+	for key in saved.keys():
+		ResourceManager.set(key, saved[key])

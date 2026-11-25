@@ -42,7 +42,7 @@ MACOS_DIR     ?= $(BUILD_DIR)/macos
 ANDROID_DIR   ?= $(BUILD_DIR)/android
 IOS_DIR       ?= $(BUILD_DIR)/ios
 
-PYTHON_SCRIPTS := scripts/check_bg.py scripts/remove_bg.py scripts/check_coverage.py scripts/check_deadcode.py scripts/check_fuzz_coverage.py scripts/serve_web.py tests/python/test_scripts.py
+PYTHON_SCRIPTS := scripts/check_bg.py scripts/check_coverage.py scripts/check_deadcode.py scripts/check_fuzz_coverage.py scripts/serve_web.py tests/python/test_scripts.py
 GUT_ORPHAN_GUARD := res://scripts/testing/gut_orphan_guard.gd
 
 .PHONY: all help ci check check-godot deps deps-python install-gut templates install-templates build-info prep-build import run editor lsp \

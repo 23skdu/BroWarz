@@ -180,6 +180,15 @@ layout_mode = 2
 placeholder_text = "Lobby passcode (optional)"
 secret = true
 
+[node name="AudioHeading" type="Label" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "AUDIO"
+horizontal_alignment = 1
+
+[node name="SoundtrackButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "Soundtrack: AeroDyne Industries — Dominion of the Skies"
+
 [node name="ToolsHeading" type="Label" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
 layout_mode = 2
 text = "TOOLS"

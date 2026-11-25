@@ -10,7 +10,6 @@ const PROTOCOL_VERSION: int = 1
 const MIN_NAME_LENGTH: int = 2
 const MAX_NAME_LENGTH: int = 24
 const MAX_ADDRESS_LENGTH: int = 253
-const MAX_TOKEN_LENGTH: int = 64
 const MAX_CMD_IDS: int = 256
 const MAX_SEQ: int = 1000000000
 const MAX_COORD: float = 4096.0
