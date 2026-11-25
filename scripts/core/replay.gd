@@ -2,6 +2,7 @@
 class_name Replay
 extends RefCounted
 
+@warning_ignore("shadowed_global_identifier")
 var seed: int = 0
 var map_name: String = ""
 var commands: Array = []  # Array of validated Command.to_dict()
@@ -30,7 +31,7 @@ static func is_valid_command(raw: Variant) -> bool:
 	var tickv: Variant = c.get("tick", -1)
 	if not ((tv is int) or (tv is float)) or not ((tickv is int) or (tickv is float)):
 		return false
-	if int(c["type"]) < 0 or int(c["type"]) > Command.Type.DIPLOMACY:
+	if int(c["type"]) < 0 or int(c["type"]) > Command.Type.SONAR_BUOY:
 		return false
 	if int(c["tick"]) < 0:
 		return false

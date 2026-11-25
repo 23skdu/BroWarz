@@ -37,6 +37,12 @@ func test_sanitize_settings_clamps():
 	assert_eq(coop["human_faction"], 3)
 	assert_eq(coop["ai_difficulty"], 2)
 	assert_eq(coop["ai_faction"], 0)
+	var npc_coop := NetSecurity.sanitize_settings({
+		"coop_vs_ai": true, "human_faction": Faction.Id.VESPER, "ai_faction": Faction.Id.LUMEN,
+	})
+	assert_eq(npc_coop["human_faction"], 3, "human_faction must remain capped at 0..3")
+	assert_eq(npc_coop["ai_faction"], Faction.Id.LUMEN, "ai_faction may select NPC factions 4..7")
+	assert_eq(NetSecurity.sanitize_settings({"ai_faction": 99})["ai_faction"], 7)
 
 func test_sanitize_command_move():
 	var c := NetSecurity.sanitize_command({"type": "move", "seq": 5, "unit_ids": [1, 2], "target_x": 10.0, "target_y": 20.0, "attack_move": true})
@@ -68,6 +74,23 @@ func test_sanitize_capture_and_demolish_commands():
 	assert_false(demo.is_empty())
 	assert_eq(demo["x"], 20.0)
 	assert_eq(demo["y"], 30.0)
+
+func test_sanitize_sonar_buoy_command():
+	var cmd := NetSecurity.sanitize_command({
+		"type": "sonar_buoy", "seq": 13, "unit_ids": [7],
+		"target_x": 240.0, "target_y": 480.0,
+	})
+	assert_false(cmd.is_empty())
+	assert_eq(cmd["unit_ids"].size(), 1)
+	assert_eq(cmd["x"], 240.0)
+	assert_eq(cmd["y"], 480.0)
+	assert_true(NetSecurity.sanitize_command({
+		"type": "sonar_buoy", "seq": 14, "unit_ids": [],
+		"target_x": 240.0, "target_y": 480.0,
+	}).is_empty())
+	assert_true(NetSecurity.sanitize_command({
+		"type": "sonar_buoy", "seq": 15, "unit_ids": [7],
+	}).is_empty())
 
 func test_sanitize_diplomacy_command():
 	var cmd := NetSecurity.sanitize_command({

@@ -12,8 +12,8 @@ var _next: Dictionary = {}  # peer_id -> int (next acceptable seq)
 func accept(peer_id: int, seq: int) -> bool:
 	if seq < 0:
 		return false
-	var expected := int(_next.get(peer_id, 0))
-	if seq < expected:
+	var exp_seq := int(_next.get(peer_id, 0))
+	if seq < exp_seq:
 		return false
 	_next[peer_id] = seq + 1
 	return true

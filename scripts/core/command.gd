@@ -5,7 +5,7 @@ extends RefCounted
 enum Type {
 	MOVE, ATTACK, ATTACK_MOVE, BUILD, STOP, PATROL, HOLD,
 	TRAIN, FORTIFY, EMBARK, DISEMBARK, TECH, ORBITAL, NUKE,
-	CAPTURE, DEMOLISH, DIPLOMACY,
+	CAPTURE, DEMOLISH, DIPLOMACY, SONAR_BUOY,
 }
 
 var type: Type = Type.MOVE
@@ -29,7 +29,7 @@ func to_dict() -> Dictionary:
 
 static func from_dict(d: Dictionary) -> Command:
 	var c := Command.new()
-	c.type = int(d.get("type", 0))
+	c.type = int(d.get("type", 0)) as Type
 	c.tick = int(d.get("tick", 0))
 	c.player_id = int(d.get("player_id", 0))
 	var arr: Array = d.get("unit_ids", [])

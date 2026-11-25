@@ -74,6 +74,21 @@ static func unit_role_multiplier(attacker_id: String, target_armor: int) -> floa
 		"siege_mech", "artillery":
 			if target_armor == ArmorClass.STRUCTURE:
 				return 1.6
+		"ufo_talon":
+			if target_armor == ArmorClass.AIR:
+				return 1.4
+		"ufo_nova":
+			if target_armor == ArmorClass.STRUCTURE or target_armor == ArmorClass.HEAVY:
+				return 1.35
+		"abyssal_trireme":
+			if target_armor == ArmorClass.NAVAL or target_armor == ArmorClass.SUBMERGED:
+				return 1.35
+		"lichen_colossus":
+			if target_armor == ArmorClass.STRUCTURE:
+				return 1.35
+		"lumen_enforcer":
+			if target_armor == ArmorClass.MEDIUM or target_armor == ArmorClass.HEAVY:
+				return 1.3
 	return 1.0
 
 static func compute_for_unit(attacker_id: String, base_damage: float, damage_type: DamageType, armor_class: ArmorClass, armor_reduction: float = 0.0, cover_modifier: float = 1.0) -> float:

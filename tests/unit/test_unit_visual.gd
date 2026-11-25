@@ -72,3 +72,25 @@ func test_500_unit_lod_cache_and_spatial_hash():
 	var nearby := UnitVisual.query_spatial_radius(grid, positions, Vector2(64, 64), 80.0, 128.0)
 	assert_true(nearby.size() > 0 and nearby.size() < 40)
 
+func test_npc_unique_unit_sprites_render_distinctly():
+	var reg := UnitRegistry.new()
+	reg.populate_defaults()
+	var hashes: Dictionary = {}
+	for fac_id in Faction.npc_ids():
+		var col := Faction.color_of(fac_id)
+		for uid in reg.units_for_faction(fac_id):
+			var s := reg.get_unit(str(uid))
+			var img := UnitVisual.build_unit_frame_image(s.unit_class, UnitVisual.AnimState.IDLE, 0, col, 48, str(uid))
+			assert_eq(img.get_width(), 48)
+			assert_eq(img.get_height(), 48)
+			var opaque := 0
+			for y in range(48):
+				for x in range(48):
+					if img.get_pixel(x, y).a > 0.0:
+						opaque += 1
+			assert_gt(opaque, 80, "%s should have substantial pixel geometry" % str(uid))
+			var key := img.get_data().hex_encode()
+			assert_false(hashes.has(key), "%s must have a unique sprite" % str(uid))
+			hashes[key] = str(uid)
+			assert_true(ResourceLoader.exists("res://docs/thumbnails/%s_f%d.png" % [str(uid), fac_id]))
+

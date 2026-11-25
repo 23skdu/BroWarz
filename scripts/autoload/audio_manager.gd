@@ -24,8 +24,31 @@ const SOUNDTRACKS := {
 		"label": "Vanguard Robotics — Unseen, Unstoppable",
 		"theme": "Sparse whole-tone stabs, radar ticks and a covert sub drone.",
 	},
+	"vesper": {
+		"faction": 4,
+		"label": "Vesper Ascendancy — Dominion begins above.",
+		"theme": "Lydian stratospheric saucer hum, cosmic arpeggios and vibrato theremin.",
+	},
+	"thalassa": {
+		"faction": 5,
+		"label": "Thalassa Dominion — The sea remembers its masters.",
+		"theme": "Deep D-dorian abyssal brass swells, ocean pulse and sunken temple bells.",
+	},
+	"gravebound": {
+		"faction": 6,
+		"label": "Gravebound Legion — The fallen still march.",
+		"theme": "Heavy C-phrygian funeral march, crypt organ fifths and bone-rattle percussion.",
+	},
+	"lumen": {
+		"faction": 7,
+		"label": "Lumen Cabal — We saw you coming.",
+		"theme": "Cryptic A harmonic-minor baroque plucks, veiled choir pad and clockwork ticks.",
+	},
 }
-const SOUNDTRACK_ORDER := ["aerodyne", "ferrocore", "pelagic", "vanguard"]
+const SOUNDTRACK_ORDER := [
+	"aerodyne", "ferrocore", "pelagic", "vanguard",
+	"vesper", "thalassa", "gravebound", "lumen",
+]
 const DEFAULT_SOUNDTRACK := "aerodyne"
 const LOGICAL_TRACKS := ["menu", "battle"]
 
@@ -53,23 +76,27 @@ const SFX_ALIASES := {
 	"eel_hazard": "eel",
 }
 
-static func has_soundtrack(id: String) -> bool:
+func has_soundtrack(id: String) -> bool:
 	return SOUNDTRACKS.has(id)
 
-static func soundtrack_label(id: String = "") -> String:
+func soundtrack_label(id: String = "") -> String:
 	var key := id if id != "" else DEFAULT_SOUNDTRACK
 	var entry: Dictionary = SOUNDTRACKS.get(key, SOUNDTRACKS[DEFAULT_SOUNDTRACK])
 	return String(entry["label"])
 
-static func soundtrack_theme(id: String = "") -> String:
+func soundtrack_theme(id: String = "") -> String:
 	var key := id if id != "" else DEFAULT_SOUNDTRACK
 	var entry: Dictionary = SOUNDTRACKS.get(key, SOUNDTRACKS[DEFAULT_SOUNDTRACK])
 	return String(entry["theme"])
 
-static func soundtrack_faction(id: String = "") -> int:
+func soundtrack_faction(id: String = "") -> int:
 	var key := id if id != "" else DEFAULT_SOUNDTRACK
 	var entry: Dictionary = SOUNDTRACKS.get(key, SOUNDTRACKS[DEFAULT_SOUNDTRACK])
 	return int(entry["faction"])
+
+func soundtrack_for_faction(faction_id: int) -> String:
+	var key := Faction.theme_key(faction_id)
+	return key if SOUNDTRACKS.has(key) else DEFAULT_SOUNDTRACK
 
 func next_soundtrack() -> String:
 	var index := SOUNDTRACK_ORDER.find(soundtrack)

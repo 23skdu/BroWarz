@@ -13,6 +13,7 @@ extends Resource
 @export var produces: String = ""  # unit id
 @export var build_time: float = 10.0
 @export var is_hq: bool = false
+@export var radar_range: float = 0.0  # px; >0 marks a limited-range early-warning building
 
 func cost_dict() -> Dictionary:
 	return {"oil": cost_oil, "iron": cost_iron, "geo": cost_geo, "food": cost_food}

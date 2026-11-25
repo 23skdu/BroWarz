@@ -33,9 +33,11 @@ var team_difficulties: Dictionary = {}
 var is_spectator: bool = false
 
 func faction_for_team(team: int) -> int:
+	var max_id := 7 if is_ai_team(team) else 3
 	if team_factions.has(team):
-		return clampi(int(team_factions[team]), 0, 3)
-	return player_faction if team == 0 else ai_faction
+		return clampi(int(team_factions[team]), 0, max_id)
+	var fallback := player_faction if team == 0 else ai_faction
+	return clampi(fallback, 0, max_id)
 
 func difficulty_for_team(team: int) -> int:
 	if team_difficulties.has(team):
@@ -119,8 +121,8 @@ func start_single_player(difficulty: int = 1, map: MapData = null, p_faction: in
 	# map-editor session or from merely browsing the main-menu map button.
 	map_type = clampi(map_type_value, 0, 3)
 	ai_difficulty = clampi(difficulty, 0, 2)
-	player_faction = p_faction
-	ai_faction = e_faction
+	player_faction = clampi(p_faction, 0, 3)
+	ai_faction = clampi(e_faction, 0, 7)
 	teams = [0, 1]
 	local_team = 0
 	fog_enabled = true
@@ -147,8 +149,8 @@ func start_spectator(
 	match_mode = Mode.SPECTATOR
 	map_type = clampi(map_type_value, 0, 3)
 	ai_difficulty = clampi(difficulty, 0, 2)
-	player_faction = clampi(faction_a, 0, 3)
-	ai_faction = clampi(faction_b, 0, 3)
+	player_faction = clampi(faction_a, 0, 7)
+	ai_faction = clampi(faction_b, 0, 7)
 	team_factions = {0: player_faction, 1: ai_faction}
 	team_difficulties = {0: ai_difficulty, 1: ai_difficulty}
 	ai_enabled = true
@@ -215,15 +217,16 @@ func stage_net_match(
 	for key in match_factions.keys():
 		var fac_team := Alliance.team_id(key)
 		if fac_team >= 0:
-			team_factions[fac_team] = clampi(int(match_factions[key]), 0, 3)
+			var max_fac := 7 if (ai_enabled and ai_teams.has(fac_team)) else 3
+			team_factions[fac_team] = clampi(int(match_factions[key]), 0, max_fac)
 	team_difficulties = {}
 	for key in match_difficulties.keys():
 		var diff_team := Alliance.team_id(key)
 		if diff_team >= 0:
 			team_difficulties[diff_team] = clampi(int(match_difficulties[key]), 0, 2)
 	ai_difficulty = clampi(team_difficulties.get(ai_teams[0] if not ai_teams.is_empty() else 1, 1), 0, 2)
-	player_faction = team_factions.get(0, player_faction)
-	ai_faction = team_factions.get(1, ai_faction)
+	player_faction = clampi(int(team_factions.get(0, player_faction)), 0, 7 if (ai_enabled and ai_teams.has(0)) else 3)
+	ai_faction = clampi(int(team_factions.get(1, ai_faction)), 0, 7 if (ai_enabled and ai_teams.has(1)) else 3)
 	is_spectator = false
 
 ## Fresh per-match state: net ids and fortification blocks must not leak

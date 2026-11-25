@@ -152,11 +152,15 @@ text = "AI Difficulty: Normal"
 
 [node name="FactionButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
 layout_mode = 2
-text = "Corporation: AeroDyne Industries"
+text = "Your Corp: AeroDyne Industries"
+
+[node name="SpectatorSideAFactionButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
+layout_mode = 2
+text = "Spectator AI Side A: AeroDyne Industries"
 
 [node name="SpectatorFactionButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
 layout_mode = 2
-text = "AI Side B Corp: Vanguard"
+text = "AI Opponent / Side B: Vanguard Robotics"
 
 [node name="MapButton" type="Button" parent="MenuPanel/Margin/VBox/Columns/OptionsColumn"]
 layout_mode = 2

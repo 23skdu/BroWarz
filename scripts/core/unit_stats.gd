@@ -19,6 +19,11 @@ extends Resource
 @export var unit_class: int = 0 # 0 infantry 1 vehicle 2 naval 3 air
 @export var stealth: bool = false
 @export var can_build: bool = false
+## AI-only hulls belong to the four non-player factions (4-7). They stay in
+## the shared registry so saves/replays and combat code can resolve them, but
+## human teams must never be able to train them.
+@export var ai_only: bool = false
+@export var native_faction: int = -1
 
 func cost_dict() -> Dictionary:
 	return {"oil": cost_oil, "iron": cost_iron, "geo": cost_geo, "food": cost_food}

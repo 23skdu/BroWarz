@@ -7,18 +7,21 @@ extends AcceptDialog
 
 signal research_selected(node_id: String)
 
+var _tech_tree: VBoxContainer = null
+
 func populate(unlocked: Array, wallet: Dictionary, has_lab: bool = false) -> void:
 	title = "Research Tree"
 	get_ok_button().text = "Close"
-	for child in get_children():
-		if child is Control and child != get_ok_button():
-			child.remove_child(child)
-			child.queue_free()
+	if _tech_tree != null and is_instance_valid(_tech_tree):
+		remove_child(_tech_tree)
+		_tech_tree.free()
+		_tech_tree = null
 	var vbox := VBoxContainer.new()
 	vbox.name = "TechTree"
 	vbox.custom_minimum_size = Vector2(560, 0)
 	vbox.add_theme_constant_override("separation", 6)
 	add_child(vbox)
+	_tech_tree = vbox
 
 	var header := Label.new()
 	header.text = "Research Lab: %s" % ("ONLINE" if has_lab else "REQUIRED — build one to unlock research")

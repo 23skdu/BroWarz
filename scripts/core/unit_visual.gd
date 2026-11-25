@@ -594,6 +594,195 @@ static func _draw_detailed_unit(
 			_fill_circle(img, c - 1, c, 11, outline)
 			_fill_circle(img, c - 1, c, 9, bright)
 			_fill_rect(img, c - 9, c - 2, 16, 4, trim)
+		# --- AI-only NPC faction hulls (IDs 4-7) ---
+		"ufo_wisp":
+			# Vesper Ascendancy: agile scout saucer with luminous lime rim & sensor dome
+			var alien_glow := Color(0.78, 1.0, 0.31, 1.0)
+			_fill_circle(img, c, c, 14, outline)
+			_fill_circle(img, c, c, 12, dark)
+			_fill_circle(img, c, c, 9, mid)
+			_fill_circle(img, c + 1, c, 5, bright)
+			_fill_circle(img, c + 1, c, 3, alien_glow)
+			# Orbital sensor nodes around the saucer rim
+			for pt in [Vector2i(10, 0), Vector2i(-10, 0), Vector2i(0, -10), Vector2i(0, 10)]:
+				_fill_rect(img, c + pt.x - 1, c + pt.y - 1, 3, 3, alien_glow)
+			_fill_rect(img, c + 10 - recoil, c - 1, 6, 2, trim)
+		"ufo_talon":
+			# Vesper Ascendancy: swept crescent-wing interceptor saucer with twin plasma prongs
+			var alien_glow := Color(0.78, 1.0, 0.31, 1.0)
+			_fill_circle(img, c - 2, c, 13, outline)
+			_fill_rect(img, c - 6, c - 18, 18, 7, outline)
+			_fill_rect(img, c - 6, c + 11, 18, 7, outline)
+			_fill_rect(img, c + 6 - recoil, c - 16, 13, 5, outline)
+			_fill_rect(img, c + 6 - recoil, c + 11, 13, 5, outline)
+			_fill_circle(img, c - 2, c, 11, dark)
+			_fill_rect(img, c - 4, c - 16, 14, 4, mid)
+			_fill_rect(img, c - 4, c + 12, 14, 4, mid)
+			_fill_rect(img, c + 7 - recoil, c - 15, 10, 3, alien_glow)
+			_fill_rect(img, c + 7 - recoil, c + 12, 10, 3, alien_glow)
+			_fill_circle(img, c - 1, c, 7, mid)
+			_fill_circle(img, c, c, 4, bright)
+			_fill_circle(img, c + 1, c, 2, alien_glow)
+		"ufo_nova":
+			# Vesper Ascendancy: massive ringed dreadnought saucer with 4 outer pylons & plasma core
+			var alien_glow := Color(0.78, 1.0, 0.31, 1.0)
+			_fill_circle(img, c, c, 20, outline)
+			_fill_circle(img, c, c, 18, dark)
+			_fill_circle(img, c, c, 15, mid)
+			_fill_circle(img, c, c, 11, dark)
+			_fill_circle(img, c, c, 9, bright)
+			_fill_circle(img, c, c, 5, alien_glow)
+			_fill_circle(img, c, c, 2, Color(1.0, 1.0, 0.92, 1.0))
+			for px in [-15, 13]:
+				_fill_rect(img, c + px, c - 3, 3, 6, trim)
+			for py in [-15, 13]:
+				_fill_rect(img, c - 3, c + py, 6, 3, trim)
+			_fill_rect(img, c + 11 - recoil, c - 5, 10, 3, alien_glow)
+			_fill_rect(img, c + 11 - recoil, c + 2, 10, 3, alien_glow)
+		"abyssal_trireme":
+			# Thalassa Dominion: armored Atlantean prow-ram warship with outrigger hydrofoils
+			var aqua := Color(0.39, 1.0, 0.88, 1.0)
+			_fill_rect(img, c - 20, c - 10, 38, 20, outline)
+			_fill_rect(img, c - 8, c - 16, 16, 32, outline)
+			_fill_rect(img, c + 14, c - 4, 9, 8, outline)
+			_fill_rect(img, c - 18, c - 8, 34, 16, dark)
+			_fill_rect(img, c - 6, c - 14, 12, 28, mid)
+			_fill_rect(img, c - 14, c - 5, 26, 10, mid)
+			_fill_rect(img, c + 12, c - 2, 10, 4, aqua)
+			_fill_circle(img, c - 2, c, 5, bright)
+			_fill_rect(img, c - 10, c - 14, 6, 3, aqua)
+			_fill_rect(img, c - 10, c + 11, 6, 3, aqua)
+			_fill_rect(img, c + 4 - recoil, c - 4, 12, 2, steel)
+			_fill_rect(img, c + 4 - recoil, c + 2, 12, 2, steel)
+		"leviathan_carrier":
+			# Thalassa Dominion: twin-hulled Atlantean catamaran capital carrier with rune flight deck
+			var aqua := Color(0.39, 1.0, 0.88, 1.0)
+			_fill_rect(img, c - 22, c - 15, 44, 30, outline)
+			_fill_rect(img, c - 20, c - 13, 40, 7, dark)
+			_fill_rect(img, c - 20, c + 6, 40, 7, dark)
+			_fill_rect(img, c - 18, c - 11, 36, 4, mid)
+			_fill_rect(img, c - 18, c + 7, 36, 4, mid)
+			_fill_rect(img, c - 16, c - 6, 32, 12, gunmetal)
+			# Glowing Atlantean trident launch runes on deck
+			_fill_rect(img, c - 12, c - 1, 24, 2, aqua)
+			_fill_rect(img, c + 4, c - 4, 6, 2, aqua)
+			_fill_rect(img, c + 4, c + 2, 6, 2, aqua)
+			_fill_rect(img, c - 14, c - 5, 7, 10, bright)
+			_fill_rect(img, c - 12, c - 3, 3, 6, trim)
+		"nereid_raider":
+			# Thalassa Dominion: razor-fast Atlantean hydro-dart skiff with swept fins
+			var aqua := Color(0.39, 1.0, 0.88, 1.0)
+			_fill_rect(img, c - 17, c - 6, 34, 12, outline)
+			_fill_rect(img, c - 14, c - 13, 12, 26, outline)
+			_fill_rect(img, c - 15, c - 4, 30, 8, dark)
+			_fill_rect(img, c - 12, c - 11, 8, 22, mid)
+			_fill_rect(img, c - 8, c - 3, 22, 6, bright)
+			_fill_rect(img, c + 8 - recoil, c - 1, 11, 2, aqua)
+			_fill_rect(img, c - 12, c - 10, 4, 3, aqua)
+			_fill_rect(img, c - 12, c + 7, 4, 3, aqua)
+		"bone_legionary":
+			# Gravebound Legion: skeletal line soldier with skull helm, bone shield & glaive
+			var bone := Color(0.85, 0.79, 0.64, 1.0)
+			_fill_rect(img, c - 9, c - 13, 18, 26, outline)
+			_fill_rect(img, c - 6 + leg_shift, c - 14, 7, 4, bone)
+			_fill_rect(img, c - 6 - leg_shift, c + 10, 7, 4, bone)
+			_fill_rect(img, c - 7, c - 10, 13, 20, dark)
+			# Ribbed skeletal armor bars
+			for ry in [-7, -2, 3]:
+				_fill_rect(img, c - 5, c + ry, 9, 2, bone)
+			# Left-flank tower shield
+			_fill_rect(img, c - 1, c - 14, 12, 6, outline)
+			_fill_rect(img, c, c - 13, 10, 4, mid)
+			_fill_rect(img, c + 2, c - 12, 6, 2, bone)
+			# Skull helmet with glowing olive visor eyes
+			_fill_circle(img, c, c, 6, outline)
+			_fill_circle(img, c, c, 5, bone)
+			_fill_rect(img, c + 2, c - 3, 2, 2, bright)
+			_fill_rect(img, c + 2, c + 1, 2, 2, bright)
+			# Bone glaive rifle
+			_fill_rect(img, c + 2 - recoil, c + 4, 18, 4, outline)
+			_fill_rect(img, c + 3 - recoil, c + 5, 16, 2, bone)
+		"ghoul_stalker":
+			# Gravebound Legion: hunched undead stalker with dorsal bone spikes & toxic claws
+			var bone := Color(0.85, 0.79, 0.64, 1.0)
+			_fill_rect(img, c - 11, c - 11, 20, 22, outline)
+			_fill_rect(img, c - 9, c - 9, 16, 18, dark)
+			_fill_rect(img, c - 7, c - 5, 12, 10, mid)
+			# Dorsal spine ridges
+			for sx in [-8, -4, 0]:
+				_fill_rect(img, c + sx, c - 2, 2, 4, bone)
+			_fill_circle(img, c + 3, c, 5, bone)
+			_fill_rect(img, c + 5, c - 2, 2, 4, bright)
+			# Twin toxic scythe-blades
+			_fill_rect(img, c + 4 - recoil, c - 12, 16, 4, outline)
+			_fill_rect(img, c + 5 - recoil, c - 11, 14, 2, bright)
+			_fill_rect(img, c + 4 - recoil, c + 8, 16, 4, outline)
+			_fill_rect(img, c + 5 - recoil, c + 9, 14, 2, bright)
+		"lichen_colossus":
+			# Gravebound Legion: colossal ossuary siege juggernaut with mossy pauldrons & furnace core
+			var bone := Color(0.85, 0.79, 0.64, 1.0)
+			_fill_rect(img, c - 17, c - 19, 34, 38, outline)
+			_fill_rect(img, c - 11 + leg_shift, c - 20, 12, 5, tread)
+			_fill_rect(img, c - 11 - leg_shift, c + 15, 12, 5, tread)
+			_fill_rect(img, c - 15, c - 16, 28, 32, dark)
+			_fill_rect(img, c - 12, c - 14, 22, 28, mid)
+			# Bone rib pauldrons
+			_fill_rect(img, c - 10, c - 15, 14, 5, bone)
+			_fill_rect(img, c - 10, c + 10, 14, 5, bone)
+			# Glowing necrotic core
+			_fill_circle(img, c - 1, c, 7, outline)
+			_fill_circle(img, c - 1, c, 5, bright)
+			_fill_circle(img, c - 1, c, 2, trim)
+			# Giant siege maul + mortar arm
+			_fill_rect(img, c + 6 - recoil, c - 12, 16, 6, outline)
+			_fill_rect(img, c + 7 - recoil, c - 11, 14, 4, bone)
+			_fill_rect(img, c + 6 - recoil, c + 6, 16, 6, outline)
+			_fill_rect(img, c + 7 - recoil, c + 7, 14, 4, gunmetal)
+		"lumen_operative":
+			# Lumen Cabal: hooded gold-trimmed infiltrator with glowing violet psi-blades
+			var violet := Color(0.61, 0.48, 1.0, 1.0)
+			_fill_rect(img, c - 10, c - 13, 20, 26, outline)
+			_fill_rect(img, c - 8, c - 11, 16, 22, dark)
+			_fill_rect(img, c - 6, c - 9, 12, 18, mid)
+			_fill_rect(img, c - 8, c - 11, 4, 22, violet)
+			# Shrouded cowl with single radiant eye
+			_fill_circle(img, c + 1, c, 6, outline)
+			_fill_circle(img, c + 1, c, 5, dark)
+			_fill_circle(img, c + 3, c, 2, bright)
+			# Twin violet energy blades
+			_fill_rect(img, c + 4 - recoil, c - 9, 15, 3, violet)
+			_fill_rect(img, c + 4 - recoil, c + 6, 15, 3, violet)
+		"lumen_oracle":
+			# Lumen Cabal: floating gilded All-Seeing Eye construct with cardinal obelisks
+			var violet := Color(0.61, 0.48, 1.0, 1.0)
+			_fill_circle(img, c, c, 15, outline)
+			_fill_circle(img, c, c, 13, dark)
+			_fill_rect(img, c - 10, c - 10, 20, 20, mid)
+			# All-seeing central eye
+			_fill_circle(img, c, c, 8, outline)
+			_fill_circle(img, c, c, 7, Color(0.98, 0.96, 0.88, 1.0))
+			_fill_circle(img, c + 1, c, 4, violet)
+			_fill_circle(img, c + 2, c, 2, outline)
+			# Four floating cardinal obelisk pylons
+			for pt in [Vector2i(0, -18), Vector2i(0, 16), Vector2i(-18, 0), Vector2i(16, 0)]:
+				_fill_rect(img, c + pt.x - 2, c + pt.y - 2, 5, 5, outline)
+				_fill_rect(img, c + pt.x - 1, c + pt.y - 1, 3, 3, bright)
+		"lumen_enforcer":
+			# Lumen Cabal: heavy gilded pyramid-turret shock enforcer with twin energy lances
+			var violet := Color(0.61, 0.48, 1.0, 1.0)
+			_fill_rect(img, c - 19, c - 15, 38, 30, outline)
+			_fill_rect(img, c - 17, c - 14, 34, 5, tread)
+			_fill_rect(img, c - 17, c + 9, 34, 5, tread)
+			_fill_rect(img, c - 15, c - 9, 30, 18, dark)
+			_fill_rect(img, c - 12, c - 7, 24, 14, mid)
+			_fill_rect(img, c - 10, c - 5, 6, 10, violet)
+			# Pyramid turret cap with radiant eye
+			_fill_rect(img, c - 6 - recoil, c - 6, 13, 12, outline)
+			_fill_rect(img, c - 5 - recoil, c - 5, 11, 10, bright)
+			_fill_circle(img, c - recoil, c, 3, violet)
+			# Twin golden energy lances
+			_fill_rect(img, c + 6 - recoil, c - 6, 16, 3, trim)
+			_fill_rect(img, c + 6 - recoil, c + 3, 16, 3, trim)
 		_:
 			return false
 	return true

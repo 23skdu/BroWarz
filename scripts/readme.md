@@ -4,7 +4,7 @@ This directory contains every runtime, tool, and verification script in the proj
 
 ## Autoloads (`scripts/autoload/`)
 
-- `audio_manager.gd` — Plays looping music and SFX, maps logical `menu`/`battle` cues to the selected faction soundtrack, resolves SFX aliases, and applies persisted volume/mute settings.
+- `audio_manager.gd` — Plays looping music and SFX, maps logical `menu`/`battle` cues to the selected faction soundtrack (including the four AI-only NPC theme WAVs listed in [`../docs/npc.md`](../docs/npc.md)), resolves SFX aliases, and applies persisted volume/mute settings.
 - `game_manager.gd` — Holds global match state (mode, map, teams, factions, AI, alliances, clouds) and allocates network IDs and fortification movement blocks.
 - `network_manager.gd` — Secure P2P session manager: lobby handshake, host-authoritative command validation and relay, rate limiting, anti-replay, disconnect grace, host migration, WebRTC transport, and checksums.
 - `resource_manager.gd` — Tracks per-player wallets, base/effective resource rates, population caps, and power efficiency; runs economy ticks.
@@ -15,7 +15,8 @@ This directory contains every runtime, tool, and verification script in the proj
 
 - `ai.gd` — Difficulty tables and heuristics for income, targeting, army composition, production, and tactical decisions.
 - `alliance.gd` — Normalizes team adjacency graphs and handles alliance proposal states, connected sides, merging, and splitting.
-- `building_stats.gd` — Resource defining building identity, HP, costs, footprint, produced unit, build time, and HQ flag.
+- `building_stats.gd` — Resource defining building identity, HP, costs, footprint, produced unit, build time, HQ flag, and radar range.
+- `building_visual.gd` — Procedural faction-styled building sprite frames used for building thumbnails.
 - `command.gd` — Serialized lockstep command data (type, tick, player, unit IDs, target, build type) with equality support.
 - `cover.gd` — Terrain/unit-class attack and defense modifiers plus drifting cloud spawning, stepping, and containment checks.
 - `damage.gd` — Damage-type/armor multiplier matrix and helpers for computed, role-adjusted, and effective damage.
@@ -44,11 +45,12 @@ This directory contains every runtime, tool, and verification script in the proj
 - `score.gd` — Military, economic, and total score formulas.
 - `seq_guard.gd` — Per-peer monotonic sequence numbers that reject replayed or reordered commands.
 - `settings_store.gd` — Small in-memory key/value settings dictionary with `has`, `remove`, and dict round-trip.
+- `sonar_buoy.gd` — Corvette-deployed buoy data, lifetime and cooldown constants, and submerged-contact detection for owner/allies.
 - `stealth.gd` — Cloak-break conditions, cloak duration, and active cloak state.
 - `strategic.gd` — Nuke fallout radius, orbital laser damage, and fallout-creation checks.
 - `tech.gd` — Research tree with prerequisites, unlock state, affordability, and available-node queries.
 - `terrain_generator.gd` — Seeded desert, island, and forest `MapData` generator.
-- `unit_registry.gd` — Default unit/building stats and queries for transport, worker, builder, and producer capabilities.
+- `unit_registry.gd` — Default unit/building stats and queries for transport, worker, builder, producer, scout and sonar capabilities.
 - `unit_stats.gd` — Resource defining unit identity, HP, speed, armor/damage, range, sight, costs, class, stealth, and build ability.
 - `unit_visual.gd` — Procedural faction-styled sprite frames, terrain images, texture caching, LOD, and spatial-grid helpers.
 - `version_info.gd` — Thin accessor for application version and commit SHA from `ProjectSettings`/`build_info.json`.
@@ -67,16 +69,16 @@ This directory contains every runtime, tool, and verification script in the proj
 - `diplomacy_dialog.gd` — Views alliance state and sends host-authorized propose/cancel/accept/decline/break commands.
 - `lobby.gd` — P2P lobby UI showing players/settings and routing ready, start, settings, and leave actions through `NetworkManager`.
 - `main_menu.gd` — Skirmish/spectator/host/join/editor entry plus map, difficulty, faction, soundtrack, and tool selection.
-- `minimap.gd` — Corner tactical minimap rendering terrain and fog-aware blips while emitting camera-jump, move-order, and ping signals.
+- `minimap.gd` — Top-center tactical minimap rendering terrain and fog-aware blips while emitting camera-jump, move-order, and ping signals.
 - `replay_viewer.gd` — Loads a saved replay and scrubs/plays its validated command stream with readable command descriptions.
 - `research_dialog.gd` — Research-tree picker showing prerequisites, unlock state, and affordability; emits `research_selected`.
 - `settings_dialog.gd` — In-game settings dialog applying volume, soundtrack, mute, camera, UI-scale, and colorblind changes live.
 
 ## Tooling (`scripts/tools/`, `scripts/testing/`, and root scripts)
 
-- `tools/generate_audio.gd` — Deterministic headless generator for the six music loops (menu, battle, and four faction soundtracks) and five SFX WAVs.
+- `tools/generate_audio.gd` — Deterministic headless generator for the six music loops (menu, battle, and four faction soundtracks), the four AI-only NPC theme WAVs in `assets/music/`, and five SFX WAVs.
 - `tools/generate_map_thumbnails.gd` — Headless renderer for desert, islands, and forest terrain thumbnails.
-- `tools/generate_thumbnails.gd` — Headless renderer for four faction thumbnails per registered unit into `docs/thumbnails`.
+- `tools/generate_thumbnails.gd` — Headless renderer for four faction thumbnails per registered unit into `docs/thumbnails`, the 12 AI-only unique-unit thumbnails with native `_f4`–`_f7` suffixes, and per-building thumbnails into `docs/thumbnails/buildings`.
 - `run_tests.gd` — Legacy no-op SceneTree smoke script; GUT is the real test runner.
 - `run_tests.sh` — Legacy no-op shell smoke script kept for the `test-scripts` target.
 - `testing/gut_orphan_guard.gd` — GUT post-run hook that fails the test command when orphaned nodes remain.

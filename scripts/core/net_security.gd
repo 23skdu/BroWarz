@@ -17,7 +17,7 @@ const MIN_PLAYERS: int = 2
 const MAX_PLAYERS: int = 8
 const ALLOWED_COMMAND_TYPES: Array[String] = [
 	"move", "hold", "stop", "train", "build", "fortify", "tech", "laser", "nuke", "embark", "disembark",
-	"capture", "demolish", "diplomacy",
+	"capture", "demolish", "diplomacy", "sonar_buoy",
 ]
 const ALLOWED_TRANSPORTS: Array[String] = ["enet", "webrtc"]
 
@@ -171,7 +171,7 @@ static func sanitize_settings(raw: Variant) -> Dictionary:
 	if d.has("ai_faction"):
 		var v8 = d["ai_faction"]
 		if (v8 is int) or (v8 is float):
-			out["ai_faction"] = clampi(int(v8), 0, 3)
+			out["ai_faction"] = clampi(int(v8), 0, 7)
 	return out
 
 ## Default lobby settings used when nothing has been configured yet.
@@ -276,6 +276,13 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 			if ids.is_empty():
 				return {}
 			out["unit_ids"] = ids
+			if not _sanitize_target(d, out):
+				return {}
+		"sonar_buoy":
+			var buoy_ids := _sanitize_ids(d.get("unit_ids", null))
+			if buoy_ids.is_empty():
+				return {}
+			out["unit_ids"] = buoy_ids
 			if not _sanitize_target(d, out):
 				return {}
 		"demolish":

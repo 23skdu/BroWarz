@@ -65,3 +65,29 @@ func test_transport_capacity_and_embark_rules():
 	assert_false(UnitRegistry.can_embark("landing_craft", "mbt", 1))
 	assert_true(UnitRegistry.can_embark("aircraft_carrier", "fighter_drone", 3))
 	assert_false(UnitRegistry.can_embark("aircraft_carrier", "riflebot", 0))
+	assert_eq(UnitRegistry.transport_capacity("leviathan_carrier"), 4)
+	assert_true(UnitRegistry.can_embark("leviathan_carrier", "fighter_drone", 3))
+	assert_false(UnitRegistry.can_embark("leviathan_carrier", "riflebot", 0))
+
+func test_npc_unique_units_metadata_and_producers():
+	var reg := UnitRegistry.new()
+	reg.populate_defaults()
+	var total_npc := 0
+	for fac_id in Faction.npc_ids():
+		var roster := reg.units_for_faction(fac_id)
+		assert_eq(roster.size(), 3)
+		for uid in roster:
+			total_npc += 1
+			assert_true(UnitRegistry.is_ai_only(str(uid)))
+			assert_eq(UnitRegistry.npc_faction_for_unit(str(uid)), fac_id)
+			var s := reg.get_unit(str(uid))
+			assert_not_null(s)
+			assert_true(s.ai_only)
+			assert_eq(s.native_faction, fac_id)
+			assert_gt(UnitRegistry.producer_ids_for_unit(str(uid), s.unit_class).size(), 0)
+	assert_eq(total_npc, 12)
+	var human_roster := reg.units_for_faction(Faction.Id.AERODYNE)
+	assert_false(human_roster.has("ufo_wisp"))
+	assert_false(UnitRegistry.is_ai_only("riflebot"))
+	assert_true(UnitRegistry.is_scout_unit("ufo_wisp"))
+	assert_true(UnitRegistry.is_scout_unit("lumen_oracle"))

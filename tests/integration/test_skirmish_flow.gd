@@ -45,13 +45,28 @@ func test_main_menu_match_options_are_grouped_together():
 func test_main_menu_spectator_faction_selectors_change_both_ai_sides():
 	var menu := preload("res://scenes/main_menu.tscn").instantiate()
 	add_child_autofree(menu)
-	var side_a: int = int(menu.selected_faction)
+	var human: int = int(menu.selected_faction)
+	var side_a: int = int(menu.selected_spectator_side_a)
 	var side_b: int = int(menu.selected_spectator_faction)
 	menu._on_cycle_faction()
+	menu._on_cycle_spectator_side_a_faction()
 	menu._on_cycle_spectator_faction()
-	assert_eq(menu.selected_faction, (side_a + 1) % 4)
-	assert_eq(menu.selected_spectator_faction, (side_b + 1) % 4)
+	assert_eq(menu.selected_faction, (human + 1) % 4)
+	assert_eq(menu.selected_spectator_side_a, (side_a + 1) % 8)
+	assert_eq(menu.selected_spectator_faction, (side_b + 1) % 8)
+	# Cycling human faction 8 times must never enter NPC faction IDs 4-7.
+	for i in range(8):
+		menu._on_cycle_faction()
+		assert_false(Faction.is_npc(int(menu.selected_faction)))
+	# Cycling AI selectors 8 times reaches all NPC factions 4-7.
+	var seen_npc := {}
+	for i in range(8):
+		menu._on_cycle_spectator_faction()
+		if Faction.is_npc(int(menu.selected_spectator_faction)):
+			seen_npc[int(menu.selected_spectator_faction)] = true
+	assert_eq(seen_npc.size(), 4)
 	assert_true(String(menu.faction_btn.text).contains(Faction.name_of(menu.selected_faction)))
+	assert_true(String(menu.spectator_side_a_btn.text).contains(Faction.name_of(menu.selected_spectator_side_a)))
 	assert_true(String(menu.spectator_faction_btn.text).contains(Faction.name_of(menu.selected_spectator_faction)))
 
 func test_menu_music_is_a_looping_ambient_bed():
@@ -74,6 +89,54 @@ func _building_count(team: int) -> int:
 		if is_instance_valid(b) and b.team == team:
 			total += 1
 	return total
+
+func test_each_team_starts_with_only_an_hq():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	for team in GameManager.teams:
+		var ids: Array = []
+		for b in get_tree().get_nodes_in_group("buildings"):
+			if is_instance_valid(b) and b.team == team and b.stats != null:
+				ids.append(String(b.stats.id))
+		assert_eq(ids, ["hq"], "team %d must start with only an HQ" % team)
+	game._check_win()
+	assert_false(game.match_over, "an HQ-only opening must not end as a draw")
+
+func test_corvette_deploys_sonar_buoy_that_reveals_only_owner_submarine_contacts():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	var corvette = game._spawn_unit_by_id("corvette", Vector2(500, 500), 0)
+	var sub = game._spawn_unit_by_id("attack_sub", Vector2(680, 500), 1)
+	assert_false(game.sonar_reveals(0, sub.global_position))
+	assert_false(game.apply_command({
+		"type": "sonar_buoy", "team": 0, "unit_ids": [-1],
+		"target_x": 680.0, "target_y": 500.0,
+	}, true))
+	assert_true(game.apply_command({
+		"type": "sonar_buoy", "team": 0, "unit_ids": [int(corvette.net_id)],
+		"target_x": 680.0, "target_y": 500.0,
+	}, true))
+	assert_true(game.sonar_reveals(0, sub.global_position))
+	assert_false(game.sonar_reveals(1, sub.global_position))
+	game.elapsed_time += SonarBuoy.LIFETIME_SEC + 1.0
+	game._cleanup_sonar_buoys()
+	assert_false(game.sonar_reveals(0, sub.global_position))
+
+func test_powered_radar_reveals_cloaked_contacts():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	var hq = game._find_team_hq(0)
+	var radar = game._spawn_building_by_id("radar", hq.global_position + Vector2(128, 0), 0)
+	var contact = game._spawn_unit_by_id("stealthbot", radar.global_position + Vector2(220, 0), 1)
+	assert_gt(game.radar_support_range(0, contact.global_position), 0.0)
+	var tf = game._refresh_team_fog(0)
+	assert_true(game._node_visible_to_team(0, contact, tf))
 
 func test_single_player_ai_turn_is_playable():
 	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
@@ -292,6 +355,53 @@ func test_spectator_runs_both_ai_teams():
 	assert_gt(game._get_team_units(0).size(), 0)
 	assert_gt(game._get_team_units(1).size(), 0)
 
+func test_spectator_ai_attacks_sooner_and_dispatches_scouts():
+	GameManager.start_spectator(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	game.elapsed_time = 40.0
+	game._run_skirmish_ai_turn()
+	for team in [0, 1]:
+		var state: Dictionary = game._ai_state(team)
+		assert_ne(String(state["tactical_state"]), "rally")
+		assert_gt(float(state["scout_order_until"]), game.elapsed_time)
+
+func test_ai_ignores_enemies_hidden_by_fog():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	game.elapsed_time = 80.0
+	var intruder = game._spawn_unit_by_id("riflebot", Vector2(80, 80), 0)
+	game._run_skirmish_ai_turn()
+	assert_ne(String(game._ai_state(1)["tactical_state"]), "defend")
+	var hq = game._find_team_hq(1)
+	assert_not_null(hq)
+	intruder.global_position = hq.global_position + Vector2(32, 0)
+	game._run_skirmish_ai_turn()
+	assert_eq(String(game._ai_state(1)["tactical_state"]), "defend")
+
+func test_four_team_economies_are_initialized_and_saved():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(128, 128), 0, 1)
+	GameManager.teams = [0, 1, 2, 3]
+	GameManager.set_diplomacy_state({}, {}, GameManager.teams)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	for team in [0, 1, 2, 3]:
+		assert_gt(int(ResourceManager.get_wallet(team).get(Economy.Res.IRON, 0)), 0)
+		assert_gt(int(ResourceManager.rates.get(team, {}).get(Economy.Res.IRON, 0)), 0)
+		assert_eq(int(ResourceManager.caps.get(team, 0)), 20)
+	var path := "user://saves/four_team_roundtrip.bws"
+	assert_eq(game.quicksave_match(path), OK)
+	assert_true(game.quickload_match(path))
+	for team in [0, 1, 2, 3]:
+		assert_gt(int(ResourceManager.get_wallet(team).get(Economy.Res.IRON, 0)), 0)
+		assert_gt(int(ResourceManager.rates.get(team, {}).get(Economy.Res.IRON, 0)), 0)
+		assert_eq(int(ResourceManager.caps.get(team, 0)), 20)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
 func test_game_scene_detaches_from_network_manager_on_exit():
 	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(16, 16), 0, 1, 2)
 	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
@@ -345,3 +455,105 @@ func test_player_commands_record_authoritative_local_team():
 	assert_true(game.submit_player_command({"type": "hold", "team": 0, "unit_ids": []}))
 	assert_eq(game.replay_log.commands.back()["player_id"], 1)
 	GameManager.local_team = original_team
+
+func test_npc_factions_are_ai_only_and_apply_live_combat_modifiers():
+	# Human seat attempting to pick Vesper (4) is clamped back to 0..3; AI keeps Vesper (4).
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(64, 64), Faction.Id.VESPER, Faction.Id.VESPER, 3)
+	assert_false(Faction.is_npc(GameManager.faction_for_team(0)))
+	assert_eq(GameManager.faction_for_team(1), Faction.Id.VESPER)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+
+	# FullPalette must hide all 12 AI-only units from the human player.
+	var palette: Node = game.ui.get_node_or_null("FullPaletteScroll/FullPalette")
+	assert_not_null(palette)
+	assert_null(palette.get_node_or_null("Train_ufo_wisp"))
+	assert_null(palette.get_node_or_null("Train_lumen_enforcer"))
+	assert_not_null(palette.get_node_or_null("Train_riflebot"))
+
+	# Human cannot train an AI-only unit even with an airfield and resources.
+	var hq0: Node2D = game._find_team_hq(0)
+	game._spawn_building_by_id("airfield", hq0.global_position + Vector2(96, 0), 0)
+	ResourceManager.get_wallet(0)[Economy.Res.OIL] = 1000
+	ResourceManager.get_wallet(0)[Economy.Res.IRON] = 1000
+	ResourceManager.get_wallet(0)[Economy.Res.GEOTHERMAL] = 1000
+	assert_false(game.apply_command({"type": "train", "team": 0, "id": "ufo_talon"}))
+
+	# Vesper AI CAN train its own UFO units, but NOT Thalassa's units.
+	var hq1: Node2D = game._find_team_hq(1)
+	game._spawn_building_by_id("airfield", hq1.global_position + Vector2(-96, 0), 1)
+	game._spawn_building_by_id("shipyard", hq1.global_position + Vector2(-140, 0), 1)
+	ResourceManager.get_wallet(1)[Economy.Res.OIL] = 1000
+	ResourceManager.get_wallet(1)[Economy.Res.IRON] = 1000
+	ResourceManager.get_wallet(1)[Economy.Res.GEOTHERMAL] = 1000
+	assert_true(game.apply_command({"type": "train", "team": 1, "id": "ufo_talon"}, true))
+	assert_false(game.apply_command({"type": "train", "team": 1, "id": "abyssal_trireme"}, true))
+
+	# Verify live combat modifiers on spawned units (clear clouds for deterministic skies).
+	GameManager.active_clouds.clear()
+	var talon = game._spawn_unit_by_id("ufo_talon", Vector2(400, 400), 1)
+	var target_air = game._spawn_unit_by_id("bomber_drone", Vector2(460, 400), 0)
+	assert_almost_eq(talon.effective_speed(), talon.stats.speed * 1.3, 0.01)
+	var hp_before: int = int(target_air.hp)
+	talon._perform_attack(target_air)
+	var vesper_dealt := hp_before - int(target_air.hp)
+	# Compare against an identical attacker without Vesper's 1.2x air damage bonus.
+	var target_air2 = game._spawn_unit_by_id("bomber_drone", Vector2(460, 460), 0)
+	var neutral_talon = game._spawn_unit_by_id("ufo_talon", Vector2(400, 460), 1)
+	neutral_talon.faction = Faction.Id.AERODYNE
+	var hp_before2: int = int(target_air2.hp)
+	neutral_talon._perform_attack(target_air2)
+	var base_dealt := hp_before2 - int(target_air2.hp)
+	assert_gt(vesper_dealt, base_dealt)
+
+	# Verify sight multiplier (Lumen 1.25x vs Gravebound 0.85x).
+	var op = game._spawn_unit_by_id("lumen_operative", Vector2(520, 400), 1)
+	op.faction = Faction.Id.LUMEN
+	assert_almost_eq(op.effective_sight(), op.stats.sight * 1.25, 0.01)
+	var bone = game._spawn_unit_by_id("bone_legionary", Vector2(560, 400), 1)
+	bone.faction = Faction.Id.GRAVEBOUND
+	assert_almost_eq(bone.effective_sight(), bone.stats.sight * 0.85, 0.01)
+
+func test_spectator_npc_vs_npc_persists_through_quicksave_and_trains_unique_units():
+	GameManager.start_spectator(AI.Difficulty.NORMAL, MapData.new(64, 64), Faction.Id.VESPER, Faction.Id.GRAVEBOUND, 3)
+	assert_eq(GameManager.faction_for_team(0), Faction.Id.VESPER)
+	assert_eq(GameManager.faction_for_team(1), Faction.Id.GRAVEBOUND)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+
+	for team in [0, 1]:
+		var w := ResourceManager.get_wallet(team)
+		w[Economy.Res.OIL] = 2000
+		w[Economy.Res.IRON] = 2000
+		w[Economy.Res.GEOTHERMAL] = 1000
+	for i in range(6):
+		game.elapsed_time += 15.0
+		game._tick_power()
+		game._run_skirmish_ai_turn()
+	assert_gt(_building_count(0), 1)
+	assert_gt(_building_count(1), 1)
+	assert_gt(_queued_units(0), 0)
+	assert_gt(_queued_units(1), 0)
+
+	var path := "user://saves/test_npc_spectator.bws"
+	assert_eq(game.quicksave_match(path), OK)
+	GameManager.start_single_player(AI.Difficulty.NORMAL, null, 0, 1, 2)
+	assert_true(game.quickload_match(path))
+	assert_eq(GameManager.faction_for_team(0), Faction.Id.VESPER)
+	assert_eq(GameManager.faction_for_team(1), Faction.Id.GRAVEBOUND)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func test_research_dialog_repopulate_does_not_leak_tree_nodes():
+	var dialog := ResearchDialog.new()
+	add_child_autofree(dialog)
+	var wallet := {
+		Economy.Res.OIL: 500, Economy.Res.IRON: 500,
+		Economy.Res.GEOTHERMAL: 500, Economy.Res.FOOD: 500,
+	}
+	dialog.populate([], wallet, true)
+	var initial_count := dialog.get_child_count()
+	dialog.populate(["reactive_armor"], wallet, true)
+	dialog.populate(["reactive_armor", "railgun_cal"], wallet, true)
+	assert_eq(dialog.get_child_count(), initial_count)

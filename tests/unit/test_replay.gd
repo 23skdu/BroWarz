@@ -37,6 +37,7 @@ func test_malformed_commands_are_filtered():
 	assert_eq(r.invalid_commands, 2)
 	assert_eq(Command.from_dict(r.commands[1]).type, Command.Type.DEMOLISH)
 	assert_true(Replay.is_valid_command({"type": Command.Type.DIPLOMACY, "tick": 4}))
+	assert_true(Replay.is_valid_command({"type": Command.Type.SONAR_BUOY, "tick": 5}))
 
 func test_non_array_commands_do_not_crash():
 	var r := Replay.from_dict({"commands": "broken"})

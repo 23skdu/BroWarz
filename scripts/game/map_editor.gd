@@ -484,7 +484,8 @@ func _test_play_map() -> void:
 		return
 	GameManager.start_single_player(
 		GameManager.ai_difficulty, map_data,
-		GameManager.player_faction, GameManager.ai_faction, 3,
+		clampi(GameManager.player_faction, 0, 3),
+		clampi(GameManager.ai_faction, 0, 7), 3,
 	)
 	SceneManager.goto_scene("res://scenes/game.tscn")
 

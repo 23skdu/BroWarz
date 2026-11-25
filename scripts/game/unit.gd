@@ -101,21 +101,36 @@ func refresh_colorblind() -> void:
 	if deck_label != null:
 		_update_deck_label()
 
+func _exit_tree() -> void:
+	_frame_cache.clear()
+	capture_progress.clear()
+	hex_path.clear()
+	explosion_debris.clear()
+	cargo.clear()
+	focus_target = null
+	embarked_in = null
+
 func effective_max_hp() -> int:
 	if stats == null:
 		return 100
-	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	var base := Faction.effective_max_hp(fac_id, stats.id, stats.hp)
+	var fac_id := faction if faction >= 0 else GameManager.faction_for_team(team)
+	var base := Faction.effective_max_hp(fac_id, stats.id, stats.hp, stats.unit_class)
 	return int(round(float(base) * (1.0 + _scene_tech_bonus("armor_hp"))))
 
 func effective_speed() -> float:
 	if stats == null:
 		return 100.0
-	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
-	return Faction.effective_speed(fac_id, stats.id, stats.speed)
+	var fac_id := faction if faction >= 0 else GameManager.faction_for_team(team)
+	return Faction.effective_speed(fac_id, stats.id, stats.speed, stats.unit_class)
+
+func effective_sight() -> float:
+	if stats == null:
+		return 300.0
+	var fac_id := faction if faction >= 0 else GameManager.faction_for_team(team)
+	return stats.sight * Faction.sight_multiplier(fac_id, stats.id, stats.unit_class)
 
 func effective_cloak_duration() -> float:
-	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	var fac_id := faction if faction >= 0 else GameManager.faction_for_team(team)
 	var base := Faction.effective_cloak_duration(fac_id, 10.0)
 	return base * (1.0 + _scene_tech_bonus("cloak_duration"))
 
@@ -141,7 +156,7 @@ func _update_deck_label() -> void:
 	deck_label.text = "Deck %d/%d" % [cargo.size(), transport_capacity()]
 
 func _team_base_color() -> Color:
-	var fac_id := faction if faction >= 0 else (GameManager.player_faction if team == 0 else GameManager.ai_faction)
+	var fac_id := faction if faction >= 0 else GameManager.faction_for_team(team)
 	var variant := 0
 	var scene = get_tree().current_scene
 	if scene != null and scene.has_method("color_variant_for_team"):
@@ -295,7 +310,7 @@ func _physics_process(delta):
 		_auto_repair_allies(delta)
 	if stats and UnitRegistry.is_worker_unit(stats.id):
 		_try_capture_enemy_building(delta)
-	if stats and stats.id == "aircraft_carrier" and not cargo.is_empty():
+	if stats and stats.id in ["aircraft_carrier", "leviathan_carrier"] and not cargo.is_empty():
 		_repair_carrier_drones(delta)
 
 	if has_target:
@@ -386,6 +401,7 @@ func _try_capture_enemy_building(delta: float) -> void:
 	# structures. Holding a worker nearby for two seconds completes the flip.
 	if stats == null or not UnitRegistry.is_worker_unit(stats.id):
 		return
+	var active_keys: Dictionary = {}
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b) or GameManager.is_allied(team, int(b.team)) or ("is_exploding" in b and b.is_exploding):
 			continue
@@ -394,6 +410,7 @@ func _try_capture_enemy_building(delta: float) -> void:
 		if b.hp > int(float(b.stats.hp) * 0.5) or global_position.distance_to(b.global_position) > 44.0:
 			continue
 		var key := b.get_instance_id()
+		active_keys[key] = true
 		var progress := float(capture_progress.get(key, 0.0)) + delta
 		if progress < 2.0:
 			capture_progress[key] = progress
@@ -404,12 +421,21 @@ func _try_capture_enemy_building(delta: float) -> void:
 			b.refresh_colorblind()
 		AudioManager.play_sfx("tech_up")
 		return
+	# Prune stale keys for buildings we moved away from or that were freed.
+	for k in capture_progress.keys():
+		if not active_keys.has(k):
+			capture_progress.erase(k)
 
 func _repair_carrier_drones(delta: float) -> void:
-	for p in cargo:
-		if is_instance_valid(p) and p.stats and Repair.can_repair(p.hp, p.stats.hp):
+	for i in range(cargo.size() - 1, -1, -1):
+		var p = cargo[i]
+		if not is_instance_valid(p):
+			cargo.remove_at(i)
+			continue
+		var max_hp: int = p.effective_max_hp() if p.has_method("effective_max_hp") else (p.stats.hp if p.stats else 100)
+		if p.stats and Repair.can_repair(p.hp, max_hp):
 			var amt := int(ceil(Repair.repair_amount(15.0, delta)))
-			p.hp = mini(p.stats.hp, p.hp + amt)
+			p.hp = mini(max_hp, p.hp + amt)
 
 func _try_attack():
 	if attack_timer > 0:
@@ -421,7 +447,7 @@ func _try_attack():
 	var dist := global_position.distance_to(enemy.global_position)
 	if dist <= rng:
 		_perform_attack(enemy)
-	elif not hold_position and dist <= (stats.sight if stats else 300.0):
+	elif not hold_position and dist <= effective_sight():
 		target_pos = enemy.global_position
 		has_target = true
 		attack_move = true
@@ -468,7 +494,9 @@ func _perform_attack(enemy: Node2D) -> void:
 		atk_mod = Cover.attack_modifier_for_unit(MapData.Terrain.PLAINS, attacker_class, attacker_in_cloud)
 		cover_mod = Cover.defense_modifier_for_unit(MapData.Terrain.PLAINS, target_class, target_in_cloud)
 	var uid := stats.id if stats else ""
-	var dmg_mult := 1.0 + _scene_tech_bonus("weapon_damage")
+	var fac_id := faction if faction >= 0 else GameManager.faction_for_team(team)
+	var fac_dmg := Faction.damage_multiplier(fac_id, uid, attacker_class)
+	var dmg_mult := (1.0 + _scene_tech_bonus("weapon_damage")) * fac_dmg
 	var final_dmg := Damage.compute_for_unit(uid, base_dmg * atk_mod * dmg_mult, dmg_type, target_armor, 0.0, cover_mod)
 
 	# Spawn projectile tracer & muzzle flash in active game scene
@@ -491,12 +519,15 @@ func _nearest_enemy_in_range() -> Node2D:
 func _nearest_enemy() -> Node2D:
 	var best: Node2D = null
 	var best_d := INF
-	var sgt := stats.sight if stats else 300.0
+	var sgt := effective_sight()
 	var uid := stats.id if stats else ""
-	var has_radar := uid == "awacs" or uid == "scout_drone"
+	var has_radar := Vision.is_radar_unit(uid)
 	var has_sonar := Vision.is_sonar_unit(uid)
 	var unit_candidates: Array = get_tree().get_nodes_in_group("units")
 	var game := _game_root()
+	var radar_support: float = 0.0
+	if game != null and game.has_method("radar_support_range"):
+		radar_support = float(game.radar_support_range(team, global_position))
 	if game != null:
 		var nearby: Array = game.units_near(global_position, maxf(sgt, 600.0))
 		if not nearby.is_empty():
@@ -510,10 +541,13 @@ func _nearest_enemy() -> Node2D:
 			continue
 		var d := global_position.distance_to(u.global_position)
 		if u.stats and u.stats.armor_class == Damage.ArmorClass.SUBMERGED:
-			if not Vision.sub_detected(sgt, d, has_sonar):
+			var buoy_reveal := game != null and game.has_method("sonar_reveals") \
+				and bool(game.sonar_reveals(team, u.global_position))
+			if not buoy_reveal and not Vision.sub_detected(sgt, d, has_sonar):
 				continue
 		if u.has_method("is_cloaked") and u.is_cloaked():
-			if not Vision.stealth_detected(sgt, d, true, has_radar):
+			var stealth_range := maxf(sgt, radar_support)
+			if not Vision.stealth_detected(stealth_range, d, true, has_radar or radar_support > 0.0):
 				continue
 		if d < best_d:
 			best_d = d
@@ -651,13 +685,20 @@ func _draw():
 		draw_circle(puff_offset + Vector2(0, 3), 3.0 + absf(float(kin["stride"])) * 2.0, puff_col)
 		draw_circle(puff_offset - Vector2(0, 3), 2.5 + (1.0 - absf(float(kin["stride"]))) * 2.0, puff_col)
 
-	# Air drone spinning rotor blades
+	# Air drone spinning rotor blades (UFO saucers & Lumen Oracle use energy rings)
 	if uclass == 3:
+		var uid_draw := stats.id if stats else ""
 		var r_ang := float(kin["rotor_angle"])
-		var blade := Vector2.RIGHT.rotated(r_ang) * 11.0
-		draw_line(-blade, blade, Color(0.9, 0.95, 1.0, 0.55), 1.8)
-		var blade2 := Vector2.RIGHT.rotated(r_ang + PI * 0.5) * 11.0
-		draw_line(-blade2, blade2, Color(0.9, 0.95, 1.0, 0.55), 1.8)
+		if uid_draw in ["ufo_wisp", "ufo_talon", "ufo_nova"]:
+			var pulse_r := 13.0 + sin(r_ang * 0.5) * 1.5
+			draw_arc(Vector2.ZERO, pulse_r, 0, TAU, 20, Color(0.78, 1.0, 0.31, 0.45), 1.5)
+		elif uid_draw == "lumen_oracle":
+			draw_arc(Vector2.ZERO, 15.0, r_ang, r_ang + PI * 1.35, 16, Color(0.95, 0.84, 0.36, 0.55), 1.6)
+		else:
+			var blade := Vector2.RIGHT.rotated(r_ang) * 11.0
+			draw_line(-blade, blade, Color(0.9, 0.95, 1.0, 0.55), 1.8)
+			var blade2 := Vector2.RIGHT.rotated(r_ang + PI * 0.5) * 11.0
+			draw_line(-blade2, blade2, Color(0.9, 0.95, 1.0, 0.55), 1.8)
 
 	# Independent rotating turret & recoil barrel for vehicles/mechs
 	if uclass == 1:

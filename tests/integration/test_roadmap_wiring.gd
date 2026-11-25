@@ -11,7 +11,7 @@ func _new_game() -> Node2D:
 	NetworkManager.attach_game(null)
 	return game
 
-func _count_buildings(game: Node2D, id: String, team: int = -1) -> int:
+func _count_buildings(_game: Node2D, id: String, team: int = -1) -> int:
 	var count := 0
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and b.stats != null and b.stats.id == id:
@@ -25,6 +25,18 @@ func test_minimap_is_wired_to_live_game_state():
 	assert_eq(game.minimap.game, game)
 	game._on_minimap_camera(Vector2(900, 700))
 	assert_ne(game.camera.position, Vector2.ZERO)
+
+func test_minimap_is_top_centered_and_clears_bottom_right_units():
+	var game := _new_game()
+	var rect: Rect2 = game.minimap.get_rect()
+	var viewport: Vector2 = game.get_viewport_rect().size
+	assert_almost_eq(rect.position.x + rect.size.x * 0.5, viewport.x * 0.5, 2.0)
+	assert_almost_eq(rect.position.y, 16.0, 2.0)
+	assert_true(rect.position.y + rect.size.y < viewport.y * 0.5)
+	assert_true(rect.position.x + rect.size.x < viewport.x)
+	var pause := game.get_node_or_null("UI/PausePanel")
+	if pause != null:
+		assert_lt(game.minimap.get_index(), pause.get_index())
 
 func test_colorblind_change_refreshes_live_units():
 	var game := _new_game()
@@ -139,7 +151,7 @@ func test_victory_panel_opens_on_production_elimination():
 	game.elapsed_time = 42.0
 	assert_false(game.victory_panel.visible)
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and int(b.team) == 1 and b.stats != null and UnitRegistry.is_production_building(b.stats.id):
+		if is_instance_valid(b) and int(b.team) == 1 and b.stats != null and String(b.stats.id) == "hq":
 			b.free()
 	game._check_win()
 	assert_true(game.match_over)
@@ -157,7 +169,8 @@ func test_alliance_sides_determine_victory_together():
 	assert_true(GameManager.is_allied(2, 0))
 	game._spawn_building_by_id("barracks", Vector2(700, 300), 2)
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and (int(b.team) == 1 or int(b.team) == 3) and b.stats != null and UnitRegistry.is_production_building(b.stats.id):
+		if is_instance_valid(b) and (int(b.team) == 1 or int(b.team) == 3) \
+				and b.stats != null and String(b.stats.id) == "hq":
 			b.free()
 	game._check_win()
 	assert_true(game.match_over)
@@ -166,6 +179,7 @@ func test_alliance_sides_determine_victory_together():
 
 func test_replay_records_and_loads_accepted_commands():
 	var game := _new_game()
+	game._spawn_building_by_id("barracks", Vector2(700, 300), 0)
 	assert_true(game.apply_command({"type": "train", "team": 0, "id": "riflebot"}))
 	assert_gt(game.replay_log.command_count(), 0)
 	assert_eq(game.save_replay(), OK)
@@ -239,7 +253,7 @@ func test_quickload_clears_victory_state():
 	var game := _new_game()
 	game.elapsed_time = 42.0
 	for b in get_tree().get_nodes_in_group("buildings"):
-		if is_instance_valid(b) and int(b.team) == 1 and b.stats != null and UnitRegistry.is_production_building(b.stats.id):
+		if is_instance_valid(b) and int(b.team) == 1 and b.stats != null and String(b.stats.id) == "hq":
 			b.free()
 	game._check_win()
 	assert_true(game.match_over)
@@ -252,6 +266,7 @@ func test_quickload_clears_victory_state():
 
 func test_replay_only_records_units_for_unit_commands():
 	var game := _new_game()
+	game._spawn_building_by_id("barracks", Vector2(700, 300), 0)
 	var u = game._get_team_units(0)[0]
 	game.selected_units = [u]
 	assert_true(game.apply_command({"type": "train", "team": 0, "id": "riflebot"}))
@@ -274,12 +289,12 @@ func test_research_dialog_shows_full_tree_and_stays_open():
 	var tree: VBoxContainer = dialog.get_node("TechTree") as VBoxContainer
 	assert_not_null(tree)
 	assert_eq(tree.get_child_count(), Tech.TREE.size() + 1)
-	var ready: Button = tree.get_node("Tech_reactive_armor") as Button
+	var ready_btn: Button = tree.get_node("Tech_reactive_armor") as Button
 	var locked: Button = tree.get_node("Tech_strategic_uplinks") as Button
-	assert_false(ready.disabled)
+	assert_false(ready_btn.disabled)
 	assert_true(locked.disabled)
 	assert_true(locked.text.contains("REQUIRES"))
-	ready.pressed.emit()
+	ready_btn.pressed.emit()
 	assert_true(dialog.visible or is_instance_valid(dialog))
 
 func test_production_tiers_are_enforced_before_spending():

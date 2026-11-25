@@ -16,6 +16,11 @@ var team_unlocked_tech: Dictionary = {0: [], 1: []}
 # must be revoked if the granting structure is destroyed or overwritten.
 var building_bonuses: Dictionary = {}
 var tactical_pings: Array[Dictionary] = []
+# Corvette-dropped sonar buoys and their per-ship cooldown timestamps.
+var sonar_buoys: Array[Dictionary] = []
+var sonar_cooldowns: Dictionary = {}
+# Per-team knowledge state: each AI sees only what its own side can observe.
+var team_fogs: Dictionary = {}
 var camera: Camera2D
 var match_over: bool = false
 var elapsed_time: float = 0.0
@@ -115,6 +120,7 @@ func _ready():
 	_setup_hud()
 	_init_economies()
 	_spawn_starting_bases()
+	_init_team_fogs()
 	GameManager.start_match(map_data)
 	NetworkManager.attach_game(self)
 	AudioManager.set_music("battle")
@@ -122,10 +128,44 @@ func _ready():
 func _exit_tree() -> void:
 	# Autoloads outlive the match scene. Drop the command sink and per-match
 	# state here so a later session cannot observe a freed node or stale map.
+	var viewport := get_viewport()
+	if viewport != null and viewport.size_changed.is_connected(_on_viewport_resized):
+		viewport.size_changed.disconnect(_on_viewport_resized)
 	if NetworkManager.game_node == self:
 		NetworkManager.attach_game(null)
 	GameManager.clear_match_state()
 	UnitVisual.clear_shared_cache()
+	BuildingVisual.clear_cache()
+	team_fogs.clear()
+	sonar_buoys.clear()
+	sonar_cooldowns.clear()
+	selected_units.clear()
+	selected_building = null
+	control_groups.clear()
+	occupied_tiles.clear()
+	resource_deposits.clear()
+	team_unlocked_tech.clear()
+	building_bonuses.clear()
+	tactical_pings.clear()
+	ai_retreat_until.clear()
+	ai_order_until.clear()
+	ai_states.clear()
+	spatial_unit_positions.clear()
+	spatial_unit_nodes.clear()
+	spatial_unit_grid.clear()
+	active_vfx.clear()
+	active_tracers.clear()
+	scorch_marks.clear()
+	forest_decorations.clear()
+	wildlife_herd.clear()
+	if minimap != null and is_instance_valid(minimap):
+		minimap.game = null
+		if minimap.camera_requested.is_connected(_on_minimap_camera):
+			minimap.camera_requested.disconnect(_on_minimap_camera)
+		if minimap.move_requested.is_connected(_on_minimap_order):
+			minimap.move_requested.disconnect(_on_minimap_order)
+		if minimap.ping_requested.is_connected(_on_minimap_ping):
+			minimap.ping_requested.disconnect(_on_minimap_ping)
 
 func _generate_map(map_type: int = 2) -> void:
 	# Only an explicitly supplied custom map may override generated terrain.
@@ -231,7 +271,7 @@ func _setup_hud() -> void:
 	help_label.text = (
 		"[LMB/Drag] Select | [RMB] Move (hold A: Attack) | [1-7] Train | [Ctrl+0-9] Set group | "
 		+ "[Ctrl+Shift+0-9] Recall group | [F/G/M] Fortify | [C] Capture | [Del] Demolish | "
-		+ "[E/U] Embark/Disembark | [B/V/P] Build | [T/R] Tech | [L/N] Orbital/Nuke | [Esc] Pause"
+		+ "[E/U] Embark/Disembark | [B/V/P] Build | [K] Sonar Buoy | [T/R] Tech | [L/N] Orbital/Nuke | [Esc] Pause"
 	)
 	ui.add_child(help_label)
 
@@ -252,6 +292,7 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Missile Tower [M]", func(): _enter_build_mode("missile_tower"))
 	_add_cmd_button(btn_bar, "Embark [E]", func(): _player_embark_selected())
 	_add_cmd_button(btn_bar, "Disembark [U]", func(): _player_disembark_selected())
+	_add_cmd_button(btn_bar, "Sonar Buoy [K]", func(): _enter_target_mode("sonar_buoy"))
 	_add_cmd_button(btn_bar, "Build Extractor [B]", func(): _enter_build_mode("extractor"))
 	_add_cmd_button(btn_bar, "Build Turret [V]", func(): _enter_build_mode("turret"))
 	_add_cmd_button(btn_bar, "Build Power [P]", func(): _enter_build_mode("power_plant"))
@@ -274,6 +315,11 @@ func _setup_hud() -> void:
 	minimap.name = "Minimap"
 	minimap.game = self
 	ui.add_child(minimap)
+	# Modal panels are created before the minimap; keep the minimap below them
+	# so pause/victory dimming still covers the whole screen.
+	var pause_node := ui.get_node_or_null("PausePanel")
+	if pause_node != null:
+		ui.move_child(minimap, pause_node.get_index())
 	minimap.camera_requested.connect(_on_minimap_camera)
 	minimap.move_requested.connect(_on_minimap_order)
 	minimap.ping_requested.connect(_on_minimap_ping)
@@ -299,6 +345,8 @@ func _build_full_palette() -> void:
 	unit_ids.sort()
 	for uid in unit_ids:
 		var s: UnitStats = GameManager.registry.get_unit(str(uid))
+		if s != null and s.ai_only:
+			continue
 		var label := s.display_name if s != null else str(uid)
 		var b := _add_cmd_button(vbox, "Train %s" % label, func(): _player_train_unit(str(uid)))
 		b.name = "Train_%s" % str(uid)
@@ -392,7 +440,12 @@ func _add_cmd_button(parent: Node, label_text: String, cb: Callable) -> Button:
 	return b
 
 func _open_settings() -> void:
+	var existing := ui.get_node_or_null("SettingsDialog")
+	if existing != null and is_instance_valid(existing):
+		(existing as AcceptDialog).popup_centered(Vector2i(620, 640))
+		return
 	var dialog := SettingsDialog.new()
+	dialog.name = "SettingsDialog"
 	ui.add_child(dialog)
 	dialog.popup_centered(Vector2i(620, 640))
 
@@ -516,6 +569,18 @@ func _team_score(team: int) -> Dictionary:
 	var eco := Score.economic_score(eco_sum)
 	return {"military": mil, "economic": eco, "total": Score.total(mil, eco)}
 
+## Team seats are data-driven: co-op and four-seat matches must not leave
+## seats 2/3 with an empty wallet or drop their economy on quicksave.
+func _economy_team_ids() -> Array:
+	var ids: Dictionary = {}
+	for value in GameManager.teams:
+		ids[int(value)] = true
+	for value in ResourceManager.wallets.keys():
+		ids[int(value)] = true
+	var out: Array = ids.keys()
+	out.sort()
+	return out
+
 func _init_economies() -> void:
 	var start_res := {
 		Economy.Res.OIL: 200,
@@ -523,7 +588,7 @@ func _init_economies() -> void:
 		Economy.Res.GEOTHERMAL: 100,
 		Economy.Res.FOOD: 150,
 	}
-	for pid in [0, 1]:
+	for pid in _economy_team_ids():
 		ResourceManager.init_player(pid, start_res)
 		var mult := 1.0
 		if GameManager.is_ai_team(pid):
@@ -542,31 +607,22 @@ const MIN_SPAWN_SEPARATION: int = 24  # tiles; prevents instant base-to-base con
 
 func _spawn_starting_bases() -> void:
 	var spawns := _resolve_hq_tiles()
-	var player_tile: Vector2i = spawns.get(0, Vector2i(4, 4))
-	var ai_tile: Vector2i = spawns.get(1, Vector2i(maxi(5, map_data.width - 5), maxi(5, map_data.height - 5)))
-	var player_base := _tile_world(player_tile)
-	var ai_base := _tile_world(ai_tile)
 	var starters: Array = []
-
-	# Player 0 (Blue) top-left base.
-	starters.append(_spawn_building_by_id("hq", player_base, 0))
-	starters.append(_spawn_building_by_id("barracks", _tile_world(player_tile + Vector2i(5, 0)), 0))
-	starters.append(_spawn_building_by_id("factory", _tile_world(player_tile + Vector2i(0, 5)), 0))
-	starters.append(_spawn_building_by_id("extractor", _tile_world(player_tile + Vector2i(-4, 4)), 0))
-	_spawn_unit_by_id("riflebot", _tile_world(player_tile + Vector2i(4, 4)), 0)
-	_spawn_unit_by_id("riflebot", _tile_world(player_tile + Vector2i(6, 4)), 0)
-	_spawn_unit_by_id("rocketbot", _tile_world(player_tile + Vector2i(4, 6)), 0)
-	_spawn_unit_by_id("sapperbot", _tile_world(player_tile + Vector2i(2, 4)), 0)
-
-	# Player 1 (Red / Skirmish AI) bottom-right base.
-	starters.append(_spawn_building_by_id("hq", ai_base, 1))
-	starters.append(_spawn_building_by_id("barracks", _tile_world(ai_tile + Vector2i(-5, 0)), 1))
-	starters.append(_spawn_building_by_id("factory", _tile_world(ai_tile + Vector2i(0, -5)), 1))
-	starters.append(_spawn_building_by_id("extractor", _tile_world(ai_tile + Vector2i(4, -4)), 1))
-	_spawn_unit_by_id("riflebot", _tile_world(ai_tile + Vector2i(-4, -4)), 1)
-	_spawn_unit_by_id("riflebot", _tile_world(ai_tile + Vector2i(-6, -4)), 1)
-	_spawn_unit_by_id("rocketbot", _tile_world(ai_tile + Vector2i(-4, -6)), 1)
-	_spawn_unit_by_id("sapperbot", _tile_world(ai_tile + Vector2i(-2, -4)), 1)
+	# Every team, including multiplayer seats 2/3, begins with exactly one HQ.
+	# Production, economy and defense structures must be built or captured.
+	for team in GameManager.teams:
+		var team_tile: Vector2i = spawns.get(team, Vector2i(4, 4))
+		var facing := 1 if team % 2 == 0 else -1
+		starters.append(_spawn_building_by_id("hq", _tile_world(team_tile), team))
+		# A small escort lets new players scout and defend while they expand;
+		# these are units, not additional starting buildings.
+		_spawn_unit_by_id("riflebot", _tile_world(team_tile + Vector2i(4 * facing, 4 * facing)), team)
+		_spawn_unit_by_id("riflebot", _tile_world(team_tile + Vector2i(6 * facing, 4 * facing)), team)
+		_spawn_unit_by_id("rocketbot", _tile_world(team_tile + Vector2i(4 * facing, 6 * facing)), team)
+		_spawn_unit_by_id("sapperbot", _tile_world(team_tile + Vector2i(2 * facing, 4 * facing)), team)
+		# A starting recon platform gives both human and AI sides a way to
+		# pierce fog immediately without granting any extra starting building.
+		_spawn_unit_by_id("scout_drone", _tile_world(team_tile + Vector2i(2 * facing, 8 * facing)), team)
 
 	# Starting buildings occupy their tiles so players cannot build on top of them.
 	for b in starters:
@@ -576,7 +632,7 @@ func _spawn_starting_bases() -> void:
 
 	# Open the camera on the player's actual spawn rather than a fixed corner.
 	if camera != null:
-		camera.position = _clamp_camera(player_base)
+		camera.position = _clamp_camera(_tile_world(spawns.get(0, Vector2i(4, 4))))
 
 func _tile_world(tile: Vector2i) -> Vector2:
 	var t := tile
@@ -599,7 +655,35 @@ func _resolve_hq_tiles() -> Dictionary:
 	var player_tile := _nearest_vehicle_tile(player_fallback)
 	var reachable := _reachable_vehicle_tiles(player_tile)
 	var ai_tile := _choose_ai_tile(ai_fallback, player_tile, reachable)
-	return {0: player_tile, 1: ai_tile}
+	var result := {0: player_tile, 1: ai_tile}
+	for team in GameManager.teams:
+		if int(team) in [0, 1] or result.has(int(team)):
+			continue
+		var preferred := map_data.get_hq_spawn(int(team)) if map_data != null else Vector2i(-1, -1)
+		if preferred.x < 0 or preferred.y < 0:
+			preferred = Vector2i(
+				map_data.width - 5 - int(team) * 4 if map_data != null else 16,
+				5 + int(team) * 4
+			)
+		var team_tile := _nearest_vehicle_tile(preferred)
+		var team_reachable := _reachable_vehicle_tiles(team_tile)
+		if team_reachable.is_empty() and map_data != null:
+			for y in range(map_data.height):
+				for x in range(map_data.width):
+					if MapData.is_passable(map_data.get_terrain(x, y), 1):
+						team_reachable[Vector2i(x, y)] = true
+		var best: Vector2i = team_tile
+		var best_score := -1.0
+		for tile in team_reachable.keys():
+			var min_sep := 9999
+			for used in result.values():
+				min_sep = mini(min_sep, _tile_separation(tile, used))
+			var score := float(min_sep) - float(_tile_separation(tile, preferred)) * 0.01
+			if score > best_score:
+				best_score = score
+				best = tile
+		result[int(team)] = best
+	return result
 
 func _choose_ai_tile(preferred: Vector2i, player_tile: Vector2i, reachable: Dictionary) -> Vector2i:
 	# Honour authored spawns when they are already valid and well separated.
@@ -766,7 +850,10 @@ func _unhandled_input(event):
 				return
 			if event.pressed and not pending_target_action.is_empty():
 				var action := pending_target_action
-				submit_player_command({"type": action, "target_x": world_pos.x, "target_y": world_pos.y})
+				var payload := {"type": action, "target_x": world_pos.x, "target_y": world_pos.y}
+				if action == "sonar_buoy":
+					payload["unit_ids"] = _selected_unit_ids()
+				submit_player_command(payload)
 				pending_target_action = ""
 				return
 			if event.pressed:
@@ -856,12 +943,15 @@ func _recall_control_group(index: int) -> void:
 	selected_units.clear()
 	var centroid := Vector2.ZERO
 	var count := 0
+	var live_group: Array = []
 	for u in control_groups[index]:
 		if is_instance_valid(u) and not u.is_exploding:
 			u.selected = true
 			selected_units.append(u)
+			live_group.append(u)
 			centroid += u.global_position
 			count += 1
+	control_groups[index] = live_group
 	if count > 0 and camera != null:
 		camera.position = _clamp_camera(centroid / float(count))
 
@@ -902,6 +992,7 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		KEY_M: _enter_build_mode("missile_tower")
 		KEY_T: _player_upgrade_tech()
 		KEY_R: _open_research_dialog()
+		KEY_K: _enter_target_mode("sonar_buoy")
 		KEY_L: _enter_target_mode("laser")
 		KEY_N: _enter_target_mode("nuke")
 		KEY_F5: quicksave_match()
@@ -993,6 +1084,51 @@ func _command_units(team: int, cmd: Dictionary) -> Array:
 		if unit != null:
 			out.append(unit)
 	return out
+
+## Corvettes lay a finite-lifetime sonar buoy at the ordered point. The
+## command still travels through the host pipeline; this function only mutates
+## host-side match state after validation.
+func _deploy_sonar_buoys(team: int, units: Array, world_pos: Vector2) -> bool:
+	if world_pos == Vector2.INF:
+		return false
+	var deployed := 0
+	for value in units:
+		var u: Node2D = value
+		if not is_instance_valid(u) or u.is_exploding or u.stats == null:
+			continue
+		if not UnitRegistry.can_deploy_sonar_buoy(u.stats.id):
+			continue
+		if u.global_position.distance_to(world_pos) > SonarBuoy.DEPLOY_RANGE_PX:
+			continue
+		var net_id := int(u.net_id)
+		if elapsed_time < float(sonar_cooldowns.get(net_id, -INF)):
+			continue
+		sonar_buoys.append(SonarBuoy.make(team, net_id, world_pos, elapsed_time))
+		sonar_cooldowns[net_id] = elapsed_time + SonarBuoy.COOLDOWN_SEC
+		deployed += 1
+	if deployed > 0 and team == GameManager.local_team and is_instance_valid(status_label):
+		status_label.text = "Deployed %d sonar buoy(s): submerged contacts are visible for %.0fs" % [
+			deployed, SonarBuoy.LIFETIME_SEC,
+		]
+	return deployed > 0
+
+func _cleanup_sonar_buoys() -> void:
+	for i in range(sonar_buoys.size() - 1, -1, -1):
+		if not SonarBuoy.is_active(sonar_buoys[i], elapsed_time):
+			sonar_buoys.remove_at(i)
+	# Cooldowns are keyed by ship net_id; expired keys must not accumulate
+	# across a long match with many destroyed/rebuilt corvettes.
+	for net_id in sonar_cooldowns.keys():
+		if elapsed_time >= float(sonar_cooldowns[net_id]):
+			sonar_cooldowns.erase(net_id)
+
+## Called by unit targeting and fog rendering so a buoy reveals submarines to
+## its owner and that owner's allies, never to the opposing side.
+func sonar_reveals(observer_team: int, target_pos: Vector2) -> bool:
+	for buoy in sonar_buoys:
+		if SonarBuoy.reveals_sub(buoy, observer_team, target_pos, true):
+			return true
+	return false
 
 func _capture_with_workers(team: int, units: Array, world_pos: Vector2) -> bool:
 	var target := _building_at(world_pos)
@@ -1099,6 +1235,8 @@ func apply_command(cmd: Dictionary, internal: bool = false) -> bool:
 			ok = _demolish_building_for_team(team, _cmd_world_target(cmd))
 		"diplomacy":
 			ok = _apply_diplomacy(team, String(cmd.get("action", "")), int(cmd.get("target_team", -1)))
+		"sonar_buoy":
+			ok = _deploy_sonar_buoys(team, _command_units(team, cmd), _cmd_world_target(cmd))
 		"laser", "nuke":
 			# Team ownership is enforced by the host pipeline for relayed input;
 			# local input always carries this client's authoritative team.
@@ -1139,6 +1277,7 @@ func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 		"laser": c.type = Command.Type.ORBITAL
 		"nuke": c.type = Command.Type.NUKE
 		"diplomacy": c.type = Command.Type.DIPLOMACY
+		"sonar_buoy": c.type = Command.Type.SONAR_BUOY
 	c.tick = int(elapsed_time * 60.0)
 	c.player_id = team
 	c.target_pos = _cmd_world_target(cmd)
@@ -1174,6 +1313,14 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	var s := GameManager.registry.get_unit(uid)
 	if s == null:
 		return false
+	var fac_id := GameManager.faction_for_team(team)
+	if s.ai_only:
+		if not GameManager.is_ai_team(team) or fac_id != s.native_faction:
+			if team == GameManager.local_team and is_instance_valid(status_label):
+				status_label.text = "%s is exclusive to %s (AI only)" % [
+					s.display_name, Faction.name_of(s.native_faction),
+				]
+			return false
 	# Production tiers are enforced before spending: no free fallback spawn at
 	# fixed coordinates when the required factory is missing.
 	var valid_producers := UnitRegistry.producer_ids_for_unit(uid, s.unit_class)
@@ -1188,7 +1335,6 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 			status_label.text = "%s requires: %s" % [uid, ", ".join(PackedStringArray(valid_producers))]
 		return false
 	var wallet := ResourceManager.get_wallet(team)
-	var fac_id := GameManager.faction_for_team(team)
 	var cost := _wallet_cost(Faction.effective_unit_cost(fac_id, s))
 	if not Economy.spend(wallet, cost):
 		return false
@@ -1287,6 +1433,41 @@ func _rebuild_building_bonuses() -> void:
 func on_building_destroyed(b: Node2D) -> void:
 	_apply_building_bonus(b, false)
 
+## Anchor unplaced buildings to the team's own HQ. Fixed corner coordinates
+## used to drop structures into unrelated terrain, which looked like random
+## buildings appearing across the map once matches started with only an HQ.
+func _building_anchor(team: int) -> Vector2:
+	var hq := _find_team_hq(team)
+	if hq != null:
+		return hq.global_position
+	var count := 0
+	var sum := Vector2.ZERO
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and int(b.team) == team:
+			sum += b.global_position
+			count += 1
+	if count > 0:
+		return sum / float(count)
+	return Vector2(160, 160) if team == 0 else Vector2(1080, 880)
+
+## Deterministic ring search around a base. Every candidate must satisfy the
+## same placement rules as a human click, so auto-placed AI structures never
+## land on water, mountains or tiles occupied by another building.
+func _find_free_build_tile(team: int, bid: String, footprint: Vector2i, anchor: Vector2) -> Vector2i:
+	if map_data == null:
+		return Vector2i(-1, -1)
+	var base := Vector2i(int(anchor.x / TILE_SIZE), int(anchor.y / TILE_SIZE))
+	var start := wrapi(team * 5 + _count_team_buildings(team, bid) * 3, 0, 16)
+	for ring in range(3, mini(map_data.width, map_data.height)):
+		for step in range(16):
+			var angle := TAU * float((step + start) % 16) / 16.0
+			var tile := base + Vector2i(
+				roundi(cos(angle) * float(ring)), roundi(sin(angle) * float(ring))
+			)
+			if Placement.can_place_building(map_data, bid, footprint, tile, occupied_tiles):
+				return tile
+	return Vector2i(-1, -1)
+
 func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vector2.INF) -> bool:
 	var bs := GameManager.registry.get_building(bid)
 	if bs == null:
@@ -1298,13 +1479,16 @@ func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vect
 	if not _team_has_builder_for(team, bid):
 		return false
 	var target_pos := world_pos
+	var reserve_origin := Vector2i(-1, -1)
 	if target_pos == Vector2.INF:
-		var base_pos := Vector2(160, 160) if team == 0 else Vector2(1080, 880)
-		var count := _count_team_buildings(team, bid)
-		var offset := Vector2((count % 4) * 58.0 - 60.0, floorf(float(count) / 4.0) * 58.0 + 75.0)
-		if team == 1:
-			offset = -offset
-		target_pos = base_pos + offset
+		var origin := _find_free_build_tile(team, bid, bs.footprint, _building_anchor(team))
+		if origin.x < 0 or origin.y < 0:
+			return false
+		reserve_origin = origin
+		target_pos = Vector2(
+			float(origin.x) + float(bs.footprint.x) * 0.5,
+			float(origin.y) + float(bs.footprint.y) * 0.5
+		) * TILE_SIZE
 	elif map_data != null:
 		if Fortification.is_fortification(bid) and not _team_has_worker_near(team, target_pos):
 			if team == 0 and is_instance_valid(status_label):
@@ -1315,11 +1499,15 @@ func _build_structure_for_team(team: int, bid: String, world_pos: Vector2 = Vect
 			if team == 0 and is_instance_valid(status_label):
 				status_label.text = "Cannot place %s here (blocked or invalid terrain)" % bid
 			return false
-		Placement.occupy(occupied_tiles, bs.footprint, origin)
+		reserve_origin = origin
 	var wallet := ResourceManager.get_wallet(team)
 	var cost := _wallet_cost(bs.cost_dict())
 	if not Economy.spend(wallet, cost):
 		return false
+	# Reserve tiles only after the cost is paid; a rejected order leaves no
+	# invisible occupancy behind for later placement checks.
+	if reserve_origin.x >= 0 and reserve_origin.y >= 0:
+		Placement.occupy(occupied_tiles, bs.footprint, reserve_origin)
 	var placed := _spawn_building_by_id(bid, target_pos, team)
 	_apply_building_bonus(placed, true)
 	if bid == "extractor" and not building_bonuses.has(placed.get_instance_id()) and team == GameManager.local_team and is_instance_valid(status_label):
@@ -1490,12 +1678,141 @@ func _find_priority_target_for_team(attacker_team: int) -> Node2D:
 	var picked_id := AI.choose_weakest_target(candidates)
 	return node_map.get(picked_id, null)
 
+func _init_team_fogs() -> void:
+	team_fogs.clear()
+	if map_data == null:
+		return
+	for value in GameManager.teams:
+		var team := int(value)
+		team_fogs[team] = FogOfWar.new(map_data.width, map_data.height, map_data)
+
+## Each AI side gets its own knowledge fog. Spectator mode disables the human
+## fog overlay, but AIs must still discover enemies through their own scouts.
+func _refresh_team_fog(team: int) -> FogOfWar:
+	var tf: FogOfWar = team_fogs.get(team, null)
+	if tf == null and map_data != null:
+		tf = FogOfWar.new(map_data.width, map_data.height, map_data)
+		team_fogs[team] = tf
+	if tf == null:
+		return null
+	tf.reset_visibility()
+	for u in units_container.get_children():
+		if not is_instance_valid(u) or u.is_exploding or not GameManager.is_allied(team, int(u.team)):
+			continue
+		var sight_tiles := 8
+		if u.has_method("effective_sight"):
+			sight_tiles = maxi(1, int(float(u.effective_sight()) / TILE_SIZE))
+		elif u.stats:
+			sight_tiles = maxi(1, int(u.stats.sight / TILE_SIZE))
+		tf.mark_visible(
+			int(u.global_position.x / TILE_SIZE), int(u.global_position.y / TILE_SIZE), sight_tiles
+		)
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b) or b.is_exploding or not GameManager.is_allied(team, int(b.team)):
+			continue
+		var range_px := _building_vision_px(b, team)
+		if range_px <= 0.0:
+			continue
+		tf.mark_visible(
+			int(b.global_position.x / TILE_SIZE), int(b.global_position.y / TILE_SIZE),
+			maxi(1, ceili(range_px / TILE_SIZE)),
+		)
+	for buoy in sonar_buoys:
+		if not SonarBuoy.is_active(buoy, elapsed_time):
+			continue
+		if not GameManager.is_allied(team, int(buoy.get("owner_team", -1))):
+			continue
+		var bpos: Vector2 = buoy.get("pos", Vector2.ZERO)
+		tf.mark_visible(
+			int(bpos.x / TILE_SIZE), int(bpos.y / TILE_SIZE),
+			maxi(1, ceili(float(buoy.get("radius_px", SonarBuoy.RADIUS_PX)) / TILE_SIZE)),
+		)
+	return tf
+
+## Structures normally see a short perimeter. Radar buildings (radar and
+## sapper missile towers) sweep a limited range that collapses when unpowered.
+func _building_vision_px(b: Node2D, team: int) -> float:
+	if not is_instance_valid(b) or b.stats == null:
+		return 80.0
+	if b.stats.radar_range <= 0.0:
+		return 80.0
+	return b.stats.radar_range * clampf(get_team_power_efficiency(team), 0.0, 1.0)
+
+## Best powered radar sweep covering an observer. Units use this to acquire
+## cloaked contacts in the same limited area the radar reveals on the map.
+func radar_support_range(observer_team: int, observer_pos: Vector2) -> float:
+	var best := 0.0
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b) or b.is_exploding or not GameManager.is_allied(observer_team, int(b.team)):
+			continue
+		if b.stats == null or b.stats.radar_range <= 0.0:
+			continue
+		var sweep_range := _building_vision_px(b, observer_team)
+		if sweep_range > 0.0 and b.global_position.distance_to(observer_pos) <= sweep_range:
+			best = maxf(best, sweep_range)
+	return best
+
+func _node_visible_to_team(team: int, node: Node2D, tf: FogOfWar) -> bool:
+	var node_team := int(node.get("team"))
+	if node_team == team or GameManager.is_allied(team, node_team):
+		return true
+	var pos: Vector2 = node.global_position
+	if tf != null:
+		if not tf.is_visible(int(pos.x / TILE_SIZE), int(pos.y / TILE_SIZE)):
+			return false
+	if not node.is_in_group("units"):
+		return true
+	if node.stats and node.stats.armor_class == Damage.ArmorClass.SUBMERGED:
+		if sonar_reveals(team, pos):
+			return true
+		for ally in _get_team_units(team):
+			if ally.stats == null:
+				continue
+			var has_sonar := Vision.is_sonar_unit(ally.stats.id)
+			var ally_sight: float = float(ally.effective_sight()) if ally.has_method("effective_sight") else float(ally.stats.sight)
+			if Vision.sub_detected(ally_sight, ally.global_position.distance_to(pos), has_sonar):
+				return true
+		return false
+	if node.has_method("is_cloaked") and node.is_cloaked():
+		for ally in _get_team_units(team):
+			if ally.stats == null:
+				continue
+			var has_radar: bool = Vision.is_sonar_unit(ally.stats.id) or Vision.is_radar_unit(ally.stats.id)
+			var ally_sight: float = float(ally.effective_sight()) if ally.has_method("effective_sight") else float(ally.stats.sight)
+			if Vision.stealth_detected(ally_sight, ally.global_position.distance_to(pos), true, has_radar):
+				return true
+		for b in get_tree().get_nodes_in_group("buildings"):
+			if not is_instance_valid(b) or b.is_exploding or not GameManager.is_allied(team, int(b.team)):
+				continue
+			if b.stats == null or b.stats.radar_range <= 0.0:
+				continue
+			var radar_px := _building_vision_px(b, team)
+			if radar_px > 0.0 and Vision.stealth_detected(radar_px, b.global_position.distance_to(pos), true, true):
+				return true
+		return false
+	return true
+
+## Enemy units this side can actually observe. AI defense and counter-
+## production must not use spectator knowledge or hidden enemy movements.
+func _visible_enemy_units(team: int) -> Array:
+	var knowledge_fog: FogOfWar = fog
+	if GameManager.is_ai_team(team):
+		knowledge_fog = _refresh_team_fog(team)
+	var out: Array = []
+	for u in _enemy_units(team):
+		if _node_visible_to_team(team, u, knowledge_fog):
+			out.append(u)
+	return out
+
 ## Nearest enemy the team can currently see. Fog of war must not reveal
 ## unit/node positions to the AI, and distant weak targets must not override
 ## nearby contacts.
 func _find_nearest_visible_enemy(team: int, from_pos: Vector2, max_dist: float) -> Node2D:
 	var best: Node2D = null
 	var best_dist := max_dist
+	var knowledge_fog: FogOfWar = fog
+	if GameManager.is_ai_team(team):
+		knowledge_fog = _refresh_team_fog(team)
 	var groups := ["units", "buildings"]
 	for group_name in groups:
 		for node in get_tree().get_nodes_in_group(group_name):
@@ -1503,13 +1820,9 @@ func _find_nearest_visible_enemy(team: int, from_pos: Vector2, max_dist: float) 
 				continue
 			if int(node.get("team")) == team or GameManager.is_allied(team, int(node.get("team"))):
 				continue
-			var pos: Vector2 = node.global_position
-			if GameManager.fog_enabled and fog != null:
-				var tx := int(pos.x / TILE_SIZE)
-				var ty := int(pos.y / TILE_SIZE)
-				if not fog.is_visible(tx, ty):
-					continue
-			var d := from_pos.distance_to(pos)
+			if not _node_visible_to_team(team, node, knowledge_fog):
+				continue
+			var d := from_pos.distance_to(node.global_position)
 			if d < best_dist:
 				best_dist = d
 				best = node
@@ -1589,6 +1902,7 @@ func _install_saved_map(raw: Variant) -> void:
 		fog_texture = ImageTexture.create_from_image(fog_image)
 		if fog_sprite != null:
 			fog_sprite.texture = fog_texture
+	team_fogs.clear()
 
 ## Extractors pull a finite bonus from nearby deposits; depleted nodes stop
 ## paying out and disappear from the map (Step 2).
@@ -1620,7 +1934,7 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 	DirAccess.make_dir_recursive_absolute("user://saves")
 	var gs := GameState.new()
 	gs.tick = int(elapsed_time * 20.0)
-	for pid in [0, 1]:
+	for pid in _economy_team_ids():
 		gs.resources[str(pid)] = ResourceManager.get_wallet(pid).duplicate()
 	for u in units_container.get_children():
 		if is_instance_valid(u) and not u.is_exploding and u.stats:
@@ -1643,7 +1957,7 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 	var power_efficiency: Dictionary = {}
 	var caps: Dictionary = {}
 	var tech: Dictionary = {}
-	for pid in [0, 1]:
+	for pid in _economy_team_ids():
 		rates[str(pid)] = ResourceManager.rates.get(pid, Economy.empty_wallet()).duplicate()
 		base_rates[str(pid)] = ResourceManager.base_rates.get(pid, Economy.empty_wallet()).duplicate()
 		power_efficiency[str(pid)] = clampf(float(ResourceManager.power_efficiency.get(pid, 1.0)), 0.0, 1.0)
@@ -1652,6 +1966,16 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 	var deposits: Array = []
 	for i in range(resource_deposits.size()):
 		deposits.append(int((resource_deposits[i]["deposit"] as ResourceDeposit).amount))
+	var saved_buoys: Array = []
+	for buoy in sonar_buoys:
+		var bpos: Vector2 = buoy.get("pos", Vector2.ZERO)
+		saved_buoys.append({
+			"owner_team": int(buoy.get("owner_team", 0)),
+			"owner_id": int(buoy.get("owner_id", 0)),
+			"x": bpos.x, "y": bpos.y,
+			"deployed_at": float(buoy.get("deployed_at", elapsed_time)),
+			"expires_at": float(buoy.get("expires_at", elapsed_time)),
+		})
 	var sg := SaveGame.new()
 	sg.game_state = gs.snapshot()
 	sg.settings = {
@@ -1678,6 +2002,7 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 		"local_team": GameManager.local_team,
 		"map": MapSerializer.to_dict(map_data) if map_data != null else {},
 		"deposits": deposits,
+		"sonar_buoys": saved_buoys,
 	}
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
@@ -1712,6 +2037,8 @@ func _reset_match_transients() -> void:
 	ai_order_until.clear()
 	ai_states.clear()
 	ai_command_seq = 0
+	sonar_buoys.clear()
+	sonar_cooldowns.clear()
 	control_groups.clear()
 	active_vfx.clear()
 	active_tracers.clear()
@@ -1843,7 +2170,8 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 	for key in (settings.get("team_factions", {}) as Dictionary).keys():
 		var fac_team := Alliance.team_id(key)
 		if fac_team >= 0:
-			GameManager.team_factions[fac_team] = clampi(int((settings["team_factions"] as Dictionary)[key]), 0, 3)
+			var max_fac := 7 if (GameManager.ai_enabled and GameManager.ai_teams.has(fac_team)) else 3
+			GameManager.team_factions[fac_team] = clampi(int((settings["team_factions"] as Dictionary)[key]), 0, max_fac)
 	GameManager.team_difficulties = {}
 	for key in (settings.get("team_difficulties", {}) as Dictionary).keys():
 		var diff_team := Alliance.team_id(key)
@@ -1854,7 +2182,9 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		GameManager.ai_faction = GameManager.team_factions.get(1, GameManager.ai_faction)
 	ai_states.clear()
 
-	team_unlocked_tech = {0: [], 1: []}
+	team_unlocked_tech.clear()
+	for value in GameManager.teams:
+		team_unlocked_tech[int(value)] = []
 	for key in sg.settings.get("tech", {}).keys():
 		var list: Array = []
 		for node_id in sg.settings["tech"][key]:
@@ -1866,8 +2196,9 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		if not GameManager.registry.has_unit(uid):
 			continue
 		var u := _spawn_unit_by_id(uid, Vector2(float(rec.get("x", 0)), float(rec.get("y", 0))), int(rec.get("team", 0)))
+		var max_u_fac := 7 if GameManager.is_ai_team(int(u.team)) else 3
+		u.faction = clampi(int(rec.get("faction", u.faction)), 0, max_u_fac)
 		u.hp = clampi(int(rec.get("hp", u.hp)), 1, u.effective_max_hp())
-		u.faction = int(rec.get("faction", u.faction))
 		u.net_id = int(rec.get("net_id", 0))
 	for rec in gs.buildings:
 		var bid := str(rec.get("id", ""))
@@ -1896,6 +2227,25 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 	player_tech_tier = int(sg.settings.get("player_tech_tier", 1))
 	ai_tech_tier = int(sg.settings.get("ai_tech_tier", 1))
 	GameManager.match_seed = int(sg.settings.get("match_seed", GameManager.match_seed))
+	sonar_buoys.clear()
+	sonar_cooldowns.clear()
+	for raw_buoy in sg.settings.get("sonar_buoys", []):
+		if not (raw_buoy is Dictionary):
+			continue
+		var rec := raw_buoy as Dictionary
+		var deployed_at := float(rec.get("deployed_at", elapsed_time))
+		var buoy := SonarBuoy.make(
+			int(rec.get("owner_team", 0)), int(rec.get("owner_id", 0)),
+			Vector2(float(rec.get("x", 0.0)), float(rec.get("y", 0.0))), deployed_at,
+		)
+		if rec.has("expires_at"):
+			buoy["expires_at"] = float(rec["expires_at"])
+		if SonarBuoy.is_active(buoy, elapsed_time):
+			sonar_buoys.append(buoy)
+			var ready_at := deployed_at + SonarBuoy.COOLDOWN_SEC
+			if ready_at > elapsed_time:
+				sonar_cooldowns[int(buoy["owner_id"])] = ready_at
+	_init_team_fogs()
 	_rebuild_spatial_grid()
 	queue_redraw()
 	var hq := _find_team_hq(GameManager.local_team)
@@ -1910,6 +2260,7 @@ func _process(delta):
 	_rebuild_spatial_grid()
 	laser_cooldown = maxf(0.0, laser_cooldown - delta)
 	nuke_cooldown = maxf(0.0, nuke_cooldown - delta)
+	_cleanup_sonar_buoys()
 
 	for i in range(active_vfx.size() - 1, -1, -1):
 		active_vfx[i]["timer"] = float(active_vfx[i]["timer"]) - delta
@@ -1929,6 +2280,14 @@ func _process(delta):
 		if float(tactical_pings[i]["timer"]) <= 0.0:
 			tactical_pings.remove_at(i)
 	queue_redraw()
+
+	# Prune destroyed units from live selection so stale references never accumulate.
+	for i in range(selected_units.size() - 1, -1, -1):
+		var su = selected_units[i]
+		if not is_instance_valid(su) or su.is_exploding:
+			selected_units.remove_at(i)
+	if selected_building != null and (not is_instance_valid(selected_building) or selected_building.is_exploding):
+		selected_building = null
 
 	# Economy 1s tick
 	economy_timer += delta
@@ -1977,17 +2336,25 @@ func _run_skirmish_ai_turn() -> void:
 func _run_ai_turn_for_team(ai_team: int) -> void:
 	var state := _ai_state(ai_team)
 	var difficulty := GameManager.difficulty_for_team(ai_team)
+	var spectator: bool = GameManager.is_spectator
 	var ai_wallet := ResourceManager.get_wallet(ai_team)
 	var b_counts := _get_team_building_counts(ai_team)
 	var ai_units := _get_team_units(ai_team)
-	var enemy_units := _enemy_units(ai_team)
+	# Enemy knowledge comes from this side's own fog, never the spectator view.
+	var enemy_units := _visible_enemy_units(ai_team)
 	var pop_cap := int(ResourceManager.caps.get(ai_team, 20))
 
 	# 1. Economy & base expansion, issued as host-relayed commands.
-	var next_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap)
+	var ai_fac := GameManager.faction_for_team(ai_team)
+	var next_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap, ai_fac)
 	if elapsed_time >= float(state["next_build_time"]) \
 			and AI.should_expand(float(ResourceManager.rates[ai_team].get(Economy.Res.IRON, 0)), 10.0):
-		if _issue_ai_command(ai_team, {"type": "build", "id": next_bld}):
+		var built := _issue_ai_command(ai_team, {"type": "build", "id": next_bld})
+		if not built and Faction.is_npc(ai_fac):
+			var fallback_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap, -1)
+			if fallback_bld != next_bld:
+				built = _issue_ai_command(ai_team, {"type": "build", "id": fallback_bld})
+		if built:
 			state["next_build_time"] = elapsed_time + AI.build_interval(difficulty)
 
 	# 2. Tech progression through the same validated research command peers use.
@@ -1997,15 +2364,22 @@ func _run_ai_turn_for_team(ai_team: int) -> void:
 		if _issue_ai_command(ai_team, {"type": "tech", "id": str(available[0])}):
 			state["tech_tier"] = mini(4, int(state["tech_tier"]) + 1)
 
-	# 3. Counter-production against every enemy side.
+	# 3. Counter-production against every enemy side this AI has actually seen.
 	var enemy_comp := _classify_units(enemy_units)
 	for enemy_team in _enemy_teams(ai_team):
 		enemy_comp["fortifications"] = int(enemy_comp.get("fortifications", 0)) + _count_team_buildings(enemy_team, "turret")
-	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]))
-	if elapsed_time >= float(state["next_train_time"]) and _issue_ai_command(ai_team, {"type": "train", "id": chosen_uid}):
-		state["next_train_time"] = elapsed_time + AI.train_interval(difficulty)
+	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]), ai_fac)
+	if elapsed_time >= float(state["next_train_time"]):
+		var trained := _issue_ai_command(ai_team, {"type": "train", "id": chosen_uid})
+		if not trained and Faction.is_npc(ai_fac):
+			var fallback_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]), -1)
+			if fallback_uid != chosen_uid:
+				trained = _issue_ai_command(ai_team, {"type": "train", "id": fallback_uid})
+		if trained:
+			state["next_train_time"] = elapsed_time + AI.train_interval(difficulty)
 
-	# 4. Tactical squad coordination.
+	# 4. Tactical squad coordination. Scouts sweep ahead of the main squad
+	# under fog; the combat group remembers the last contact it discovered.
 	var ai_hq := _find_team_hq(ai_team)
 	var fallback_base := Vector2(1100, 900) if ai_team == 1 else Vector2(160, 160)
 	var ai_base_pos := ai_hq.global_position if ai_hq != null else fallback_base
@@ -2016,16 +2390,46 @@ func _run_ai_turn_for_team(ai_team: int) -> void:
 			enemy_near_base += 1
 			closest_intruder = eu
 
+	var scouts: Array = []
 	var combat_units: Array = []
 	for u in ai_units:
-		if u.stats == null or u.stats.id != "sapperbot":
+		if u.stats == null or u.stats.id == "sapperbot":
+			continue
+		if UnitRegistry.is_scout_unit(u.stats.id):
+			scouts.append(u)
+		else:
 			combat_units.append(u)
 
-	var wave_size := AI.attack_wave_threshold(difficulty, elapsed_time / 60.0)
-	if enemy_near_base == 0 and elapsed_time < AI.rally_grace(difficulty):
+	# Drop stale cooldown keys for units that died since the previous tick.
+	var live_keys: Dictionary = {}
+	for u in combat_units:
+		live_keys[int(u.get_instance_id())] = true
+	for key in (state["retreat_until"] as Dictionary).keys():
+		if not live_keys.has(key):
+			(state["retreat_until"] as Dictionary).erase(key)
+	for key in (state["order_until"] as Dictionary).keys():
+		if not live_keys.has(key):
+			(state["order_until"] as Dictionary).erase(key)
+
+	var wave_size := AI.attack_wave_threshold(difficulty, elapsed_time / 60.0, spectator)
+	if enemy_near_base == 0 and elapsed_time < AI.rally_grace(difficulty, spectator):
 		state["tactical_state"] = "rally"
 	else:
 		state["tactical_state"] = AI.choose_tactical_state(combat_units.size(), enemy_near_base, wave_size)
+
+	if not scouts.is_empty() and elapsed_time >= float(state["scout_order_until"]):
+		var route: Array = AI.scout_route(ai_base_pos, _map_world_size())
+		var waypoint: Vector2 = route[int(elapsed_time / 25.0) % route.size()]
+		var scout_ids: Array = []
+		for scout in scouts:
+			scout_ids.append(int(scout.net_id))
+		if _issue_ai_command(ai_team, {
+			"type": "move", "unit_ids": scout_ids,
+			"target_x": clampf(waypoint.x, 0.0, NetSecurity.MAX_COORD),
+			"target_y": clampf(waypoint.y, 0.0, NetSecurity.MAX_COORD),
+			"attack_move": false,
+		}):
+			state["scout_order_until"] = elapsed_time + AI.order_interval(difficulty) * 2.0
 
 	var rally_offset := Vector2(-220, -180) if ai_team == 1 else Vector2(220, 180)
 	var rally_pos := ai_base_pos + rally_offset
@@ -2036,14 +2440,24 @@ func _run_ai_turn_for_team(ai_team: int) -> void:
 			squad_pos += u.global_position
 		squad_pos /= float(combat_units.size())
 	var target := _find_nearest_visible_enemy(ai_team, squad_pos, 900.0)
+	var memory: Dictionary = state["last_known_enemy"]
+	if target != null:
+		memory["x"] = target.global_position.x
+		memory["y"] = target.global_position.y
+		memory["expires_at"] = elapsed_time + 45.0
+	elif not memory.is_empty() and elapsed_time >= float(memory.get("expires_at", 0.0)):
+		memory.clear()
 	var primary_target_pos := rally_pos
 	if target != null:
 		primary_target_pos = target.global_position
+	elif not memory.is_empty():
+		# Remembered positions expire; they never grant live enemy knowledge.
+		primary_target_pos = Vector2(float(memory["x"]), float(memory["y"]))
 
 	var order_ids: Array = []
 	var retreating := false
 	for u in combat_units:
-		var max_hp := float(u.stats.hp if u.stats else 100)
+		var max_hp := float(u.effective_max_hp()) if u.has_method("effective_max_hp") else float(u.stats.hp if u.stats else 100)
 		var hp_ratio := float(u.hp) / maxf(1.0, max_hp)
 		var retreat_key: int = int(u.get_instance_id())
 		var retreat_until := float((state["retreat_until"] as Dictionary).get(retreat_key, 0.0))
@@ -2104,6 +2518,8 @@ func _ai_state(team: int) -> Dictionary:
 		"next_build_time": 0.0,
 		"next_train_time": 0.0,
 		"order_until": {},
+		"scout_order_until": 0.0,
+		"last_known_enemy": {},
 	}
 	if team == 1:
 		state["tech_tier"] = ai_tech_tier
@@ -2301,7 +2717,9 @@ func _check_win():
 		return
 	# Production capacity decides the match; unit-only armies cannot rebuild.
 	var production_ids := [
-		"barracks", "factory", "airfield", "shipyard",
+		# An HQ-only opening still counts as live production capacity. HQs
+		# train engineers and are the primary victory target in a skirmish.
+		"hq", "barracks", "factory", "airfield", "shipyard",
 		"docks", "mech_factory_1", "mech_factory_2", "mech_factory_3",
 		"advanced_shipyard", "aeries_1", "aeries_2",
 	]
@@ -2367,6 +2785,22 @@ func _draw():
 	# Scorch marks from blown-up units and buildings
 	for s in scorch_marks:
 		draw_circle(s["pos"], float(s["radius"]), Color(0.1, 0.09, 0.08, float(s["alpha"])))
+
+	# Active sonar buoys: the deploying side sees the sweep; rivals do not.
+	for buoy in sonar_buoys:
+		var buoy_owner := int(buoy.get("owner_team", -1))
+		if not GameManager.is_spectator and not GameManager.is_allied(GameManager.local_team, buoy_owner):
+			continue
+		var bpos: Vector2 = buoy.get("pos", Vector2.ZERO)
+		var life := clampf(
+			(float(buoy.get("expires_at", 0.0)) - elapsed_time) / SonarBuoy.LIFETIME_SEC, 0.0, 1.0
+		)
+		var bcol := Faction.colorblind_color_of(
+			GameManager.faction_for_team(buoy_owner), SettingsManager.colorblind_palette()
+		)
+		draw_arc(bpos, float(buoy.get("radius_px", SonarBuoy.RADIUS_PX)), 0, TAU, 48,
+			Color(bcol.r, bcol.g, bcol.b, 0.18 + life * 0.35), 2.0)
+		draw_circle(bpos, 5.0, Color(bcol.r, bcol.g, bcol.b, 0.55 + life * 0.45))
 
 	# Ambient non-combatant wildlife (Deer, Dolphins, Squid, Birds)
 	for cr in wildlife_herd:
@@ -2434,6 +2868,8 @@ func _draw():
 	if not pending_target_action.is_empty():
 		var tpos := _world_mouse_pos(get_viewport().get_mouse_position())
 		var r_sz := 95.0 if pending_target_action == "laser" else 180.0
+		if pending_target_action == "sonar_buoy":
+			r_sz = SonarBuoy.RADIUS_PX
 		draw_arc(tpos, r_sz, 0, TAU, 32, Color(1.0, 0.3, 0.2, 0.85), 2.5)
 	for ping in tactical_pings:
 		var ppos: Vector2 = ping["pos"]
@@ -2460,14 +2896,20 @@ func _update_fog() -> void:
 			var tx := int(u.global_position.x / TILE_SIZE)
 			var ty := int(u.global_position.y / TILE_SIZE)
 			var sight_tiles := 8
-			if u.stats:
-				sight_tiles = int(u.stats.sight / TILE_SIZE)
+			if u.has_method("effective_sight"):
+				sight_tiles = maxi(1, int(float(u.effective_sight()) / TILE_SIZE))
+			elif u.stats:
+				sight_tiles = maxi(1, int(u.stats.sight / TILE_SIZE))
 			fog.mark_visible(tx, ty, sight_tiles)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and GameManager.is_allied(team, b.team):
 			var tx := int(b.global_position.x / TILE_SIZE)
 			var ty := int(b.global_position.y / TILE_SIZE)
-			fog.mark_visible(tx, ty, 5)
+			# Most structures see 5 tiles. Radar buildings (including sapper
+			# missile towers) sweep only their powered, limited range.
+			var range_px := _building_vision_px(b, team)
+			if range_px > 0.0:
+				fog.mark_visible(tx, ty, maxi(1, ceili(range_px / TILE_SIZE)))
 	for y in range(fog.height):
 		for x in range(fog.width):
 			# Unexplored tiles must be fully opaque: a translucent veil still
@@ -2481,20 +2923,10 @@ func _update_fog() -> void:
 	fog_texture.update(fog_image)
 	for u in units_container.get_children():
 		if is_instance_valid(u):
-			if GameManager.is_allied(team, u.team):
-				u.visible = true
-			else:
-				var tx := int(u.global_position.x / TILE_SIZE)
-				var ty := int(u.global_position.y / TILE_SIZE)
-				u.visible = fog.is_visible(tx, ty)
+			u.visible = _node_visible_to_team(team, u, fog)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b):
-			if GameManager.is_allied(team, b.team):
-				b.visible = true
-			else:
-				var tx := int(b.global_position.x / TILE_SIZE)
-				var ty := int(b.global_position.y / TILE_SIZE)
-				b.visible = fog.is_visible(tx, ty)
+			b.visible = _node_visible_to_team(team, b, fog)
 
 func _terrain_color(t: int) -> Color:
 	match t:

@@ -9,15 +9,15 @@ BroWarz is a combined-arms RTS set in 2030 where four rival megacorporations (**
 
 ## Status
 
-Playable v0.1.2 release build with Single Player vs AI Skirmish mode, two-player co-op against a shared AI opponent, view-only AI-vs-AI Spectator mode with selectable factions, in-match host-authoritative Diplomacy, Hex Map Editor (`BWM1:` share codes & `.bwm` files), Amphibious Embark/Disembark transport operations, Drifting Cloud weather systems for aerial units, soak-tested P2P lockstep multiplayer, a grouped main-menu layout with full-viewport camo, a camera that always keeps the map on screen, and four selectable faction soundtracks with main-menu and settings switchers. See [`docs/design.md`](docs/design.md) for the game design document, [`docs/units.md`](docs/units.md) for unit visual rosters, [`docs/factories.md`](docs/factories.md) for tiered production buildings, [`docs/corporations.md`](docs/corporations.md) for faction lore, [`docs/diplomacy.md`](docs/diplomacy.md) for alliance rules, [`docs/maps.md`](docs/maps.md) for terrain/map editor details, and [`docs/roadmap.md`](docs/roadmap.md) for the completed roadmap.
+v0.1.3 pending publication: the playable build adds four AI-only NPC factions — Vesper Ascendancy, Thalassa Dominion, Gravebound Legion and Lumen Cabal — for skirmish enemies, the co-op AI and both spectator sides (human seats remain the four corporations). It also includes Single Player vs AI Skirmish mode, two-player co-op against a shared AI opponent, view-only AI-vs-AI Spectator mode with selectable factions, in-match host-authoritative Diplomacy, Hex Map Editor (`BWM1:` share codes & `.bwm` files), Amphibious Embark/Disembark transport operations, Drifting Cloud weather systems for aerial units, soak-tested P2P lockstep multiplayer, a grouped main-menu layout with full-viewport camo, a camera that always keeps the map on screen, and selectable faction soundtracks with main-menu and settings switchers. See [`docs/design.md`](docs/design.md) for the game design document, [`docs/units.md`](docs/units.md) for unit visual rosters, [`docs/npc.md`](docs/npc.md) for the AI-only factions, [`docs/factories.md`](docs/factories.md) for tiered production buildings, [`docs/corporations.md`](docs/corporations.md) for faction lore, [`docs/diplomacy.md`](docs/diplomacy.md) for alliance rules, [`docs/maps.md`](docs/maps.md) for terrain/map editor details, and [`docs/roadmap.md`](docs/roadmap.md) for roadmap status.
 
 ---
 
 ## Game Modes
 
-- **Skirmish (single player):** Pick your corporation, AI difficulty and map; fight the AI on team 1.
-- **Co-op vs AI (P2P lobby):** Host sets **Co-op: On (2 humans vs AI)**. Exactly two players share team 0; the host pins the AI corporation/difficulty and drives the AI through the same validated command relay used for player orders.
-- **Spectator (view only):** From the main menu, choose **AI Side A** with the Corporation button and **AI Side B** with the AI Side B Corp button, then press **Watch AI vs AI (View Only)**. Both AIs use the selected difficulty; fog is off and commands are disabled, leaving only camera control and pause.
+- **Skirmish (single player):** Pick your corporation (IDs 0–3), AI opponent (any corporation or AI-only NPC faction, IDs 0–7), AI difficulty and map; fight the AI on team 1.
+- **Co-op vs AI (P2P lobby):** Host sets **Co-op: On (2 humans vs AI)**. Exactly two players share team 0; the host pins the human corporation (IDs 0–3), AI faction (IDs 0–7) and difficulty, driving the AI through the same validated command relay used for player orders.
+- **Spectator (view only):** From the main menu, choose **Spectator AI Side A** (IDs 0–7) and **AI Opponent / Side B** (IDs 0–7), then press **Watch AI vs AI (View Only)**. Both AIs use the selected difficulty; fog is off and commands are disabled, leaving only camera control and pause.
 - **P2P skirmish:** 2–4 human teams with host-authoritative validation, diplomacy for 3+ teams, and reconnect/host migration.
 - **Map editor:** Build and validate custom maps, then play them in skirmish or share them with `BWM1:` codes.
 
@@ -98,14 +98,23 @@ Random multi-puff cloud formations (`GameManager.active_clouds`, spawned via `Co
   - **Aerial Defense in Cloud (`Cover.cloud_air_defense_modifier`):** **`0.75×` incoming damage** (`-25%` damage taken due to cloud concealment against anti-air fire).
   - **Aerial Attack in Cloud (`Cover.cloud_air_attack_modifier`):** **`0.85×` outgoing damage** (`-15%` weapon damage due to obscured optical/laser targeting pods).
 
-### 6. Corporation Asymmetric Modifiers (`Faction`)
+### 6. Corporation & AI-Only NPC Asymmetric Modifiers (`Faction`)
 
-| Corporation | Active Gameplay Modifiers |
+| Corporation (Human, IDs 0–3) | Active Gameplay Modifiers |
 |---|---|
 | **AeroDyne Industries** | `-10%` Air unit resource cost (`air_cost: 0.9`), `-15%` Orbital Laser cooldown (`orbital_cooldown: 0.85`) |
 | **FerroCore Heavy** | `+10%` Tank max HP (`light_tank`, `mbt`, `heavy_tank`), `+25%` Sapper & Engineer movement speed |
 | **Pelagic Systems** | `-10%` Naval/Amphibious unit resource cost (`sea_cost: 0.9`), Submarine stealth cloaking (`sub_cloak: true`) |
 | **Vanguard Robotics** | `+20%` Stealth cloak duration (`12.0s` vs `10.0s`), `-10%` Infantry & Mech unit resource cost (`mech_cost: 0.9`) |
+
+Four **AI-only NPC factions (IDs 4–7)** are also available exclusively for AI opponents, co-op AI, and spectator sides — each with its own banner, theme music, pros/cons modifiers, and 3 unique units (see [`docs/npc.md`](docs/npc.md)):
+
+| NPC Faction (AI-Only, IDs 4–7) | Bonuses | Penalties | Unique Units |
+|---|---|---|---|
+| **Vesper Ascendancy** (`vesper`) | Air damage `×1.20`, air speed `×1.30` | Ground/vehicle HP `×0.80` | `ufo_wisp`, `ufo_talon`, `ufo_nova` |
+| **Thalassa Dominion** (`thalassa`) | Naval HP `×1.25`, naval damage `×1.15`, sea cost `×0.90` | Land & air damage `×0.85` | `abyssal_trireme`, `leviathan_carrier`, `nereid_raider` |
+| **Gravebound Legion** (`gravebound`) | Infantry HP `×1.20`, infantry cost `×0.85` | Sight `×0.85`, vehicle/air HP `×0.80` | `bone_legionary`, `ghoul_stalker`, `lichen_colossus` |
+| **Lumen Cabal** (`lumen`) | Sight `×1.25`, stealth duration `×1.30` | All unit cost `×1.10`, all HP `×0.90` | `lumen_operative`, `lumen_oracle`, `lumen_enforcer` |
 
 ### 7. Tiered Factories & Production (`UnitRegistry`, `Production`)
 

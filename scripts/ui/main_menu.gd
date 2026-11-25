@@ -12,6 +12,7 @@ const OPTIONS_COLUMN := "MenuPanel/Margin/VBox/Columns/OptionsColumn"
 @onready var difficulty_btn = $MenuPanel/Margin/VBox/Columns/OptionsColumn/DifficultyButton
 @onready var faction_btn = $MenuPanel/Margin/VBox/Columns/OptionsColumn/FactionButton
 @onready var spectator_btn = get_node_or_null("%s/SpectatorButton" % PLAY_COLUMN)
+@onready var spectator_side_a_btn = get_node_or_null("%s/SpectatorSideAFactionButton" % OPTIONS_COLUMN)
 @onready var spectator_faction_btn = get_node_or_null("%s/SpectatorFactionButton" % OPTIONS_COLUMN)
 @onready var map_btn = get_node_or_null("%s/MapButton" % OPTIONS_COLUMN)
 @onready var soundtrack_btn = get_node_or_null("%s/SoundtrackButton" % OPTIONS_COLUMN)
@@ -25,6 +26,7 @@ const OPTIONS_COLUMN := "MenuPanel/Margin/VBox/Columns/OptionsColumn"
 
 var selected_difficulty: int = AI.Difficulty.NORMAL
 var selected_faction: int = Faction.Id.AERODYNE
+var selected_spectator_side_a: int = Faction.Id.AERODYNE
 var selected_spectator_faction: int = Faction.Id.VANGUARD
 var selected_map_type: int = 2  # 0 Desert, 1 Island Chain, 2 Forest, 3 Custom Map
 var custom_map_path: String = "user://custom_map.bwm"
@@ -40,8 +42,14 @@ func _ready():
 	if is_instance_valid(faction_btn):
 		faction_btn.pressed.connect(_on_cycle_faction)
 	spectator_btn = _ensure_menu_button("SpectatorButton", "Watch AI vs AI (View Only)", play_column)
-	spectator_faction_btn = _ensure_menu_button("SpectatorFactionButton", "AI Side B Corp: Vanguard", options_column)
+	spectator_side_a_btn = _ensure_menu_button("SpectatorSideAFactionButton", "Spectator AI Side A: AeroDyne", options_column)
+	if is_instance_valid(faction_btn):
+		options_column.move_child(spectator_side_a_btn, faction_btn.get_index() + 1)
+	spectator_faction_btn = _ensure_menu_button("SpectatorFactionButton", "AI Opponent / Side B: Vanguard", options_column)
+	if is_instance_valid(spectator_side_a_btn):
+		options_column.move_child(spectator_faction_btn, spectator_side_a_btn.get_index() + 1)
 	spectator_btn.pressed.connect(_on_spectator)
+	spectator_side_a_btn.pressed.connect(_on_cycle_spectator_side_a_faction)
 	spectator_faction_btn.pressed.connect(_on_cycle_spectator_faction)
 	if is_instance_valid(map_btn):
 		map_btn.pressed.connect(_on_cycle_map)
@@ -83,7 +91,12 @@ func _on_custom_map_selected(index: int) -> void:
 	custom_map_path = paths[index - 1] if index > 0 and index <= paths.size() else "user://custom_map.bwm"
 
 func _open_settings() -> void:
+	var existing := get_node_or_null("SettingsDialog")
+	if existing != null and is_instance_valid(existing):
+		(existing as AcceptDialog).popup_centered(Vector2i(620, 640))
+		return
 	var dialog := SettingsDialog.new()
+	dialog.name = "SettingsDialog"
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(620, 640))
 
@@ -108,9 +121,11 @@ func _refresh_labels() -> void:
 	if is_instance_valid(difficulty_btn):
 		difficulty_btn.text = "AI Difficulty: %s" % AI.difficulty_name(selected_difficulty)
 	if is_instance_valid(faction_btn):
-		faction_btn.text = "Corporation / AI Side A: %s" % Faction.name_of(selected_faction)
+		faction_btn.text = "Your Corp: %s" % Faction.name_of(selected_faction)
+	if is_instance_valid(spectator_side_a_btn):
+		spectator_side_a_btn.text = "Spectator AI Side A: %s" % Faction.name_of(selected_spectator_side_a)
 	if is_instance_valid(spectator_faction_btn):
-		spectator_faction_btn.text = "AI Side B Corp: %s" % Faction.name_of(selected_spectator_faction)
+		spectator_faction_btn.text = "AI Opponent / Side B: %s" % Faction.name_of(selected_spectator_faction)
 	if is_instance_valid(map_btn):
 		map_btn.text = "Map: %s" % MAP_OPTIONS[selected_map_type % MAP_OPTIONS.size()]
 	if is_instance_valid(soundtrack_btn):
@@ -121,11 +136,17 @@ func _on_cycle_difficulty() -> void:
 	_refresh_labels()
 
 func _on_cycle_faction() -> void:
-	selected_faction = (selected_faction + 1) % 4
+	# Human seats are strictly limited to the four corporations (IDs 0-3).
+	selected_faction = (selected_faction + 1) % Faction.human_ids().size()
+	_refresh_labels()
+
+func _on_cycle_spectator_side_a_faction() -> void:
+	selected_spectator_side_a = (selected_spectator_side_a + 1) % Faction.ai_ids().size()
 	_refresh_labels()
 
 func _on_cycle_spectator_faction() -> void:
-	selected_spectator_faction = (selected_spectator_faction + 1) % 4
+	# AI opponent / spectator Side B may play any corporation or NPC faction (IDs 0-7).
+	selected_spectator_faction = (selected_spectator_faction + 1) % Faction.ai_ids().size()
 	_refresh_labels()
 
 func _on_cycle_map() -> void:
@@ -158,9 +179,12 @@ func _on_skirmish() -> void:
 	var loaded := _load_selected_map()
 	if not bool(loaded["ok"]):
 		return
-	var ai_fac := (selected_faction + 1) % 4
-	GameManager.start_single_player(selected_difficulty, loaded["map"], selected_faction, ai_fac, selected_map_type)
-	status.text = "Starting Single Player vs %s AI..." % AI.difficulty_name(selected_difficulty)
+	var human_fac := clampi(selected_faction, 0, 3)
+	var ai_fac := clampi(selected_spectator_faction, 0, 7)
+	GameManager.start_single_player(selected_difficulty, loaded["map"], human_fac, ai_fac, selected_map_type)
+	status.text = "Starting Single Player vs %s (%s AI)..." % [
+		Faction.name_of(ai_fac), AI.difficulty_name(selected_difficulty),
+	]
 	_start_game()
 
 func _on_spectator() -> void:
@@ -169,11 +193,11 @@ func _on_spectator() -> void:
 	if not bool(loaded["ok"]):
 		return
 	GameManager.start_spectator(
-		selected_difficulty, loaded["map"], selected_faction,
+		selected_difficulty, loaded["map"], selected_spectator_side_a,
 		selected_spectator_faction, selected_map_type,
 	)
 	status.text = "Spectating %s vs %s (%s AI, view only)..." % [
-		Faction.name_of(selected_faction), Faction.name_of(selected_spectator_faction),
+		Faction.name_of(selected_spectator_side_a), Faction.name_of(selected_spectator_faction),
 		AI.difficulty_name(selected_difficulty),
 	]
 	_start_game()

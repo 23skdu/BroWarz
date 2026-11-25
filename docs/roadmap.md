@@ -2,7 +2,9 @@
 
 ## Status
 
-Every previously tracked milestone and gap-analysis step has been verified against the live code and UI and removed from the checklist. Verification gates are `make check` (GUT suite, post-run orphan guard, layout/deadcode checks, and workflow lint via `actionlint` when installed), headless Godot import, CI, and web export. No new release is pending.
+Every previously tracked milestone and gap-analysis step has been verified against the live code and UI and removed from the checklist. **v0.1.3 is pending publication**; no tag has been moved or created, and the older tags remain where they are.
+
+Verification gates are `make check` (GUT suite, post-run orphan guard, layout/deadcode checks, and workflow lint via `actionlint` when installed), headless Godot import, and CI. Web export is a separate `make build-web` gate, not part of `make check`. All checks will be run before release.
 
 ## Verified milestones (checklist retired)
 
@@ -13,10 +15,21 @@ Every previously tracked milestone and gap-analysis step has been verified again
 
 Audit corrections applied while retiring the checklist: the registry contains **29 base unit roles / 32 IDs including worker aliases** (not “31 units”); sapper fortifications use footprint ghosts while `L`/`N` use the strike reticle; the victory panel now includes match duration; multiplayer diplomacy is documented as multiplayer-only, not skirmish; stale test counts were removed in favor of the `make check` gate.
 
+## v0.1.3 (pending publication)
+
+Work in the pending release:
+
+- HQ-only opening: each player starts with one HQ and a small escort including a scout drone; all other buildings must be built or captured.
+- Previously deferred sonar-aware fog/minimap concealment is now implemented: corvette sonar buoys reveal submarines to their owner and allies on a cooldown, and submerged contacts stay hidden until sonar or sight finds them.
+- Powered radar: `radar` and `missile_tower` sweep 480 px/320 px, revealing terrain and cloaked contacts with range scaled by power efficiency.
+- The minimap sits top-center, clear of the bottom-right unit corner, with fog, blips, buoys, camera viewport and pings.
+- AI uses its own fog knowledge, sweeps scouts ahead, remembers the last visible contact briefly (45 s), and attacks sooner in AI-vs-AI spectator mode.
+- Building thumbnails for every registered building ID are generated into `docs/thumbnails/buildings/` alongside unit thumbnails.
+- Four AI-only NPC factions (IDs 4–7 — Vesper Ascendancy, Thalassa Dominion, Gravebound Legion, Lumen Cabal): AI-only selection for skirmish enemies, co-op AI and both spectator sides (human seats stay IDs 0–3), dedicated banners/colors/theme tracks, 12 unique units with faction-native thumbnails and sprites, per-faction combat modifiers, and updated docs and tests documented in [`npc.md`](npc.md).
+
 ## Deferred / future ideas
 
 - A live runtime hook for the lockstep soak harness; the soak currently runs as a deterministic test rather than an in-game verification path.
 - A dedicated building-inspector panel; the live building HUD already shows queue progress, rally flags and hotkey cancellation.
-- Sonar-aware fog/minimap concealment for submerged units; sonar currently governs target acquisition.
 - A fuller voice-bark/SFX set beyond the current alias table.
 - Campaign, mods and dedicated server authority (deferred beyond v1).

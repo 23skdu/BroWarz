@@ -9,7 +9,7 @@ const REPLAY_PATH := "user://replays/match.json"
 const TYPE_NAMES: Array[String] = [
 	"MOVE", "ATTACK", "ATTACK_MOVE", "BUILD", "STOP", "PATROL", "HOLD",
 	"TRAIN", "FORTIFY", "EMBARK", "DISEMBARK", "TECH", "ORBITAL", "NUKE",
-	"CAPTURE", "DEMOLISH", "DIPLOMACY",
+	"CAPTURE", "DEMOLISH", "DIPLOMACY", "SONAR_BUOY",
 ]
 
 var replay: Replay = null

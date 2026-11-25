@@ -1,8 +1,9 @@
 class_name Minimap
 extends Control
 
-## Corner tactical map. Left-click jumps the camera; right-click issues the
-## same move/attack-move order as a right-click on the world map.
+## Top-center tactical map. It stays clear of the bottom-right battlefield
+## corner; left-click jumps the camera and right-click issues the same
+## move/attack-move order as a right-click on the world map.
 
 signal camera_requested(world_pos: Vector2)
 signal move_requested(world_pos: Vector2)
@@ -28,11 +29,11 @@ func _game() -> Node:
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(SIZE_PX, SIZE_PX)
-	set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	offset_left = -SIZE_PX - 16.0
-	offset_top = -SIZE_PX - 16.0
-	offset_right = -16.0
-	offset_bottom = -16.0
+	set_anchors_preset(Control.PRESET_CENTER_TOP)
+	offset_left = -SIZE_PX * 0.5
+	offset_top = 16.0
+	offset_right = SIZE_PX * 0.5
+	offset_bottom = SIZE_PX + 16.0
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_refresh_terrain()
 
@@ -113,10 +114,21 @@ func _draw() -> void:
 			Color(0.35, 0.95, 0.55), Color(1.0, 0.75, 0.25),
 		][clampi(dep.type, 0, 3)]
 		draw_circle(Vector2(dep_pos.x * sx, dep_pos.y * sy), 2.0, dep_col)
+	var buoys: Array = scene.get("sonar_buoys") if scene != null else []
+	for buoy in buoys:
+		var buoy_owner := int(buoy.get("owner_team", -1))
+		if not GameManager.is_spectator and not GameManager.is_allied(local_team, buoy_owner):
+			continue
+		var buoy_col: Color = Faction.colorblind_color_of(
+			GameManager.faction_for_team(buoy_owner), palette
+		)
+		var buoy_pos: Vector2 = buoy.get("pos", Vector2.ZERO)
+		draw_circle(Vector2(buoy_pos.x * sx, buoy_pos.y * sy), 2.5, buoy_col.lightened(0.3))
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b) or ("is_exploding" in b and b.is_exploding):
 			continue
-		var bcol := Faction.colorblind_color_of(clampi(int(b.team), 0, 3), palette, 0)
+		var b_variant := int(scene.color_variant_for_team(int(b.team))) if (scene != null and scene.has_method("color_variant_for_team")) else 0
+		var bcol := Faction.colorblind_color_of(GameManager.faction_for_team(int(b.team)), palette, b_variant)
 		if GameManager.is_allied(local_team, int(b.team)):
 			_draw_blip(b.global_position, sx, sy, bcol, 3.0)
 		elif fog == null or not GameManager.fog_enabled or _is_visible(fog, b.global_position, tile_size):
@@ -124,7 +136,8 @@ func _draw() -> void:
 	for u in get_tree().get_nodes_in_group("units"):
 		if not is_instance_valid(u) or ("is_exploding" in u and u.is_exploding):
 			continue
-		var ucol := Faction.colorblind_color_of(clampi(int(u.team), 0, 3), palette, 0)
+		var u_variant := int(scene.color_variant_for_team(int(u.team))) if (scene != null and scene.has_method("color_variant_for_team")) else 0
+		var ucol := Faction.colorblind_color_of(GameManager.faction_for_team(int(u.team)), palette, u_variant)
 		if GameManager.is_allied(local_team, int(u.team)):
 			_draw_blip(u.global_position, sx, sy, ucol, 2.0)
 		elif fog == null or not GameManager.fog_enabled or _is_visible(fog, u.global_position, tile_size):

@@ -93,7 +93,7 @@ func _refresh() -> void:
 	coop_btn.text = "Co-op: %s" % ("On (2 humans vs AI)" if coop else "Off")
 	human_faction_btn.text = "Your Corp: %s" % Faction.name_of(int(lob.setting("human_faction", 0)))
 	ai_difficulty_btn.text = "AI Difficulty: %s" % AI.difficulty_name(int(lob.setting("ai_difficulty", 1)))
-	ai_faction_btn.text = "AI Corp: %s" % Faction.name_of(int(lob.setting("ai_faction", 1)))
+	ai_faction_btn.text = "AI Faction: %s" % Faction.name_of(int(lob.setting("ai_faction", 1)))
 	var alliance_mode := clampi(int(lob.setting("alliance_mode", 0)), 0, 1)
 	alliance_btn.text = "Alliances: %s" % ("Paired Sides" if alliance_mode == 1 else "FFA")
 	map_btn.text = "Map: %s" % MAP_NAMES[clampi(int(lob.setting("map_type", 2)), 0, 2)]
@@ -170,7 +170,7 @@ func _on_ai_faction_pressed() -> void:
 	if not NetworkManager.is_host():
 		return
 	var cur := int(NetworkManager.lobby.setting("ai_faction", 1))
-	NetworkManager.request_settings({"ai_faction": (cur + 1) % 4})
+	NetworkManager.request_settings({"ai_faction": (cur + 1) % Faction.ai_ids().size()})
 
 func _on_ready_pressed() -> void:
 	NetworkManager.set_local_ready(not NetworkManager.lobby.ready_of(multiplayer.get_unique_id()))

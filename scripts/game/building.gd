@@ -17,6 +17,7 @@ var explosion_debris: Array[Dictionary] = []
 var queue_label: Label = null
 
 @onready var body = $Body
+@onready var sprite: Sprite2D = $Sprite
 @onready var hp_bar = $HpBar
 
 func _ready():
@@ -45,10 +46,16 @@ func refresh_colorblind() -> void:
 	var scene = get_tree().current_scene
 	if scene != null and scene.has_method("color_variant_for_team"):
 		variant = int(scene.color_variant_for_team(team))
-	var base_c := Faction.colorblind_color_of(fac_id, SettingsManager.colorblind_palette(), variant).darkened(0.12)
+	var team_color := Faction.colorblind_color_of(fac_id, SettingsManager.colorblind_palette(), variant)
+	var base_c := team_color.darkened(0.12)
 	if stats != null and stats.is_hq:
 		base_c = base_c.lightened(0.22)
 	body.color = base_c
+	if sprite != null and stats != null and not stats.id.is_empty():
+		sprite.texture = BuildingVisual.get_cached_building_texture(stats.id, team_color)
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		var footprint := float(maxi(stats.footprint.x, stats.footprint.y))
+		sprite.scale = Vector2.ONE * clampf(footprint * 0.42, 0.68, 1.3)
 
 func _refresh_queue_label() -> void:
 	if queue_label == null:
@@ -177,6 +184,8 @@ func _trigger_destruction() -> void:
 	explode_timer = 0.0
 	if body:
 		body.visible = false
+	if sprite:
+		sprite.visible = false
 	if hp_bar:
 		hp_bar.visible = false
 	GameManager.unregister_fort_block(self)
@@ -216,11 +225,8 @@ func _draw():
 			draw_circle(d_pos, float(p["size"]), Color(0.95, 0.5, 0.15, 1.0 - prog))
 		return
 
-	# Structural detail frame and turret barrel
-	draw_rect(Rect2(-20, -20, 40, 40), Color(0.9, 0.95, 1.0, 0.35), false, 2.0)
-	if stats and stats.is_hq:
-		draw_arc(Vector2.ZERO, 12.0, 0, TAU, 20, Color(1.0, 0.9, 0.3, 0.85), 2.0)
-	elif stats and stats.id == "turret":
+	# Per-ID silhouettes come from BuildingVisual; only live turret aim is drawn here.
+	if stats and (stats.id == "turret" or stats.id == "missile_tower"):
 		var tip := Vector2.RIGHT.rotated(turret_angle) * 18.0
 		draw_line(Vector2.ZERO, tip, Color(0.85, 0.88, 0.92, 1.0), 3.5)
 		if fire_flash_timer > 0.0:

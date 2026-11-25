@@ -6,12 +6,16 @@ extends SceneTree
 # them is reproducible and does not require external audio libraries.
 #
 # In addition to the original menu/battle beds and SFX, this tool renders the
-# four faction soundtracks. Each is a 10-second seamless loop with a distinct
-# harmonic language matched to its corporation:
-#   AeroDyne  - bright major arpeggios and glassy aerial pads
-#   FerroCore - E-minor industrial riff, sub bass and hammered metal
-#   Pelagic   - A-dorian 6/8 tides with submerged marimba plucks
-#   Vanguard  - sparse whole-tone stabs, radar ticks and a covert drone
+# eight faction soundtracks (4 playable corporations + 4 AI-only NPC factions).
+# Each is a 10-second seamless loop with a distinct harmonic language:
+#   AeroDyne   - bright major arpeggios and glassy aerial pads
+#   FerroCore  - E-minor industrial riff, sub bass and hammered metal
+#   Pelagic    - A-dorian 6/8 tides with submerged marimba plucks
+#   Vanguard   - sparse whole-tone stabs, radar ticks and a covert drone
+#   Vesper     - Lydian stratospheric saucer hum and eerie vibrato theremin
+#   Thalassa   - deep D-dorian abyssal brass swells and sunken temple bells
+#   Gravebound - heavy C-phrygian funeral march, crypt organ and bone ticks
+#   Lumen      - cryptic A harmonic-minor baroque plucks and veiled choir pads
 
 const SAMPLE_RATE := 22050
 const LOOP_SECONDS := 10.0
@@ -22,19 +26,23 @@ const NOTE_SEMITONES := {
 }
 
 func _init() -> void:
-	var root := "res://assets"
-	_write_music("%s/music/menu.wav" % root, _menu_theme())
-	_write_music("%s/music/battle.wav" % root, _battle_theme())
-	_write_music("%s/music/aerodyne.wav" % root, _aerodyne_theme(), true)
-	_write_music("%s/music/ferrocore.wav" % root, _ferrocore_theme(), true)
-	_write_music("%s/music/pelagic.wav" % root, _pelagic_theme(), true)
-	_write_music("%s/music/vanguard.wav" % root, _vanguard_theme(), true)
-	_write_sfx("%s/sfx/click.wav" % root, _tone(0.08, 880.0, 0.25, 0.0))
-	_write_sfx("%s/sfx/laser.wav" % root, _sweep(0.35, 1200.0, 180.0, 0.32))
-	_write_sfx("%s/sfx/explosion.wav" % root, _noise(0.65, 0.38))
-	_write_sfx("%s/sfx/nuke.wav" % root, _sweep(1.2, 180.0, 32.0, 0.45))
-	_write_sfx("%s/sfx/eel.wav" % root, _sweep(0.28, 420.0, 90.0, 0.28))
-	print("Generated 6 music beds and 5 SFX clips.")
+	var asset_root := "res://assets"
+	_write_music("%s/music/menu.wav" % asset_root, _menu_theme())
+	_write_music("%s/music/battle.wav" % asset_root, _battle_theme())
+	_write_music("%s/music/aerodyne.wav" % asset_root, _aerodyne_theme(), true)
+	_write_music("%s/music/ferrocore.wav" % asset_root, _ferrocore_theme(), true)
+	_write_music("%s/music/pelagic.wav" % asset_root, _pelagic_theme(), true)
+	_write_music("%s/music/vanguard.wav" % asset_root, _vanguard_theme(), true)
+	_write_music("%s/music/vesper.wav" % asset_root, _vesper_theme(), true)
+	_write_music("%s/music/thalassa.wav" % asset_root, _thalassa_theme(), true)
+	_write_music("%s/music/gravebound.wav" % asset_root, _gravebound_theme(), true)
+	_write_music("%s/music/lumen.wav" % asset_root, _lumen_theme(), true)
+	_write_sfx("%s/sfx/click.wav" % asset_root, _tone(0.08, 880.0, 0.25, 0.0))
+	_write_sfx("%s/sfx/laser.wav" % asset_root, _sweep(0.35, 1200.0, 180.0, 0.32))
+	_write_sfx("%s/sfx/explosion.wav" % asset_root, _noise(0.65, 0.38))
+	_write_sfx("%s/sfx/nuke.wav" % asset_root, _sweep(1.2, 180.0, 32.0, 0.45))
+	_write_sfx("%s/sfx/eel.wav" % asset_root, _sweep(0.28, 420.0, 90.0, 0.28))
+	print("Generated 10 music beds and 5 SFX clips.")
 	quit()
 
 # ---------------------------------------------------------------------------
@@ -265,6 +273,98 @@ func _vanguard_theme() -> PackedFloat32Array:
 			[[1.0, 1.0], [2.7, 0.3]], 0.002, 0.11)
 	_add_voice(buf, 0.0, 9.98, _hz("C1"), 0.12,
 		[[1.0, 1.0], [2.0, 0.3], [2.828, 0.16]], 0.5, 0.8, 0.004)
+	return buf
+
+func _vesper_theme() -> PackedFloat32Array:
+	# Dominion begins above: eerie Lydian UFO shimmer, wobbling theremin lead & saucer hum.
+	var buf := _blank_loop()
+	var arp := ["C5", "E5", "F#5", "B5", "G5", "F#5", "E5", "D5"]
+	for bar in range(5):
+		var base := float(bar) * 2.0
+		for step in range(8):
+			_add_voice(buf, base + float(step) * 0.25, 0.36, _hz(arp[step]), 0.12,
+				[[1.0, 1.0], [2.0, 0.25], [3.5, 0.12]], 0.012, 0.28, 0.008)
+	# Continuous oscillating saucer vibrato bed (exact loop-quantized LFO)
+	var carrier_a := _q(_hz("C3"))
+	var carrier_b := _q(_hz("F#3"))
+	var lead_notes := ["B5", "A5", "F#5", "G5", "E5"]
+	for i in range(FRAMES):
+		var t := float(i) / float(SAMPLE_RATE)
+		var wob := sin(TAU * 0.6 * t) * 0.5 + 0.5
+		var vib := sin(TAU * 5.0 * t) * 0.012
+		var saucer := (sin(TAU * carrier_a * t + vib * 8.0) * 0.16
+			+ sin(TAU * carrier_b * t - vib * 6.0) * 0.11 * (0.4 + 0.6 * wob))
+		buf[i] = buf[i] + saucer
+	for idx in range(lead_notes.size()):
+		var f := _hz(lead_notes[idx])
+		_add_voice(buf, float(idx) * 2.0 + 0.2, 1.65, f, 0.14,
+			[[1.0, 1.0], [2.0, 0.15]], 0.28, 0.55, 0.011)
+	return buf
+
+func _thalassa_theme() -> PackedFloat32Array:
+	# The sea remembers its masters: deep D-dorian abyssal brass swells & sunken bells.
+	var buf := _blank_loop()
+	var chords := [
+		["D2", "A2", "D3", "F3"],
+		["C2", "G2", "C3", "E3"],
+		["B1", "F#2", "B2", "D3"],
+		["A1", "E2", "A2", "C3"],
+	]
+	for bar in range(chords.size()):
+		var base := float(bar) * 2.5
+		for p in chords[bar]:
+			_add_voice(buf, base, 2.45, _hz(String(p)), 0.14,
+				[[1.0, 1.0], [2.0, 0.42], [3.0, 0.22], [4.0, 0.10]], 0.45, 0.85, -0.003)
+	var bells := ["D4", "A4", "F4", "E4", "C4", "G4", "B3", "A4"]
+	for i in range(bells.size()):
+		_add_voice(buf, float(i) * 1.25 + 0.15, 1.4, _hz(bells[i]), 0.15,
+			[[1.0, 1.0], [2.0, 0.35], [2.76, 0.22], [4.07, 0.10]], 0.008, 1.25)
+	for i in range(8):
+		_add_kick(buf, float(i) * 1.25, 0.38 if i % 2 == 0 else 0.22)
+	return buf
+
+func _gravebound_theme() -> PackedFloat32Array:
+	# The fallen still march: heavy C-phrygian funeral dirge, crypt organ & bone rattle.
+	var buf := _blank_loop()
+	var march := ["C2", "C2", "C#2", "C2", "G1", "C2", "G#1", "G1"]
+	for repeat in range(4):
+		for i in range(march.size()):
+			var t := float(repeat * march.size() + i) * (LOOP_SECONDS / 32.0)
+			_add_voice(buf, t, 0.29, _hz(march[i]), 0.21,
+				[[1.0, 1.0], [2.0, 0.55], [3.0, 0.30], [5.0, 0.14]], 0.008, 0.20)
+	# Slow funeral bass drums + hollow crypt organ fifths
+	for i in range(16):
+		var start := float(i) * (LOOP_SECONDS / 16.0)
+		_add_kick(buf, start, 0.62 if i % 4 == 0 else 0.36)
+		if i % 2 == 1:
+			_add_voice(buf, start + 0.15, 0.14, 1480.0 + float(i % 3) * 210.0, 0.06,
+				[[1.0, 1.0], [2.31, 0.65], [3.9, 0.35]], 0.002, 0.12)
+	for bar in range(2):
+		var organ := ["C3", "G3", "C#4"] if bar == 0 else ["C3", "G3", "D#4"]
+		for p in organ:
+			_add_voice(buf, float(bar) * 5.0, 4.92, _hz(p), 0.11,
+				[[1.0, 1.0], [2.0, 0.45], [3.0, 0.25], [4.0, 0.12]], 0.35, 0.75, 0.003)
+	return buf
+
+func _lumen_theme() -> PackedFloat32Array:
+	# We saw you coming: cryptic A harmonic-minor baroque plucks, choir pad & clockwork pulse.
+	var buf := _blank_loop()
+	var motif := ["A3", "C4", "E4", "G#4", "A4", "E4", "F4", "E4",
+		"D4", "F4", "A4", "G#4", "E4", "B3", "C4", "E4"]
+	var step := LOOP_SECONDS / 32.0
+	for repeat in range(2):
+		for i in range(motif.size()):
+			var start := float(repeat * motif.size() + i) * step
+			_add_voice(buf, start, 0.38, _hz(motif[i]), 0.17,
+				[[1.0, 1.0], [2.0, 0.58], [3.0, 0.35], [4.0, 0.18], [6.0, 0.08]],
+				0.003, 0.32)
+	# Mysterious veiled choir pad + subtle clockwork escapement ticks
+	for p in ["A2", "E3", "C4"]:
+		_add_voice(buf, 0.0, 9.95, _hz(p), 0.10,
+			[[1.0, 1.0], [2.0, 0.25], [3.0, 0.10]], 0.7, 0.9, 0.004)
+	for i in range(40):
+		_add_voice(buf, float(i) * 0.25, 0.06, 2640.0 if i % 2 == 0 else 3120.0, 0.028,
+			[[1.0, 1.0], [2.9, 0.28]], 0.001, 0.05)
 	return buf
 
 # ---------------------------------------------------------------------------
