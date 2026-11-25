@@ -61,3 +61,20 @@ func test_sanitize_capture_and_demolish_commands():
 	assert_false(demo.is_empty())
 	assert_eq(demo["x"], 20.0)
 	assert_eq(demo["y"], 30.0)
+
+func test_sanitize_diplomacy_command():
+	var cmd := NetSecurity.sanitize_command({
+		"type": "diplomacy", "seq": 9, "action": "propose", "target_team": 2,
+	})
+	assert_false(cmd.is_empty())
+	assert_eq(cmd["action"], "propose")
+	assert_eq(cmd["target_team"], 2)
+	assert_true(NetSecurity.sanitize_command({
+		"type": "diplomacy", "seq": 10, "action": "hack", "target_team": 2,
+	}).is_empty())
+	assert_true(NetSecurity.sanitize_command({
+		"type": "diplomacy", "seq": 11, "action": "accept", "target_team": -1,
+	}).is_empty())
+	assert_true(NetSecurity.sanitize_command({
+		"type": "diplomacy", "seq": 12, "action": "accept", "target_team": 0,
+	}).has("target_team"))

@@ -86,11 +86,11 @@ help:
 	@echo "Linting & Verification:"
 	@echo "  check             Run check-godot, lint, deadcode, check-coverage, check-assets, test-python, and orphan-guarded test suite"
 	@echo "  ci                Alias for check (mirrors CI verification gate)"
-	@echo "  deadcode          Scan scripts and scenes for unreferenced files and unused symbols"
-	@echo "  check-coverage    Verify 100% GDScript API, fuzz-reach and Python script coverage"
-	@echo "  check-unit-coverage  Verify every core public function has a GUT unit test"
-	@echo "  check-fuzz-coverage  Verify every core script is exercised by a fuzz test"
-	@echo "  check-assets      Verify enemy sprite alpha channels via scripts/check_bg.py"
+	@echo "  deadcode          Scan scripts and scenes for duplicate classes and unreferenced files"
+	@echo "  check-coverage    Verify core/fuzz test reach and 100% Python script coverage"
+	@echo "  check-unit-coverage  Verify every core script is referenced by a GUT unit test"
+	@echo "  check-fuzz-coverage  Verify high-risk pure core modules are fuzz-tested"
+	@echo "  check-assets      Verify faction banner alpha backgrounds via scripts/check_bg.py"
 	@echo "  check-layout      Ensure all non-test GDScript files live under scripts/"
 	@echo "  install-hooks     Install git pre-commit hook (.githooks/pre-commit)"
 	@echo "  lint              Run Python syntax checks and optional gdlint/markdownlint"
@@ -303,11 +303,11 @@ check-layout:
 	echo "PASS: all non-test GDScript files are under scripts/."
 
 check-unit-coverage:
-	@echo "Checking that every core public function has a GUT unit test..."
+	@echo "Checking that every core script has a GUT unit test reference..."
 	$(PYTHON) scripts/check_coverage.py
 
 check-fuzz-coverage:
-	@echo "Checking that every core script is exercised by fuzz tests..."
+	@echo "Checking that high-risk core modules are exercised by fuzz tests..."
 	$(PYTHON) scripts/check_fuzz_coverage.py
 
 check-coverage: deps-python check-unit-coverage check-fuzz-coverage

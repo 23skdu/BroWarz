@@ -18,7 +18,7 @@ const MIN_PLAYERS: int = 2
 const MAX_PLAYERS: int = 8
 const ALLOWED_COMMAND_TYPES: Array[String] = [
 	"move", "hold", "stop", "train", "build", "fortify", "tech", "laser", "nuke", "embark", "disembark",
-	"capture", "demolish",
+	"capture", "demolish", "diplomacy",
 ]
 const ALLOWED_TRANSPORTS: Array[String] = ["enet", "webrtc"]
 
@@ -268,6 +268,15 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 				return {}
 			out["x"] = clampf(lx, 0.0, MAX_COORD)
 			out["y"] = clampf(ly, 0.0, MAX_COORD)
+		"diplomacy":
+			var action = d.get("action", null)
+			if not (action is String) or not Alliance.ACTIONS.has(action):
+				return {}
+			out["action"] = action
+			var target := _opt_int(d, "target_team", -1)
+			if target < 0 or target > 7:
+				return {}
+			out["target_team"] = target
 	return out
 
 ## Accept both local target_x/target_y input and relayed x/y coordinates.

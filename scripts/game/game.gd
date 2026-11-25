@@ -12,7 +12,6 @@ var pending_build_id: String = ""
 var pending_target_action: String = ""
 var resource_deposits: Array[Dictionary] = []
 var team_unlocked_tech: Dictionary = {0: [], 1: []}
-var alliances: Dictionary = {}
 # instance id -> {team, rates: Dictionary, cap: int}: production bonuses that
 # must be revoked if the granting structure is destroyed or overwritten.
 var building_bonuses: Dictionary = {}
@@ -45,6 +44,7 @@ var minimap: Minimap = null
 var pause_panel: Control = null
 var victory_panel: Control = null
 var research_dialog: ResearchDialog = null
+var diplomacy_dialog: DiplomacyDialog = null
 var laser_cooldown: float = 0.0
 var nuke_cooldown: float = 0.0
 var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
@@ -245,6 +245,7 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Research [R]", func(): _open_research_dialog())
 	_add_cmd_button(btn_bar, "Orbital Laser [L]", func(): _enter_target_mode("laser"))
 	_add_cmd_button(btn_bar, "Nuclear Strike [N]", func(): _enter_target_mode("nuke"))
+	_add_cmd_button(btn_bar, "Diplomacy", func(): _open_diplomacy_dialog())
 	_add_cmd_button(btn_bar, "Save [F5]", func(): quicksave_match())
 	_add_cmd_button(btn_bar, "Load [F9]", func(): quickload_match())
 	_add_cmd_button(btn_bar, "Settings", func(): _open_settings())
@@ -313,6 +314,7 @@ func _build_pause_panel() -> void:
 	_add_cmd_button(vbox, "Resume", func(): toggle_pause())
 	_add_cmd_button(vbox, "Save Match [F5]", func(): quicksave_match())
 	_add_cmd_button(vbox, "Load Match [F9]", func(): quickload_match())
+	_add_cmd_button(vbox, "Diplomacy", func(): _open_diplomacy_dialog())
 	_add_cmd_button(vbox, "Settings", func(): _open_settings())
 	_add_cmd_button(vbox, "Save Replay", func(): save_replay())
 	_add_cmd_button(vbox, "Watch Replay", func(): _open_replay_viewer())
@@ -391,6 +393,14 @@ func _open_research_dialog() -> void:
 	)
 	research_dialog.research_selected.connect(_on_research_selected)
 	research_dialog.popup_centered(Vector2i(620, 560))
+
+func _open_diplomacy_dialog() -> void:
+	if diplomacy_dialog != null and is_instance_valid(diplomacy_dialog):
+		diplomacy_dialog.queue_free()
+	diplomacy_dialog = DiplomacyDialog.new()
+	ui.add_child(diplomacy_dialog)
+	diplomacy_dialog.refresh()
+	diplomacy_dialog.popup_centered(Vector2i(620, 520))
 
 func _on_research_selected(node_id: String) -> void:
 	if not _research_node(GameManager.local_team, node_id):
@@ -961,6 +971,12 @@ func _demolish_building_for_team(team: int, world_pos: Vector2) -> bool:
 		status_label.text = "Demolished %s at (%.0f, %.0f); 25%% refunded" % [target.stats.display_name, pos.x, pos.y]
 	return true
 
+func _apply_diplomacy(team: int, action: String, target_team: int) -> bool:
+	var ok := GameManager.apply_diplomacy(team, action, target_team)
+	if ok and team == GameManager.local_team and is_instance_valid(status_label):
+		status_label.text = "Diplomacy %s with Team %d" % [action, target_team]
+	return ok
+
 func apply_command(cmd: Dictionary) -> bool:
 	var ctype := String(cmd.get("type", ""))
 	var team := int(cmd.get("team", GameManager.local_team))
@@ -993,6 +1009,8 @@ func apply_command(cmd: Dictionary) -> bool:
 			ok = _capture_with_workers(team, _command_units(team, cmd), _cmd_world_target(cmd))
 		"demolish":
 			ok = _demolish_building_for_team(team, _cmd_world_target(cmd))
+		"diplomacy":
+			ok = _apply_diplomacy(team, String(cmd.get("action", "")), int(cmd.get("target_team", -1)))
 		"laser", "nuke":
 			# Strategic weapons are player-controlled only; relay commands from
 			# other teams are rejected rather than silently accepted.
@@ -1033,12 +1051,15 @@ func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 		"demolish": c.type = Command.Type.DEMOLISH
 		"laser": c.type = Command.Type.ORBITAL
 		"nuke": c.type = Command.Type.NUKE
+		"diplomacy": c.type = Command.Type.DIPLOMACY
 	c.tick = int(elapsed_time * 60.0)
 	c.player_id = team
 	c.target_pos = _cmd_world_target(cmd)
 	if c.target_pos == Vector2.INF:
 		c.target_pos = Vector2.ZERO
-	c.build_type = String(cmd.get("id", ""))
+	c.build_type = String(cmd.get("id", "")) if ctype != "diplomacy" else String(cmd.get("action", ""))
+	if ctype == "diplomacy":
+		c.target_id = int(cmd.get("target_team", -1))
 	var ids: Array = cmd.get("unit_ids", [])
 	# Non-unit orders must not inherit whatever happened to be selected.
 	if ids.is_empty() and ctype in ["move", "hold", "stop", "embark", "disembark"]:
@@ -1557,6 +1578,9 @@ func quicksave_match(path: String = "user://saves/quicksave.bws") -> Error:
 		"caps": caps,
 		"map_type": GameManager.map_type,
 		"match_seed": GameManager.match_seed,
+		"teams": GameManager.teams.duplicate(),
+		"alliances": GameManager.alliances.duplicate(true),
+		"alliance_proposals": GameManager.alliance_proposals.duplicate(true),
 		"map": MapSerializer.to_dict(map_data) if map_data != null else {},
 		"deposits": deposits,
 	}
@@ -1603,6 +1627,8 @@ func _reset_match_transients() -> void:
 		pause_panel.hide()
 	if is_instance_valid(research_dialog):
 		research_dialog.hide()
+	if is_instance_valid(diplomacy_dialog):
+		diplomacy_dialog.hide()
 	get_tree().paused = false
 
 func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
@@ -1639,6 +1665,15 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		return false
 	for section in ["rates", "base_rates", "power_efficiency", "caps", "tech", "deposits"]:
 		if settings.has(section) and not (settings[section] is Array or settings[section] is Dictionary):
+			if is_instance_valid(status_label):
+				status_label.text = "Save file is corrupt (invalid %s)" % String(section)
+			return false
+	if settings.has("teams") and not (settings["teams"] is Array):
+		if is_instance_valid(status_label):
+			status_label.text = "Save file is corrupt (invalid teams)"
+		return false
+	for section in ["alliances", "alliance_proposals"]:
+		if settings.has(section) and not (settings[section] is Dictionary):
 			if is_instance_valid(status_label):
 				status_label.text = "Save file is corrupt (invalid %s)" % String(section)
 			return false
@@ -1683,6 +1718,17 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 		ResourceManager.refresh_rates(pid2)
 	for key in settings.get("caps", {}).keys():
 		ResourceManager.caps[int(key)] = int(settings["caps"][key])
+
+	var saved_teams: Array = []
+	for value in settings.get("teams", GameManager.teams):
+		var saved_team := Alliance.team_id(value)
+		if saved_team >= 0:
+			saved_teams.append(saved_team)
+	GameManager.set_diplomacy_state(
+		settings.get("alliances", {}),
+		settings.get("alliance_proposals", {}),
+		saved_teams if not saved_teams.is_empty() else GameManager.teams,
+	)
 
 	team_unlocked_tech = {0: [], 1: []}
 	for key in sg.settings.get("tech", {}).keys():

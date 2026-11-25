@@ -30,7 +30,7 @@ static func is_valid_command(raw: Variant) -> bool:
 	var tickv: Variant = c.get("tick", -1)
 	if not ((tv is int) or (tv is float)) or not ((tickv is int) or (tickv is float)):
 		return false
-	if int(c["type"]) < 0 or int(c["type"]) > Command.Type.DEMOLISH:
+	if int(c["type"]) < 0 or int(c["type"]) > Command.Type.DIPLOMACY:
 		return false
 	if int(c["tick"]) < 0:
 		return false

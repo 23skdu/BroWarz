@@ -147,6 +147,7 @@ Open in editor: `make editor`
 - **L**: Fire Orbital Laser Strike
 - **N**: Launch Strategic Nuclear Missile
 - **H**: Hold position
+- **Diplomacy button** (multiplayer, 3+ teams): propose, accept/decline or break alliances; every change is validated and relayed by the host.
 
 ## Development
 

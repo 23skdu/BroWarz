@@ -9,7 +9,7 @@ const REPLAY_PATH := "user://replays/match.json"
 const TYPE_NAMES: Array[String] = [
 	"MOVE", "ATTACK", "ATTACK_MOVE", "BUILD", "STOP", "PATROL", "HOLD",
 	"TRAIN", "FORTIFY", "EMBARK", "DISEMBARK", "TECH", "ORBITAL", "NUKE",
-	"CAPTURE", "DEMOLISH",
+	"CAPTURE", "DEMOLISH", "DIPLOMACY",
 ]
 
 var replay: Replay = null
@@ -168,6 +168,8 @@ func _describe(cmd: Command) -> String:
 	var detail := TYPE_NAMES[type_idx]
 	if not cmd.build_type.is_empty():
 		detail += " %s" % cmd.build_type
+	if cmd.target_id >= 0:
+		detail += " team %d" % cmd.target_id
 	if cmd.target_pos != Vector2.ZERO:
 		detail += " @ (%.0f, %.0f)" % [cmd.target_pos.x, cmd.target_pos.y]
 	if not cmd.unit_ids.is_empty():

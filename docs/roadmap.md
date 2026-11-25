@@ -2,7 +2,7 @@
 
 ## Phase 1 — Completed v0.1.0 Foundation (Parts 1–20)
 
-All core foundation milestones are implemented, wired into gameplay, and verified by `make check` (244 GUT tests across 48 test scripts with 0 orphans):
+All core foundation milestones are implemented, wired into gameplay, and verified by `make check` (255 GUT tests across 50 test scripts with 0 orphans):
 
 - [x] **Multiplayer P2P & Lockstep Soak:** Host-authoritative lobby (`LobbyState`), fail-closed payload validation (`NetSecurity`), rate limiting (`RateLimiter`), anti-replay sequence guards (`SeqGuard`), disconnect grace & host migration (`NetworkManager`), and 4-peer deterministic lockstep soak testing (`Lockstep.run_soak_simulation`).
 - [x] **Map Rendering, Per-Terrain Combat/Move Modifiers & Drifting Clouds:** 128×128 hex-pathfound maps (`HexGrid`), 4× sub-tile high-resolution terrain (`UnitVisual.build_terrain_map_image`), per-terrain movement and incoming/outgoing combat modifiers across all 12 terrain types (`MapData.movement_cost`, `MapData.speed_multiplier`, `Cover.defense_modifier_for_unit`, `Cover.attack_modifier_for_unit`), and drifting cloud formations that exclusively affect aerial units (`Cover.spawn_clouds`, `Cover.step_clouds`, `Cover.cloud_air_*`).
@@ -65,8 +65,9 @@ Below are the **20 new roadmap steps** to bridge every remaining gap:
 ### Step 16 — Post-Match Victory / Defeat Summary Screen & Score Breakdown (`Score` → `game.gd`)
 - [x] `_check_win` computes and displays `Score.military_score()`, `Score.economic_score()` (including Food), `Score.total()`, true building totals and match duration in the victory panel.
 
-### Step 17 — Multi-Team Diplomacy, Shared Allied Vision & 2v2 / FFA Skirmish (`Alliance`, `Vision` → `game.gd`, `lobby.gd`)
+### Step 17 — Multi-Team Diplomacy, Shared Allied Vision & 2v2 / FFA Skirmish (`Alliance`, `Vision` → `game.gd`, `lobby.gd`, `diplomacy_dialog.gd`)
 - [x] `GameManager.is_allied()` wired into fog visibility, unit targeting, and win-condition sides; alliances staged via `GameManager.alliances` in `stage_net_match`.
+- [x] In-match Diplomacy panel proposes, accepts/declines, cancels and breaks alliances for 3+ teams. Requests pass through the host-authoritative command pipeline (`NetSecurity` allowlist, lobby-derived team ownership, anti-replay, relay) and are saved with the match.
 
 ### Step 18 — Map Editor Resource Node, Starting Base & Validation Tools (`map_editor.gd`)
 - [x] Tile Map Editor places Team 0..3 HQ spawns and Oil/Iron/Geothermal/Food deposits with a matching tile cursor, saved-map picker, detailed save/load/share-code errors, playability-gated test play, and **Validate Map** checks for connectivity and balance.

@@ -21,19 +21,61 @@ var fog_enabled: bool = true
 var net_transport: String = "enet"
 # Alliance graph: team -> Array of allied team ids (defaults to none = FFA).
 var alliances: Dictionary = {}
+# Pending in-match diplomacy requests: "from>to" -> true. Relayed through the
+# host command pipeline so every peer sees the same offers.
+var alliance_proposals: Dictionary = {}
 
 func is_allied(a: int, b: int) -> bool:
-	if a == b:
-		return true
-	var allies = alliances.get(a, [])
-	if allies is Array and (allies as Array).has(b):
-		return true
-	# Lobby alliance maps are written once per side ({0:[0,2], 1:[1,3]});
-	# treat them as symmetric so combat/fog behave identically for both peers.
-	for side in alliances.keys():
-		var members = alliances[side]
-		if members is Array and int(side) == b and (members as Array).has(a):
-			return true
+	return Alliance.are_allied_teams(alliances, a, b)
+
+## Install a validated alliance graph/proposal set. Used by lobby staging,
+## quickload and tests; all sides are made symmetric and transitive.
+func set_diplomacy_state(graph: Dictionary, proposals: Dictionary, valid_teams: Array = []) -> void:
+	var ids: Array[int] = []
+	for value in valid_teams:
+		var team := Alliance.team_id(value)
+		if team >= 0 and not ids.has(team):
+			ids.append(team)
+	if not ids.is_empty():
+		teams = ids
+	alliances = Alliance.normalize(graph)
+	alliance_proposals = Alliance.clean_proposals(proposals, teams)
+
+## Host-side diplomacy transition. `team` must already be the authoritative
+## sender team resolved by NetworkManager.prepare_inbound_command().
+func apply_diplomacy(team: int, action: String, target_team: int) -> bool:
+	if not Alliance.ACTIONS.has(action):
+		return false
+	if team < 0 or team > 7 or target_team < 0 or target_team > 7 or team == target_team:
+		return false
+	if not teams.has(team) or not teams.has(target_team):
+		return false
+	match action:
+		"propose":
+			if is_allied(team, target_team):
+				return false
+			return Alliance.set_proposal(alliance_proposals, team, target_team)
+		"cancel":
+			return Alliance.cancel_proposal(alliance_proposals, team, target_team)
+		"decline":
+			if not Alliance.has_proposal(alliance_proposals, target_team, team):
+				return false
+			return Alliance.cancel_proposal(alliance_proposals, target_team, team)
+		"accept":
+			if not Alliance.has_proposal(alliance_proposals, target_team, team):
+				return false
+			if is_allied(team, target_team):
+				Alliance.cancel_proposal(alliance_proposals, target_team, team)
+				return false
+			var side_a := Alliance.members(alliances, team)
+			var side_b := Alliance.members(alliances, target_team)
+			var changed := Alliance.form(alliances, team, target_team)
+			Alliance.clear_proposals_between(alliance_proposals, side_a, side_b)
+			return changed
+		"break":
+			if not is_allied(team, target_team):
+				return false
+			return Alliance.split(alliances, team, target_team)
 	return false
 
 # Sapper fortification movement blocks: Vector2i tile -> {building id: mask}
@@ -98,7 +140,7 @@ func stage_net_match(
 	if teams.is_empty():
 		teams = [0, 1]
 	local_team = clampi(team, 0, 7)
-	alliances = match_alliances.duplicate()
+	set_diplomacy_state(match_alliances, {}, teams)
 
 ## Fresh per-match state: net ids and fortification blocks must not leak
 ## across matches (deterministic ids for replication + clean pathing).
@@ -106,6 +148,7 @@ func begin_net_session() -> void:
 	_net_id_counter = 0
 	fort_blocks.clear()
 	alliances.clear()
+	alliance_proposals.clear()
 	active_clouds.clear()
 	# A stale editor map must never be reused by the next match scene.
 	current_map = null

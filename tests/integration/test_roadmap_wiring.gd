@@ -357,3 +357,85 @@ func test_map_editor_blocks_test_play_for_invalid_map():
 	editor._test_play_map()
 	assert_true(editor.status_label.text.contains("Cannot test play"))
 	assert_eq(GameManager.match_mode, GameManager.Mode.MAP_EDITOR)
+
+func test_in_match_diplomacy_ui_sends_host_authoritative_commands():
+	NetworkManager.leave()
+	var game := _new_game()
+	GameManager.match_mode = GameManager.Mode.MULTIPLAYER
+	GameManager.teams = [0, 1, 2, 3]
+	GameManager.set_diplomacy_state({}, {}, GameManager.teams)
+	NetworkManager.attach_game(game)
+
+	var dialog := DiplomacyDialog.new()
+	add_child_autofree(dialog)
+	dialog.refresh()
+	assert_true(String(dialog.status_label.text).contains("Team 0"))
+	var propose: Button = dialog.get_node("DiplomacyRoot/TeamScroll/TeamRows/Team_2/Propose_2") as Button
+	assert_not_null(propose)
+	propose.pressed.emit()
+	assert_true(Alliance.has_proposal(GameManager.alliance_proposals, 0, 2))
+	assert_false(GameManager.is_allied(0, 2))
+
+	dialog.refresh()
+	var cancel: Button = dialog.get_node("DiplomacyRoot/TeamScroll/TeamRows/Team_2/Cancel_2") as Button
+	assert_not_null(cancel)
+	GameManager.local_team = 2
+	dialog.refresh()
+	var accept: Button = dialog.get_node("DiplomacyRoot/TeamScroll/TeamRows/Team_0/Accept_0") as Button
+	assert_not_null(accept)
+	GameManager.local_team = 0
+	# Team 1 cannot accept team 0's offer to team 2.
+	assert_false(game.apply_command({"type": "diplomacy", "team": 1, "action": "accept", "target_team": 2}))
+	assert_true(game.apply_command({"type": "diplomacy", "team": 2, "action": "accept", "target_team": 0}))
+	assert_true(GameManager.is_allied(0, 2))
+	assert_true(GameManager.is_allied(2, 0))
+	assert_false(Alliance.has_proposal(GameManager.alliance_proposals, 0, 2))
+	var replayed := Command.from_dict(game.replay_log.commands[game.replay_log.command_count() - 1])
+	assert_eq(replayed.type, Command.Type.DIPLOMACY)
+	assert_eq(replayed.target_id, 0)
+
+	assert_true(game.apply_command({"type": "diplomacy", "team": 0, "action": "break", "target_team": 2}))
+	assert_false(GameManager.is_allied(0, 2))
+	NetworkManager.leave()
+
+func test_diplomacy_command_team_is_resolved_by_host_pipeline():
+	NetworkManager.leave()
+	var lobby := NetworkManager.lobby
+	assert_true(lobby.update_settings(1, {"num_teams": 4}))
+	for pid in [1, 2, 3, 4]:
+		lobby.add_player(pid, "P%d" % pid, "1.2.3.%d" % pid)
+	var clean := NetworkManager.prepare_inbound_command(3, {
+		"type": "diplomacy", "seq": 1, "team": 0,
+		"action": "propose", "target_team": 3,
+	}, 1000.0)
+	assert_eq(clean["team"], 2)  # sender 3 sits on team 2; payload team ignored
+	assert_eq(clean["action"], "propose")
+	assert_eq(clean["target_team"], 3)
+	NetworkManager.leave()
+
+func test_diplomacy_state_survives_quicksave_and_rejects_bad_saves():
+	var game := _new_game()
+	GameManager.teams = [0, 1, 2, 3]
+	GameManager.set_diplomacy_state({0: [0, 2], 1: [1, 3]}, {"0>3": true}, GameManager.teams)
+	var path := "user://saves/test_diplomacy.bws"
+	assert_eq(game.quicksave_match(path), OK)
+
+	GameManager.set_diplomacy_state({}, {}, [0, 1])
+	assert_true(game.quickload_match(path))
+	assert_eq(GameManager.teams, [0, 1, 2, 3])
+	assert_true(GameManager.is_allied(0, 2))
+	assert_true(GameManager.is_allied(1, 3))
+	assert_true(Alliance.has_proposal(GameManager.alliance_proposals, 0, 3))
+
+	var f := FileAccess.open(path, FileAccess.READ)
+	var saved := JSON.parse_string(f.get_as_text()) as Dictionary
+	f.close()
+	(saved["settings"] as Dictionary)["alliances"] = "broken"
+	var bad_path := "user://saves/test_diplomacy_bad.bws"
+	var bad_file := FileAccess.open(bad_path, FileAccess.WRITE)
+	bad_file.store_string(JSON.stringify(saved))
+	bad_file.close()
+	assert_false(game.quickload_match(bad_path))
+	assert_true(String(game.status_label.text).contains("invalid alliances"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(bad_path))
