@@ -184,6 +184,13 @@ func play_sfx(sfx_name: String) -> void:
 			(live as AudioStreamPlayer).queue_free()
 	)
 
+func _exit_tree() -> void:
+	for child in get_children():
+		if child is AudioStreamPlayer:
+			var p := child as AudioStreamPlayer
+			p.stop()
+			p.stream = null
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE:
 		for child in get_children():

@@ -4,7 +4,7 @@
 **Genre:** Real-time strategy (RTS), peer-to-peer multiplayer
 **Setting:** Year 2030 — rival corporate armies fighting for resource control
 **Map size:** 128 × 128 tiles (configurable, player-created)
-**Status:** Playable v0.1.3 — 4 AI-only NPC factions, overhauled combined-arms AI tactics, Building Inspector, live lockstep soak & checksum sync, and 24 procedural SFX/voice-bark clips with subtitles
+**Status:** Playable v0.1.4 — graphics performance & quality overhaul (8×8 terrain, GPU canopy/unit LOD MultiMesh, water/weather shader, pooled particles), Map Editor UX Phases 2–4, patrol/guard, combined-arms formations, 5 s nuke early warning, in-match chat/surrender, dropped-peer AI takeover, WebRTC ICE UI, live replays & telemetry, and full hotkey remapping
 **License:** Unlicense (public domain)
 
 ---
@@ -211,25 +211,23 @@ Economy rules:
 
 ## 13. Strategic Weapons
 
-- **Orbital Laser:** Requires Orbital Uplink + T4 + geothermal. Targeted line beam, long cooldown (e.g., 120s), high damage to structures/units. Can be shot down? No (orbital). Counter: spread units, shields (future).
-- **Nuclear Missile:** Requires Silo + T4 + massive resources. Long build time. Creates fallout zone. Triggers match-ending if HQ hit; otherwise massive damage + terrain change. Early-warning via radar; can be intercepted by (future) missile defense.
+- **Orbital Laser:** Requires Strategic Uplinks (`strategic_uplinks`) + geothermal. Targeted line beam (`180 × (1 + Geothermal / 1000)` AOE damage in `95 px` radius), per-team cooldown. Counter: spread units.
+- **Nuclear Missile:** Requires Strategic Uplinks (`strategic_uplinks`) + heavy resources. Launches with a **`5.0 s` early-warning flight timer** (`Strategic.NUKE_WARNING_SECONDS`) displaying a HUD alert, pulsing battlefield target reticle with countdown, and flashing minimap warning ring so defenders can scatter units before impact (`650` AOE damage in `180 px` radius + `4`-tile `WASTELAND` fallout).
 
 ## 14. Command, Control & UI
 
 - **Camera:** Pan/zoom, edge scroll, top-center minimap click.
 - **Selection:** Box select, shift-add, control groups (0–9).
-- **Commands:** Move, attack, attack-move, patrol, guard, stop, hold, build, repair, unload, cloak toggle, sonar buoy.
-- **Overlays:** Resource rates, power, population, tech, minimap pings, a bottom-left **Building Inspector** panel (HP, power, radar sweep, live queue progress, unit training buttons, rally reset, and demolish), and bottom-center accessible **voice-bark subtitles**; the minimap stays clear of the bottom-right unit corner.
-- **Comms:** Team chat, ping markers, surrender vote, and the in-match **Diplomacy** panel for 3+ team multiplayer matches.
-- **Accessibility:** Remappable keys, colorblind palettes, UI scale, and toggleable subtitles for robotic voice barks (`SettingsManager` / Settings dialog).
+- **Commands & Formations:** Move, attack, attack-move, **Patrol (`Y`)** multi-point loops, **Guard (`J`)** 240 px leashed stance, stop (`Z`), hold (`H`), combined-arms **Formations (`Q`)** cycling Grid / Wedge / Line / Echelon (automatically placing vanguard armor forward, AA/infantry on flanks, and artillery/workers in rear), build, repair, embark/disembark, cloak, sonar buoy.
+- **Overlays:** Resource rates, power, population, tech, minimap pings, nuclear early-warning reticles, a bottom-left **Building Inspector** panel (HP, power, radar sweep, live queue progress, unit training buttons, rally reset, and demolish), post-match per-team **Victory Telemetry** (units trained/lost, buildings built/lost, damage dealt, resources harvested), and bottom-center accessible **voice-bark subtitles**; the minimap stays clear of the bottom-right unit corner.
+- **Comms:** Host-relayed in-match **Chat & Comms** panel (`Enter`, `All`/`Team` scopes), ping markers, team **Surrender** vote, and the in-match **Diplomacy** panel for 3+ team multiplayer matches.
+- **Accessibility:** Full camera, command, and build hotkey remapping (`SettingsManager` / `SettingsDialog`), colorblind palettes, UI scale, **Graphics Quality** (`Low`/`Medium`/`High`), **Reduced Motion**, and toggleable subtitles for robotic voice barks.
 
 ## 15. Map Editor
 
-- Tile painting (brush/rectangle/fill), terrain height? (flat tiles v1).
-- Place resources, start positions, neutral structures. Implemented: Team 0..3 HQ spawn markers and Oil/Iron/Geothermal/Food deposit markers, drawn in-editor and serialized into `.bwm` files and `BWM1:` share codes.
-- Validate: enough resources, valid start areas, no blocked HQ. Implemented: **Validate Map** confirms passable infantry hex paths between all HQs and balanced resource deposits near each spawn.
-- Save/load custom maps (`.bwm` or Godot resource) to user dir; share via file.
-- In-game map browser with metadata and preview.
+- **Three-pane `HSplitContainer` workspace (`scripts/game/map_editor.gd`):** Top action bar, left Tool Rail (Terrain Brush, Flood Fill, Team 0–3 HQ spawns, Oil/Iron/Geo/Food deposits, Erase Marker, Brush 1–4 slider, Mirror-X/Mirror-Y symmetry, Tile Grid overlay, Zoom `0.45×`–`2.0×`), zoomable center canvas, and right Inspector (metadata, map stats, explicit path, share codes, recent maps, and live `ValidationPanel` checklist).
+- **Safer file workflows & history:** Native `FileDialog` (`Save As…` / `Browse…` for `.bwm` files), unsaved-changes `*` indicator, `ConfirmationDialog` prompts for discarding unsaved changes or overwriting existing files, persisted recent maps list, and 30-step `Ctrl+Z` / `Ctrl+Shift+Z` (`Ctrl+Y`) undo/redo snapshots.
+- **Validation & portability:** Live `ValidationPanel` confirms dimensions, ≥64 land tiles, ≥2 HQs, passable infantry hex connectivity between all HQs, and balanced resource deposits; exports `.bwm` files and `BWM1:` share codes.
 
 ## 16. Multiplayer & Networking (P2P)
 
@@ -239,7 +237,7 @@ Economy rules:
   - Commands carry only intent (move/train/build/fortify/tech/laser/nuke/capture/demolish/diplomacy/hold/stop); the host overwrites `team` from its own lobby record, so a forged payload cannot claim another player's economy or accept an alliance for another side.
   - Teams are assigned round-robin from the lobby's `num_teams` setting (2–4) and reused after host migration.
 - **State sync:** Periodic simulation checksums (`game.gd:compute_match_checksum()` → `NetworkManager.broadcast_hash`) are throttled (≥ 3 s apart) and compared across peers via `state_hash_received` for live desync warnings. The **Lockstep Net Self-Test / Soak Check** dialog (`scripts/ui/lockstep_dialog.gd`) also exposes `Lockstep.run_soak_simulation()` live from the main menu and pause menu.
-- **Reconnect & host migration:** A dropped peer keeps its seat for a 30 s grace window (`LobbyState.sweep`); rejoining proves ownership with a crypto-random resume token issued at admission (token is sent only in the targeted welcome, never in broadcast snapshots). If the host vanishes mid-match, the lowest connected peer is elected successor (`next_host_id`) and re-hosts on the same port, marking the other seats disconnected so they can rejoin with their tokens. WebRTC transport degrades gracefully to ENet if signaling fails.
+- **Reconnect, AI takeover & host migration:** A dropped peer keeps its seat for a 30 s grace window (`LobbyState.sweep_detailed`); rejoining proves ownership with a crypto-random resume token issued at admission (token is sent only in the targeted welcome, never in broadcast snapshots). If a dropped peer's grace expires and leaves a team with zero human players, the host automatically hands that team to the skirmish AI (`GameManager.enable_ai_takeover` + `NetworkManager.peer_ai_takeover`) so the match continues seamlessly. If the host vanishes mid-match, the lowest connected peer is elected successor (`next_host_id`) and re-hosts on the same port, marking the other seats disconnected so they can rejoin with their tokens. WebRTC transport uses configurable STUN/TURN `iceServers` (validated via `NetSecurity.is_valid_ice_url` and exposed in the lobby's ICE diagnostics panel) and degrades gracefully to ENet if signaling fails.
 - **Match settings (networked):** map type (0–2), number of teams (2–4), fog of war, transport (enet/webrtc), seed, and the co-op settings (`coop_vs_ai`, `human_faction`, `ai_difficulty`, `ai_faction`) are pinned by the host in `LobbyState.settings` and staged into `GameManager` before scene load; every peer applies the same map, seed, team layout and AI configuration. New keys are added to `NetSecurity.sanitize_settings()`/`default_settings()` so hostile clients cannot inject unknown match state.
 - **Security (see §21):** fail-closed whitelisting (`NetSecurity`), constant-time passcode compare, crypto-random resume tokens, token-bucket rate limiting with strikes→kick, per-peer monotonic sequence anti-replay (`SeqGuard`), protocol-version handshake, masked addresses in logs, and session bans for kicked peers.
 - **NAT:** STUN/TURN fallback documented; web uses signaling server (minimal, out of scope for v1 dedicated infra; LAN/direct IP first).
@@ -266,7 +264,7 @@ Economy rules:
 
 ## 17. AI (Skirmish)
 
-- Optional AI opponent for solo, co-op and spectator matches; dropped-player replacement remains a future extension.
+- Skirmish AI opponent for solo, co-op, spectator matches, and automatic **dropped-peer AI takeover** when a multiplayer team's last human disconnects past the 30 s reconnect grace window.
 - Difficulty levels (Easy/Normal/Hard) via economy, reaction cadence, tech ceiling, and tactical micro bonuses, stored per team in `GameManager.team_difficulties`.
 - **Combined-arms tactics (`scripts/core/ai.gd` + `game.gd`):**
   - **Faction doctrines:** Every corporation (IDs 0–3) and AI-only NPC faction (IDs 4–7) has its own tactical profile (retreat HP discipline, attack commit ratio, flank share, tech order, cloud-cover preference, and fortification preference).
@@ -287,7 +285,7 @@ Economy rules:
 ## 19. Performance & Scalability
 
 - Target: 60 FPS with 500+ units on 128×128 map on mid-range hardware.
-- Techniques: MultiMesh for identical units, navigation region baking, spatial hashing for queries, LOD for models, occlusion culling, batching, avoid per-frame allocations, pool projectiles.
+- Techniques: GPU `MultiMeshInstance2D` batching for shaded forest foliage (`forest_multimesh`) and zoomed-out / 300+ unit LOD badges (`unit_lod_multimesh`), `PackedByteArray` high-res terrain (`8×8` sub-tile) and 10 Hz linear fog/minimap compositors, lightweight water-shimmer/weather `CanvasItem` shader, preallocated 160-slot pooled hit-spark/smoke particle buffer (zero per-frame allocations), camera frustum culling, dirty-tracked unit/building redraws, spatial hashing for queries, and automated 500-unit GUT performance benchmarking.
 - Network: command-only replication keeps bandwidth low.
 
 ## 20. Testing & Quality
@@ -352,7 +350,7 @@ The repository now contains a playable single-player skirmish vertical slice and
 - Core systems: damage, economy, map data, command serialization, unit/building stats, production queues, placement, fortifications, vision/stealth/EMP/cover/repair, tech, fog of war, lockstep helpers, network security/rate-limiting/sequence guards, lobby state, game state/replay/save settings, hex grid & A* pathfinding, AI heuristics, strategic weapons, formation, transitive alliances with host-authoritative diplomacy, scoring, power, resource deposits, and ambient wildlife (`Wildlife`).
 - Visuals & Audio:
   - Large 48×48 high-detail procedural unit sprites (`UnitVisual`) across all 29 base unit roles (32 registry IDs including worker aliases) with 100% uniform geometry across factions, 5 animation states (`IDLE`, `MOVE`, `FIRE`, `HIT`, `EXPLODE`), articulated turret rotation, barrel recoil, muzzle flashes, projectile tracers, and shrapnel/scorch-mark explosions.
-  - High-resolution 512×512 terrain rendering (4× sub-tile detail) with forest tree canopies and shrubs, water wave highlights, and mountain ridges.
+  - High-resolution terrain rendering (up to 1024×1024 at 8× sub-tile detail on High quality, written via `PackedByteArray`) with shoreline foam, directional mountain/hill shading, connected road stripes, urban rooftops, textured GPU `MultiMeshInstance2D` forest/shrub canopies, smooth linear fog of war, viewport frustum culling, altitude-offset air shadows, dual-core glowing weapon tracers, layered blast craters, and persisted Graphics Quality / Reduced Motion controls.
   - Large 48×48 sprites for the 12 AI-only unique units, each with its own faction-native art instead of a corporation recolor.
   - Ambient non-combatant wildlife (Birds on all maps, Dolphins and Squid in sea/river water, and Deer in forests/plains) that wander, flee when chased or shot at, and die when hit.
   - Custom retro-future corporate dystopia main logo (`assets/logo.png`), minimalist corporation banners and AI-only NPC banners (`assets/banners/*.png`).

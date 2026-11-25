@@ -423,7 +423,7 @@ func test_diplomacy_command_team_is_resolved_by_host_pipeline():
 		"type": "diplomacy", "seq": 1, "team": 0,
 		"action": "propose", "target_team": 3,
 	}, 1000.0)
-	assert_eq(clean["team"], 2)  # sender 3 sits on team 2; payload team ignored
+	assert_eq(clean["team"], 2) # sender 3 sits on team 2; payload team ignored
 	assert_eq(clean["action"], "propose")
 	assert_eq(clean["target_team"], 3)
 	NetworkManager.leave()
@@ -597,3 +597,185 @@ func test_voice_bark_subtitles_render_in_hud_and_respect_setting():
 	AudioManager.play_bark("build_complete", Faction.Id.AERODYNE, "Riflebot", 105.0)
 	assert_false(game.bark_subtitle_label.visible)
 	SettingsManager.set_setting("subtitles", original_subs)
+
+func test_graphics_quality_batched_canopy_multimesh_linear_fog_and_vfx_caps():
+	var orig_q: String = String(SettingsManager.graphics_quality())
+	SettingsManager.set_setting("graphics_quality", "high")
+	var game := _new_game()
+	# High quality uses 8x sub-tile terrain (1024x1024 on 128x128 map) and smooth linear fog.
+	assert_eq(int(game.terrain_ppt), 8)
+	assert_eq(game.terrain_image.get_width(), 128 * 8)
+	assert_eq(game.fog_sprite.texture_filter, CanvasItem.TEXTURE_FILTER_LINEAR)
+	assert_not_null(game.forest_multimesh)
+	assert_not_null(game.forest_multimesh.texture)
+	assert_eq(game.forest_multimesh.multimesh.instance_count, game.forest_decorations.size())
+
+	# Switching to low quality live-scales terrain PPT to 4x and reduces foliage instance density.
+	SettingsManager.set_setting("graphics_quality", "low")
+	assert_eq(int(game.terrain_ppt), 4)
+	assert_eq(game.terrain_image.get_width(), 128 * 4)
+	assert_lt(game.forest_multimesh.multimesh.instance_count, game.forest_decorations.size())
+
+	# Tracer buffer respects quality cap under heavy 500-unit combat bursts.
+	var cap := int(UnitVisual.graphics_profile("low")["max_tracers"])
+	for i in range(cap + 25):
+		game.spawn_combat_tracer(Vector2(100, 100), Vector2(200, 200), Damage.DamageType.KINETIC, 0)
+	assert_lte(game.active_tracers.size(), cap)
+	SettingsManager.set_setting("graphics_quality", orig_q)
+
+func test_unit_lod_multimesh_water_shader_and_pooled_particles():
+	var orig_q: String = String(SettingsManager.graphics_quality())
+	var orig_rm: bool = bool(SettingsManager.reduced_motion())
+	SettingsManager.set_setting("graphics_quality", "high")
+	SettingsManager.set_setting("reduced_motion", false)
+	var game := _new_game()
+	assert_not_null(game.terrain_shader_mat)
+	assert_gt(float(game.terrain_shader_mat.get_shader_parameter("u_shimmer_strength")), 0.0)
+	SettingsManager.set_setting("reduced_motion", true)
+	assert_almost_eq(float(game.terrain_shader_mat.get_shader_parameter("u_shimmer_strength")), 0.0, 0.001)
+
+	# Far camera zoom enables GPU unit LOD MultiMesh batching and hides per-unit sprites.
+	assert_not_null(game.unit_lod_multimesh)
+	game._rebuild_spatial_grid()
+	game.camera.zoom = Vector2(0.5, 0.5)
+	game._update_unit_lod_multimesh()
+	assert_true(game.unit_lod_multimesh.visible)
+	assert_gt(game.unit_lod_multimesh.multimesh.visible_instance_count, 0)
+	game.camera.zoom = Vector2(1.0, 1.0)
+	game._update_unit_lod_multimesh()
+	assert_false(game.unit_lod_multimesh.visible)
+
+	# Pooled particle layer uses fixed preallocated capacity without growing on heavy combat.
+	var pool_len: int = game.particle_pool.size()
+	assert_eq(pool_len, 160)
+	for i in range(200):
+		game.spawn_combat_tracer(Vector2(120, 120), Vector2(220, 220), Damage.DamageType.EXPLOSIVE, 0)
+	assert_eq(game.particle_pool.size(), pool_len)
+	SettingsManager.set_setting("graphics_quality", orig_q)
+	SettingsManager.set_setting("reduced_motion", orig_rm)
+
+func test_patrol_guard_formations_and_nuke_early_warning():
+	var game := _new_game()
+	var hq: Node2D = game._find_team_hq(0)
+	var tank: Node2D = game._spawn_unit_by_id("mbt", hq.global_position + Vector2(60, 0), 0)
+	var arty: Node2D = game._spawn_unit_by_id("artillery", hq.global_position + Vector2(80, 20), 0)
+
+	# Tactical wedge move command succeeds and routes via Formation.tactical_offsets.
+	assert_true(game.apply_command({
+		"type": "move", "team": 0, "unit_ids": [tank.net_id, arty.net_id],
+		"target_x": hq.global_position.x + 260.0, "target_y": hq.global_position.y,
+		"attack_move": true, "formation": Formation.Style.WEDGE,
+	}))
+	assert_true(tank.has_target)
+	assert_true(arty.has_target)
+
+	# Patrol sets a two-point loop; Guard anchors the unit to a defensive perimeter.
+	assert_true(game.apply_command({
+		"type": "patrol", "team": 0, "unit_ids": [tank.net_id],
+		"target_x": hq.global_position.x + 180.0, "target_y": hq.global_position.y + 40.0,
+	}))
+	assert_true(bool(tank.patrol_active))
+	assert_eq(tank.patrol_points.size(), 2)
+
+	assert_true(game.apply_command({
+		"type": "guard", "team": 0, "unit_ids": [arty.net_id],
+		"target_x": hq.global_position.x + 90.0, "target_y": hq.global_position.y + 90.0,
+	}))
+	assert_true(bool(arty.guard_active))
+
+	# Nuclear launch queues an early-warning countdown instead of instant zero-tick impact.
+	game.team_unlocked_tech[0] = ["strategic_uplinks"]
+	ResourceManager.wallets[0] = {
+		Economy.Res.OIL: 5000, Economy.Res.IRON: 5000,
+		Economy.Res.GEOTHERMAL: 5000, Economy.Res.FOOD: 5000,
+	}
+	var strike_pos := Vector2(640.0, 640.0)
+	var enemy_target: Node2D = game._spawn_unit_by_id("riflebot", strike_pos, 1)
+	var initial_hp: int = int(enemy_target.hp)
+	assert_true(game.apply_command({"type": "nuke", "team": 0, "x": strike_pos.x, "y": strike_pos.y}))
+	assert_eq(game.pending_nukes.size(), 1)
+	assert_eq(int(enemy_target.hp), initial_hp, "units must have early-warning time before impact")
+	game._step_pending_nukes(Strategic.NUKE_WARNING_SECONDS + 0.1)
+	assert_eq(game.pending_nukes.size(), 0)
+	assert_true(bool(enemy_target.is_exploding) or int(enemy_target.hp) < initial_hp)
+	assert_eq(game.map_data.get_terrain(int(strike_pos.x / 16.0), int(strike_pos.y / 16.0)), MapData.Terrain.WASTELAND)
+
+func test_map_editor_three_pane_flood_fill_mirror_undo_redo_and_validation():
+	GameManager.match_mode = GameManager.Mode.MAP_EDITOR
+	var editor = preload("res://scenes/map_editor.tscn").instantiate()
+	add_child_autofree(editor)
+	assert_not_null(editor.workspace_split)
+	assert_not_null(editor.validation_panel)
+	assert_not_null(editor.file_dialog)
+	assert_not_null(editor.confirm_dialog)
+
+	editor.map_data = MapData.new(16, 16)
+	editor._refresh_image()
+	editor.mirror_x = true
+	editor.push_undo_snapshot()
+	var filled: int = int(editor.flood_fill(2, 2, MapData.Terrain.DESERT))
+	assert_gt(filled, 0)
+	assert_eq(editor.map_data.get_terrain(2, 2), MapData.Terrain.DESERT)
+	assert_eq(editor.map_data.get_terrain(13, 2), MapData.Terrain.DESERT)
+	assert_true(bool(editor.dirty))
+
+	assert_true(bool(editor.undo()))
+	assert_eq(editor.map_data.get_terrain(2, 2), MapData.Terrain.PLAINS)
+	assert_true(bool(editor.redo()))
+	assert_eq(editor.map_data.get_terrain(2, 2), MapData.Terrain.DESERT)
+	assert_true(String(editor.validation_label.text).contains("HQ Spawns"))
+
+	editor._set_zoom(0.1)
+	assert_almost_eq(float(editor.camera.zoom.x), float(editor.MIN_ZOOM), 0.001)
+	editor._set_zoom(5.0)
+	assert_almost_eq(float(editor.camera.zoom.x), float(editor.MAX_ZOOM), 0.001)
+
+func test_chat_surrender_ai_takeover_webrtc_ui_replay_live_and_telemetry():
+	NetworkManager.leave()
+	var game := _new_game()
+	assert_not_null(game.chat_panel)
+	assert_true(game.apply_command({"type": "chat", "team": 0, "text": "Push north ridge", "scope": "team"}))
+	assert_eq(game.chat_messages.size(), 1)
+	assert_true(String(game.chat_log.text).contains("Push north ridge"))
+
+	# Dropped-peer AI takeover promotes an abandoned team to AI control.
+	GameManager.teams = [0, 1]
+	GameManager.ai_enabled = false
+	GameManager.ai_teams = []
+	var taken: Array = NetworkManager.handle_expired_peers([ {"peer_id": 2, "team": 1, "team_empty": true}])
+	assert_eq(taken, [1])
+	assert_true(GameManager.is_ai_team(1))
+
+	# Live replay playback feeds commands back into the scene.
+	var rep := Replay.new()
+	var c := Command.new()
+	c.type = Command.Type.CHAT
+	c.tick = 10
+	c.player_id = 0
+	c.build_type = "Replay ping"
+	rep.record(c)
+	assert_true(game.start_live_replay(rep, 2.0))
+	game._step_live_replay(0.5)
+	assert_false(bool(game.live_replay_active))
+	assert_true(String(game.chat_log.text).contains("Replay ping"))
+
+	# Surrender ends the match and populates per-team telemetry on victory panel.
+	game.record_match_stat(0, "damage_dealt", 420)
+	assert_true(game.apply_command({"type": "surrender", "team": 0, "action": "propose"}))
+	assert_true(bool(game.match_over))
+	assert_true(game.victory_panel.visible)
+	var telem := game.victory_panel.get_node_or_null("VBoxContainer/TelemetryLabel") as Label
+	assert_not_null(telem)
+	assert_true(telem.text.contains("Dmg: 420"))
+
+	# Lobby exposes WebRTC ICE diagnostics when transport is switched to webrtc.
+	var lobby_ui := preload("res://scenes/lobby.tscn").instantiate()
+	add_child_autofree(lobby_ui)
+	assert_not_null(lobby_ui.ice_box)
+	assert_false(lobby_ui.ice_box.visible)
+	NetworkManager.lobby.add_player(1, "Host", "1.2.3.4")
+	NetworkManager.lobby.update_settings(1, {"transport": "webrtc", "stun_url": "stun:stun.example.com:3478"})
+	lobby_ui._refresh()
+	assert_true(lobby_ui.ice_box.visible)
+	assert_true(String(lobby_ui.ice_diag_label.text).contains("stun.example.com"))
+	NetworkManager.leave()

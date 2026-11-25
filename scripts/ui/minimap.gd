@@ -11,11 +11,14 @@ signal ping_requested(world_pos: Vector2)
 
 const SIZE_PX: float = 164.0
 const REFRESH_INTERVAL: float = 0.5
+const REDRAW_INTERVAL: float = 0.066
 
 var game: Node2D = null
 var _map_image: Image = null
 var _map_texture: ImageTexture = null
+var _map_pixels: PackedByteArray = PackedByteArray()
 var _refresh_timer: float = 0.0
+var _redraw_timer: float = 0.0
 
 func _game() -> Node:
 	if is_instance_valid(game):
@@ -42,7 +45,13 @@ func _process(delta: float) -> void:
 	if _refresh_timer <= 0.0:
 		_refresh_timer = REFRESH_INTERVAL
 		_refresh_terrain()
-	queue_redraw()
+		queue_redraw()
+		_redraw_timer = REDRAW_INTERVAL
+		return
+	_redraw_timer -= delta
+	if _redraw_timer <= 0.0:
+		_redraw_timer = REDRAW_INTERVAL
+		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton) or not event.pressed:
@@ -73,19 +82,14 @@ func _refresh_terrain() -> void:
 	var map: MapData = scene.get("map_data") if scene != null else null
 	if map == null:
 		return
-	if _map_image == null or _map_image.get_width() != map.width or _map_image.get_height() != map.height:
-		_map_image = Image.create(map.width, map.height, false, Image.FORMAT_RGBA8)
-		_map_texture = ImageTexture.create_from_image(_map_image)
 	var fog: FogOfWar = scene.get("fog") if scene != null else null
-	for y in range(map.height):
-		for x in range(map.width):
-			var col := _terrain_color(map.get_terrain(x, y))
-			if fog != null and GameManager.fog_enabled and not fog.is_explored(x, y):
-				col = Color(0.03, 0.03, 0.04, 1.0)
-			elif fog != null and GameManager.fog_enabled and not fog.is_visible(x, y):
-				col = col.lerp(Color(0.0, 0.0, 0.0, 1.0), 0.55)
-			_map_image.set_pixel(x, y, col)
-	_map_texture.update(_map_image)
+	_map_pixels = UnitVisual.minimap_rgba_bytes(map, fog, GameManager.fog_enabled, _map_pixels)
+	if _map_image == null or _map_image.get_width() != map.width or _map_image.get_height() != map.height:
+		_map_image = Image.create_from_data(map.width, map.height, false, Image.FORMAT_RGBA8, _map_pixels)
+		_map_texture = ImageTexture.create_from_image(_map_image)
+	else:
+		_map_image.set_data(map.width, map.height, false, Image.FORMAT_RGBA8, _map_pixels)
+		_map_texture.update(_map_image)
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.04, 0.92), true)
@@ -124,6 +128,17 @@ func _draw() -> void:
 		)
 		var buoy_pos: Vector2 = buoy.get("pos", Vector2.ZERO)
 		draw_circle(Vector2(buoy_pos.x * sx, buoy_pos.y * sy), 2.5, buoy_col.lightened(0.3))
+	var pending_nukes: Variant = scene.get("pending_nukes") if scene != null else null
+	if pending_nukes is Array:
+		for nk in pending_nukes as Array:
+			if not (nk is Dictionary):
+				continue
+			var npos: Vector2 = nk.get("pos", Vector2.ZERO)
+			var mp := Vector2(npos.x * sx, npos.y * sy)
+			var ntimer := float(nk.get("timer", 0.0))
+			var pulse_r := 5.0 + absf(sin(ntimer * 6.0)) * 5.0
+			draw_arc(mp, pulse_r, 0, TAU, 16, Color(1.0, 0.22, 0.14, 0.95), 1.8)
+			draw_circle(mp, 2.5, Color(1.0, 0.85, 0.25, 0.95))
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b) or ("is_exploding" in b and b.is_exploding):
 			continue
@@ -140,7 +155,7 @@ func _draw() -> void:
 		var ucol := Faction.colorblind_color_of(GameManager.faction_for_team(int(u.team)), palette, u_variant)
 		if GameManager.is_allied(local_team, int(u.team)):
 			_draw_blip(u.global_position, sx, sy, ucol, 2.0)
-		elif fog == null or not GameManager.fog_enabled or _is_visible(fog, u.global_position, tile_size):
+		elif not GameManager.fog_enabled or (u.visible and (fog == null or _is_visible(fog, u.global_position, tile_size))):
 			_draw_blip(u.global_position, sx, sy, ucol.lightened(0.15), 2.0)
 	var cam: Camera2D = scene.get("camera") if scene != null else null
 	if cam != null:

@@ -9,7 +9,7 @@ BroWarz is a combined-arms RTS set in 2030 where four rival megacorporations (**
 
 ## Status
 
-Playable **v0.1.3**: adds four AI-only NPC factions — Vesper Ascendancy, Thalassa Dominion, Gravebound Legion and Lumen Cabal — for skirmish enemies, the co-op AI and both spectator sides (human seats remain the four corporations), overhauled **combined-arms AI tactics** (per-faction doctrines, power/deposit-aware expansion, isolated retreats, flanking raiders, standoff kiting, focus-fire targeting, worker capture/repair/fortification micro, corvette sonar buoys, and fog-compliant strategic strikes), a dedicated **Building Inspector** panel, a live **Lockstep Net Self-Test & P2P checksum sync** runtime hook, and 24 procedural per-weapon SFX & robotic **voice-bark clips with toggleable subtitles**. It also includes Single Player vs AI Skirmish mode, two-player co-op against a shared AI opponent, view-only AI-vs-AI Spectator mode with selectable factions, in-match host-authoritative Diplomacy, Hex Map Editor (`BWM1:` share codes & `.bwm` files), Amphibious Embark/Disembark transport operations, Drifting Cloud weather systems for aerial units, soak-tested P2P lockstep multiplayer, a grouped main-menu layout with full-viewport camo, a camera that always keeps the map on screen, and 8 selectable faction soundtracks with main-menu and settings switchers. See [`docs/design.md`](docs/design.md) for the game design document, [`docs/units.md`](docs/units.md) for unit visual rosters, [`docs/npc.md`](docs/npc.md) for the AI-only factions, [`docs/factories.md`](docs/factories.md) for tiered production buildings, [`docs/corporations.md`](docs/corporations.md) for faction lore, [`docs/diplomacy.md`](docs/diplomacy.md) for alliance rules, [`docs/maps.md`](docs/maps.md) for terrain/map editor details, and [`docs/roadmap.md`](docs/roadmap.md) for roadmap status.
+Playable **v0.1.4**: ships the full graphics performance & visual quality overhaul (`8×8` sub-tile `PackedByteArray` terrain with shorelines and directional ridges, GPU `MultiMeshInstance2D` foliage & far-zoom unit LOD icons, animated water-shimmer & weather shader, 160-slot pooled hit-spark/smoke particles, linear 10 Hz fog, frustum culling, shadows, and **Graphics Quality** / **Reduced Motion** settings), **Map Editor UX Phases 2–4** (three-pane `HSplitContainer` workspace, flood fill, Mirror-X/Y symmetry, grid overlay, wheel zoom, native `FileDialog`, overwrite/unsaved confirmations, recent maps, live `ValidationPanel`, and 30-step undo/redo), **Patrol & Guard commands**, role-aware **Combined-Arms Formations** (Grid / Wedge / Line / Echelon), **`5.0 s` Nuclear early-warning window**, host-relayed **In-Match Chat & Surrender vote**, **Dropped-Peer AI Takeover**, **WebRTC ICE/Signaling UI**, **Live in-scene Replay Playback & Victory Telemetry**, and **19 remappable command & build hotkeys**. Builds on v0.1.3's four AI-only NPC factions (Vesper Ascendancy, Thalassa Dominion, Gravebound Legion, Lumen Cabal), overhauled combined-arms AI tactics, Building Inspector, Lockstep Soak & P2P checksum sync, and 24 procedural SFX & robotic voice-bark clips with subtitles. See [`docs/design.md`](docs/design.md) for the game design document, [`docs/units.md`](docs/units.md) for unit visual rosters, [`docs/npc.md`](docs/npc.md) for the AI-only factions, [`docs/factories.md`](docs/factories.md) for tiered production buildings, [`docs/corporations.md`](docs/corporations.md) for faction lore, [`docs/diplomacy.md`](docs/diplomacy.md) for alliance rules, [`docs/maps.md`](docs/maps.md) for terrain/map editor details, and [`docs/roadmap.md`](docs/roadmap.md) for roadmap status.
 
 ---
 
@@ -130,7 +130,7 @@ See [`docs/factories.md`](docs/factories.md) for full details:
 ### 8. Strategic Weapons & Ambient Wildlife (`Strategic`, `Wildlife`)
 
 - **Orbital Laser Strike (`L`):** Deals `180 × (1 + Geothermal / 1000)` AOE energy damage in a `95 px` radius.
-- **Strategic Nuclear Missile (`N`):** Deals `650` AOE explosive damage in a `180 px` blast radius and converts a `4`-tile radius of terrain into irradiated **Wasteland** (`MapData.Terrain.WASTELAND`), which is impassable to standard vehicles and hovercraft.
+- **Strategic Nuclear Missile (`N`):** Launches with a **`5.0 s` early-warning countdown** (HUD alert, pulsing battlefield target reticle, and flashing minimap warning ring), then deals `650` AOE explosive damage in a `180 px` blast radius and converts a `4`-tile radius of terrain into irradiated **Wasteland** (`MapData.Terrain.WASTELAND`), which is impassable to standard vehicles and hovercraft.
 - **Ambient Wildlife (`Wildlife`):** Non-combatant **Birds**, **Deer**, **Dolphins**, and **Squid** roam their native biomes, flee at `2.35×` speed when chased by units or when weapons fire nearby, and can be killed by direct or AOE fire.
 
 ---
@@ -158,14 +158,14 @@ Open in editor: `make editor`
 
 - **WASD / Arrow Keys**: Pan camera
 - **Left Click / Drag Box**: Select friendly units (`Shift` to add)
-- **Right Click**: Move / Attack-Move in grid formation
+- **Right Click**: Move / Attack-Move in role-aware tactical formation (`Q` cycles Grid / Wedge / Line / Echelon)
 - **1–7**: Train units (`1` Riflebot, `2` Rocketbot, `3` Stealthbot, `4` MBT, `5` AA Vehicle, `6` Fighter Drone, `7` Hovercraft)
+- **Y / J / H / Z**: Patrol loop (`Y`), Guard perimeter (`J`), Hold position (`H`), Stop (`Z`) — all command & build hotkeys are remappable in **Settings**
 - **E / U**: Embark selected infantry/drones into nearby transport (`E`) or Disembark cargo (`U`)
-- **B / V**: Build Resource Extractor (`B`) or Defense Turret (`V`)
-- **T**: Upgrade Corporation Tech Tier (T1 → T4)
-- **L**: Fire Orbital Laser Strike
-- **N**: Launch Strategic Nuclear Missile
-- **H**: Hold position
+- **B / V / P**: Build Resource Extractor (`B`), Defense Turret (`V`), or Power Plant (`P`)
+- **T / R**: Upgrade Tech (`T`) or open Research Tree (`R`)
+- **L / N**: Fire Orbital Laser Strike (`L`) or Launch Strategic Nuclear Missile with 5 s early warning (`N`)
+- **Enter**: Toggle in-match **Chat & Comms** (`All` / `Team` scopes) & **Surrender** vote
 - **Diplomacy button** (multiplayer, 3+ teams): propose, accept/decline or break alliances; every change is validated and relayed by the host.
 - **Spectator mode**: Camera drag/wheel, `F12` screenshot and `Esc` pause only; unit selection and commands are intentionally disabled.
 

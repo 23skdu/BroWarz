@@ -15,12 +15,19 @@ var hex_path: Array[Vector2] = []
 var path_index: int = 0
 var attack_move: bool = false
 var hold_position: bool = false
+var patrol_points: Array[Vector2] = []
+var patrol_index: int = 0
+var patrol_active: bool = false
+var guard_anchor: Vector2 = Vector2.ZERO
+var guard_active: bool = false
+const GUARD_LEASH_PX: float = 240.0
+var lod_batched: bool = false
 var attack_timer: float = 0.0
 var attack_cooldown: float = 0.8
 var emp_timer: float = 0.0
 var cloak_timer: float = 0.0
 var focus_target: Node2D = null
-var cargo: Array = []  # Array of Unit nodes currently embarked inside this transport
+var cargo: Array = [] # Array of Unit nodes currently embarked inside this transport
 var embarked_in: Node2D = null
 
 # Animation & visual combat state
@@ -35,8 +42,17 @@ var turret_angle: float = 0.0
 var explosion_debris: Array[Dictionary] = []
 var sprite_node: Sprite2D = null
 var deck_label: Label = null
-var capture_progress: Dictionary = {}  # building instance id -> seconds nearby
-var _frame_cache: Dictionary = {}  # "state:frame" -> ImageTexture
+var capture_progress: Dictionary = {} # building instance id -> seconds nearby
+var _frame_cache: Dictionary = {} # "state:frame" -> ImageTexture
+var _last_tex_state: int = -1
+var _last_tex_frame: int = -1
+var _last_tex_lod: int = -1
+var _last_tex_cloaked: bool = false
+var _last_draw_selected: bool = false
+var _last_draw_emp: bool = false
+var _last_draw_cargo: int = -1
+var _last_draw_turret: float = -999.0
+var _last_draw_facing: float = -999.0
 
 @onready var body = $Body
 @onready var hp_bar = $HpBar
@@ -66,6 +82,7 @@ func setup(s: UnitStats, t: int, f: int = -1) -> void:
 	if s.stealth:
 		cloak_timer = effective_cloak_duration()
 	_frame_cache.clear()
+	_reset_visual_dirty_cache()
 	_update_visual()
 
 ## Find the owning game scene even when this node is not the engine's
@@ -97,18 +114,37 @@ func _scene_tech_bonus(key: String) -> float:
 ## Live recolor after the colorblind palette changes in the settings dialog.
 func refresh_colorblind() -> void:
 	_frame_cache.clear()
+	_reset_visual_dirty_cache()
 	_refresh_sprite_texture()
 	if deck_label != null:
 		_update_deck_label()
+	queue_redraw()
+
+func _reset_visual_dirty_cache() -> void:
+	_last_tex_state = -1
+	_last_tex_frame = -1
+	_last_tex_lod = -1
+	_last_draw_cargo = -1
+	_last_draw_turret = -999.0
+	_last_draw_facing = -999.0
 
 func _exit_tree() -> void:
 	_frame_cache.clear()
 	capture_progress.clear()
 	hex_path.clear()
+	patrol_points.clear()
 	explosion_debris.clear()
 	cargo.clear()
 	focus_target = null
 	embarked_in = null
+
+func set_lod_batched(batched: bool) -> void:
+	if lod_batched == batched:
+		return
+	lod_batched = batched
+	if sprite_node != null:
+		sprite_node.visible = not batched
+	queue_redraw()
 
 func effective_max_hp() -> int:
 	if stats == null:
@@ -179,10 +215,39 @@ func _refresh_sprite_texture() -> void:
 		if nodes is Array:
 			active_units = (nodes as Array).size()
 	var sprite_size := UnitVisual.lod_sprite_size(zoom, active_units)
-	sprite_node.texture = UnitVisual.get_cached_unit_texture(uclass, anim_state, f_idx, _team_base_color(), sprite_size, uid)
-	sprite_node.rotation = 0.0 if is_exploding else facing_angle
-	var alpha := 0.42 if is_cloaked() else 1.0
-	sprite_node.modulate = Color(1, 1, 1, alpha)
+	var cloaked := is_cloaked()
+	if anim_state != _last_tex_state or f_idx != _last_tex_frame or sprite_size != _last_tex_lod:
+		_last_tex_state = anim_state
+		_last_tex_frame = f_idx
+		_last_tex_lod = sprite_size
+		sprite_node.texture = UnitVisual.get_cached_unit_texture(uclass, anim_state, f_idx, _team_base_color(), sprite_size, uid)
+	var target_rot := 0.0 if is_exploding else facing_angle
+	if absf(sprite_node.rotation - target_rot) > 0.005:
+		sprite_node.rotation = target_rot
+	if cloaked != _last_tex_cloaked or sprite_node.modulate.a == 0.0:
+		_last_tex_cloaked = cloaked
+		var alpha := 0.42 if cloaked else 1.0
+		sprite_node.modulate = Color(1, 1, 1, alpha)
+
+func _needs_redraw() -> bool:
+	var uclass := stats.unit_class if stats else 0
+	if is_exploding or anim_state == UnitVisual.AnimState.MOVE or fire_anim_timer > 0.0 or hit_flash_timer > 0.0:
+		return true
+	if uclass == 3 and not bool(SettingsManager.reduced_motion()):
+		return true
+	var emp_on := EMP.is_disabled(emp_timer)
+	if selected != _last_draw_selected or emp_on != _last_draw_emp or cargo.size() != _last_draw_cargo:
+		return true
+	if absf(turret_angle - _last_draw_turret) > 0.01 or absf(facing_angle - _last_draw_facing) > 0.01:
+		return true
+	return false
+
+func _mark_drawn() -> void:
+	_last_draw_selected = selected
+	_last_draw_emp = EMP.is_disabled(emp_timer)
+	_last_draw_cargo = cargo.size()
+	_last_draw_turret = turret_angle
+	_last_draw_facing = facing_angle
 
 func _update_visual() -> void:
 	if body:
@@ -313,6 +378,10 @@ func _physics_process(delta):
 	if stats and stats.id in ["aircraft_carrier", "leviathan_carrier"] and not cargo.is_empty():
 		_repair_carrier_drones(delta)
 
+	if guard_active and global_position.distance_to(guard_anchor) > GUARD_LEASH_PX:
+		focus_target = null
+		move_to(guard_anchor, true, false)
+
 	if has_target:
 		if attack_move:
 			var enemy = _nearest_enemy_in_range()
@@ -340,15 +409,22 @@ func _physics_process(delta):
 				attack_move = false
 				velocity = Vector2.ZERO
 				hex_path.clear()
+				if patrol_active and patrol_points.size() >= 2:
+					patrol_index = (patrol_index + 1) % patrol_points.size()
+					move_to(patrol_points[patrol_index], true, false)
 			else:
 				target_pos = hex_path[path_index]
 	else:
 		velocity = Vector2.ZERO
 		_try_attack()
+		if guard_active and not has_target and global_position.distance_to(guard_anchor) > 28.0:
+			move_to(guard_anchor, true, false)
 
 	_update_anim_state()
 	_update_visual()
-	queue_redraw()
+	if _needs_redraw():
+		_mark_drawn()
+		queue_redraw()
 
 func _update_anim_state() -> void:
 	var next_state := UnitVisual.select_state(is_exploding, fire_anim_timer, hit_flash_timer, velocity.length_squared())
@@ -451,6 +527,8 @@ func _try_attack():
 	if dist <= rng:
 		_perform_attack(enemy)
 	elif not hold_position and dist <= effective_sight():
+		if guard_active and enemy.global_position.distance_to(guard_anchor) > GUARD_LEASH_PX:
+			return
 		target_pos = enemy.global_position
 		has_target = true
 		attack_move = true
@@ -503,10 +581,12 @@ func _perform_attack(enemy: Node2D) -> void:
 	var final_dmg := Damage.compute_for_unit(uid, base_dmg * atk_mod * dmg_mult, dmg_type, target_armor, 0.0, cover_mod)
 
 	# Spawn projectile tracer & muzzle flash in active game scene
-	var scene = get_tree().current_scene
-	if scene and scene.has_method("spawn_combat_tracer"):
+	var game_root := _game_root()
+	if game_root != null and game_root.has_method("spawn_combat_tracer"):
 		var muzzle_pos := global_position + Vector2.RIGHT.rotated(turret_angle) * 14.0
-		scene.spawn_combat_tracer(muzzle_pos, enemy.global_position, dmg_type, team)
+		game_root.spawn_combat_tracer(muzzle_pos, enemy.global_position, dmg_type, team)
+	if game_root != null and game_root.has_method("record_match_stat"):
+		game_root.record_match_stat(team, "damage_dealt", int(round(final_dmg)))
 
 	enemy.take_damage(final_dmg)
 	if dmg_type == Damage.DamageType.EMP and enemy.has_method("apply_emp"):
@@ -623,9 +703,13 @@ func _nearest_enemy() -> Node2D:
 			best_chase = b
 	return best_in_range if best_in_range != null else best_chase
 
-func move_to(pos: Vector2, is_attack_move: bool = false) -> void:
+func move_to(pos: Vector2, is_attack_move: bool = false, clear_orders: bool = true) -> void:
 	if is_exploding:
 		return
+	if clear_orders:
+		patrol_active = false
+		patrol_points.clear()
+		guard_active = false
 	has_target = true
 	attack_move = is_attack_move
 	hold_position = false
@@ -636,6 +720,26 @@ func move_to(pos: Vector2, is_attack_move: bool = false) -> void:
 		target_pos = hex_path[0]
 	else:
 		target_pos = hex_grid.hex_to_world(hex_grid.world_to_hex(goal))
+
+func patrol_to(destination: Vector2) -> void:
+	if is_exploding:
+		return
+	patrol_points = [global_position, destination]
+	patrol_index = 1
+	patrol_active = true
+	guard_active = false
+	hold_position = false
+	move_to(destination, true, false)
+
+func guard_at(anchor: Vector2) -> void:
+	if is_exploding:
+		return
+	guard_anchor = anchor
+	guard_active = true
+	patrol_active = false
+	patrol_points.clear()
+	hold_position = false
+	move_to(anchor, true, false)
 
 ## Walls and barbed wire stop ground units: nudge the order onto the
 ## nearest tile the unit can actually stand on.
@@ -678,6 +782,9 @@ func _build_hex_path(goal_world: Vector2) -> void:
 func stop_command() -> void:
 	has_target = false
 	attack_move = false
+	patrol_active = false
+	patrol_points.clear()
+	guard_active = false
 	hex_path.clear()
 	path_index = 0
 	focus_target = null
@@ -694,7 +801,9 @@ func take_damage(amount: float) -> void:
 	if team == GameManager.local_team and not GameManager.is_spectator:
 		AudioManager.play_bark("under_attack", GameManager.faction_for_team(team))
 	if hp_bar:
-		hp_bar.value = maxf(0.0, float(hp) / float(effective_max_hp()) * 100.0)
+		var ratio := clampf(float(hp) / maxf(1.0, float(effective_max_hp())), 0.0, 1.0)
+		hp_bar.value = ratio * 100.0
+		hp_bar.modulate = UnitVisual.hp_bar_color(ratio)
 	if hp <= 0:
 		_trigger_explosion()
 
@@ -714,13 +823,19 @@ func _trigger_explosion() -> void:
 		hp_bar.visible = false
 	remove_from_group("units")
 	explosion_debris = UnitVisual.generate_explosion_debris(int(get_instance_id()), 10)
-	var scene = get_tree().current_scene
-	if scene and scene.has_method("spawn_explosion_vfx"):
+	var game_root := _game_root()
+	if game_root != null and game_root.has_method("spawn_explosion_vfx"):
 		var rad := 26.0 if (stats and stats.unit_class == 1) else 18.0
-		scene.spawn_explosion_vfx(global_position, rad)
+		game_root.spawn_explosion_vfx(global_position, rad)
+	if game_root != null and game_root.has_method("record_match_stat"):
+		game_root.record_match_stat(team, "units_lost", 1)
 	AudioManager.play_sfx("unit_explode")
 
 func _draw():
+	if lod_batched and not is_exploding:
+		if selected:
+			draw_arc(Vector2.ZERO, 18, 0, TAU, 20, Color.YELLOW, 2.0)
+		return
 	var uclass := stats.unit_class if stats else 0
 	var kin := UnitVisual.compute_kinematics(anim_state, anim_elapsed, uclass)
 
@@ -738,6 +853,17 @@ func _draw():
 			var c_heat := Color(1.0, 0.65, 0.2, 1.0 - prog).lerp(Color(0.25, 0.25, 0.25, 1.0 - prog), prog)
 			draw_circle(d_pos, float(p["size"]) * (1.0 - prog * 0.5), c_heat)
 		return
+
+	# Ground contact shadow (or altitude-offset shadow for airborne craft)
+	var gfx: Dictionary = UnitVisual.graphics_profile(String(SettingsManager.graphics_quality()))
+	if bool(gfx.get("shadows", true)):
+		if uclass == 3:
+			draw_circle(Vector2(10.0, 14.0), 11.5, Color(0.02, 0.03, 0.05, 0.24))
+		elif uclass == 2:
+			draw_circle(Vector2(2.0, 3.0), 13.0, Color(0.01, 0.05, 0.10, 0.22))
+		else:
+			var sh_r := 13.5 if uclass in [1, 7] else 10.0
+			draw_circle(Vector2(2.5, 4.0), sh_r, Color(0.02, 0.03, 0.04, 0.30))
 
 	# Moving dust/wake/exhaust puffs
 	if anim_state == UnitVisual.AnimState.MOVE:

@@ -5,23 +5,32 @@ extends AcceptDialog
 ## Replay log produced by a match and scrubs/ plays back recorded orders so
 ## the match narrative can be reviewed without a second simulation runtime.
 
+signal live_playback_requested(rep: Replay, speed_mult: float)
+
 const REPLAY_PATH := "user://replays/match.json"
 const TYPE_NAMES: Array[String] = [
 	"MOVE", "ATTACK", "ATTACK_MOVE", "BUILD", "STOP", "PATROL", "HOLD",
 	"TRAIN", "FORTIFY", "EMBARK", "DISEMBARK", "TECH", "ORBITAL", "NUKE",
 	"CAPTURE", "DEMOLISH", "DIPLOMACY", "SONAR_BUOY",
+	"GUARD", "CHAT", "SURRENDER",
 ]
+const SPEED_OPTIONS: Array[float] = [0.5, 1.0, 2.0, 4.0]
 
 var replay: Replay = null
 var current_tick: float = 0.0
 var command_index: int = 0
 var playing: bool = false
+var speed_multiplier: float = 1.0
 var speed: float = 60.0  # recorded ticks per real second
 
 var info_label: Label
 var now_label: Label
 var stream_label: RichTextLabel
 var play_button: Button
+var speed_select: OptionButton
+var scrub_slider: HSlider
+var live_play_button: Button
+var _syncing_slider: bool = false
 
 func _ready() -> void:
 	title = "Replay Viewer"
@@ -64,6 +73,28 @@ func _ready() -> void:
 	reload_button.pressed.connect(func(): load_replay(REPLAY_PATH))
 	buttons.add_child(reload_button)
 
+	speed_select = OptionButton.new()
+	speed_select.name = "SpeedSelect"
+	for mult in SPEED_OPTIONS:
+		speed_select.add_item("%sx" % str(mult))
+	speed_select.selected = 1
+	speed_select.item_selected.connect(_on_speed_selected)
+	buttons.add_child(speed_select)
+
+	live_play_button = Button.new()
+	live_play_button.name = "LivePlayButton"
+	live_play_button.text = "Play Live in Match"
+	live_play_button.pressed.connect(_on_live_play_pressed)
+	buttons.add_child(live_play_button)
+
+	scrub_slider = HSlider.new()
+	scrub_slider.name = "ScrubSlider"
+	scrub_slider.min_value = 0.0
+	scrub_slider.max_value = 100.0
+	scrub_slider.step = 1.0
+	scrub_slider.value_changed.connect(_on_scrub_changed)
+	vbox.add_child(scrub_slider)
+
 	stream_label = RichTextLabel.new()
 	stream_label.name = "CommandStream"
 	stream_label.custom_minimum_size = Vector2(560, 260)
@@ -95,12 +126,51 @@ func step_one() -> void:
 	if command_index >= replay.command_count():
 		current_tick = float(replay.ticks) + 1.0
 
+func set_speed_multiplier(mult: float) -> void:
+	speed_multiplier = clampf(mult, 0.25, 8.0)
+	speed = 60.0 * speed_multiplier
+
+func _on_speed_selected(idx: int) -> void:
+	if idx >= 0 and idx < SPEED_OPTIONS.size():
+		set_speed_multiplier(SPEED_OPTIONS[idx])
+
+func _on_live_play_pressed() -> void:
+	if replay == null or replay.command_count() <= 0:
+		return
+	playing = false
+	play_button.text = "Play"
+	live_playback_requested.emit(replay, speed_multiplier)
+	hide()
+
+func seek_to_tick(tick_val: float) -> void:
+	if replay == null:
+		return
+	current_tick = clampf(tick_val, 0.0, float(maxi(1, replay.ticks)))
+	command_index = 0
+	_advance_to_tick()
+
+func _on_scrub_changed(val: float) -> void:
+	if _syncing_slider or replay == null:
+		return
+	playing = false
+	play_button.text = "Play"
+	seek_to_tick(val)
+
 func reset_playback() -> void:
 	playing = false
 	play_button.text = "Play"
 	current_tick = 0.0
 	command_index = 0
+	_sync_slider()
 	_update_now()
+
+func _sync_slider() -> void:
+	if not is_instance_valid(scrub_slider):
+		return
+	_syncing_slider = true
+	scrub_slider.max_value = float(maxi(1, replay.ticks)) if replay != null else 1.0
+	scrub_slider.value = clampf(current_tick, 0.0, scrub_slider.max_value)
+	_syncing_slider = false
 
 func load_replay(path: String = REPLAY_PATH) -> bool:
 	reset_playback()
@@ -126,6 +196,7 @@ func load_replay(path: String = REPLAY_PATH) -> bool:
 		" | Skipped %d invalid records" % replay.invalid_commands if replay.invalid_commands > 0 else "",
 	]
 	_render_stream()
+	_sync_slider()
 	_update_now()
 	return true
 
@@ -135,6 +206,7 @@ func _advance_to_tick() -> void:
 		if float(cmd.tick) > current_tick:
 			break
 		command_index += 1
+	_sync_slider()
 	_update_now()
 	if command_index >= replay.command_count():
 		playing = false

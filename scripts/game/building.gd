@@ -15,6 +15,10 @@ var is_exploding: bool = false
 var explode_timer: float = 0.0
 var explosion_debris: Array[Dictionary] = []
 var queue_label: Label = null
+var _last_queue_text: String = "__init__"
+var _last_draw_selected: bool = false
+var _last_draw_turret: float = -999.0
+var _last_draw_prog: float = -1.0
 
 @onready var body = $Body
 @onready var sprite: Sprite2D = $Sprite
@@ -64,17 +68,19 @@ func _refresh_queue_label() -> void:
 		queue_label.position = Vector2(-20, 30)
 		queue_label.add_theme_font_size_override("font_size", 10)
 		add_child(queue_label)
-	if production_queue.is_empty():
-		queue_label.text = ""
-		return
-	var names: Array = []
-	for item in production_queue:
-		if item is Dictionary:
-			names.append(str(item.get("id", "?")))
-		else:
-			names.append(str(item))
-	var prog := int(round(Production.current_progress(production_queue) * 100.0))
-	queue_label.text = "Queue: %s (%d%%)" % [", ".join(names), prog]
+	var next_text := ""
+	if not production_queue.is_empty():
+		var names: Array = []
+		for item in production_queue:
+			if item is Dictionary:
+				names.append(str(item.get("id", "?")))
+			else:
+				names.append(str(item))
+		var prog := int(round(Production.current_progress(production_queue) * 100.0))
+		next_text = "Queue: %s (%d%%)" % [", ".join(names), prog]
+	if next_text != _last_queue_text:
+		_last_queue_text = next_text
+		queue_label.text = next_text
 
 func set_rally(pos: Vector2) -> void:
 	rally_point = pos
@@ -89,17 +95,29 @@ func _process(delta):
 			queue_free()
 		return
 
-	var eff := 1.0
-	var scene = get_tree().current_scene
-	if scene and scene.has_method("get_team_power_efficiency"):
-		eff = float(scene.get_team_power_efficiency(team))
-	var completed = Production.tick(production_queue, delta * eff)
-	for uid in completed:
-		_spawn_unit(uid)
-	_refresh_queue_label()
+	var had_queue := not production_queue.is_empty()
+	if had_queue:
+		var eff := 1.0
+		var scene = get_tree().current_scene
+		if scene and scene.has_method("get_team_power_efficiency"):
+			eff = float(scene.get_team_power_efficiency(team))
+		var completed = Production.tick(production_queue, delta * eff)
+		for uid in completed:
+			_spawn_unit(uid)
+		_refresh_queue_label()
 	if stats and (stats.id == "turret" or stats.id == "missile_tower"):
 		_process_turret(delta)
-	queue_redraw()
+	var cur_prog := Production.current_progress(production_queue) if not production_queue.is_empty() else -1.0
+	var dirty := fire_flash_timer > 0.0 \
+		or selected != _last_draw_selected \
+		or absf(turret_angle - _last_draw_turret) > 0.01 \
+		or absf(cur_prog - _last_draw_prog) > 0.01 \
+		or (had_queue and production_queue.is_empty())
+	if dirty:
+		_last_draw_selected = selected
+		_last_draw_turret = turret_angle
+		_last_draw_prog = cur_prog
+		queue_redraw()
 
 func _game_root() -> Node:
 	var node: Node = self
@@ -175,7 +193,9 @@ func take_damage(amount: float) -> void:
 		return
 	hp -= int(maxf(1.0, round(amount)))
 	if hp_bar:
-		hp_bar.value = maxf(0.0, float(hp) / float(stats.hp if stats else 500) * 100.0)
+		var ratio := clampf(float(hp) / maxf(1.0, float(stats.hp if stats else 500)), 0.0, 1.0)
+		hp_bar.value = ratio * 100.0
+		hp_bar.modulate = UnitVisual.hp_bar_color(ratio)
 	if hp <= 0:
 		_trigger_destruction()
 
@@ -227,6 +247,13 @@ func _draw():
 			draw_circle(d_pos, float(p["size"]), Color(0.95, 0.5, 0.15, 1.0 - prog))
 		return
 
+	# Grounded architectural contact shadow beneath the structure
+	var gfx: Dictionary = UnitVisual.graphics_profile(String(SettingsManager.graphics_quality()))
+	if bool(gfx.get("shadows", true)):
+		var fp := float(maxi(stats.footprint.x, stats.footprint.y)) if stats else 2.0
+		var half := clampf(fp * 9.5, 14.0, 26.0)
+		draw_rect(Rect2(-half + 4.0, -half + 6.0, half * 2.0, half * 2.0), Color(0.02, 0.03, 0.04, 0.28), true)
+
 	# Per-ID silhouettes come from BuildingVisual; only live turret aim is drawn here.
 	if stats and (stats.id == "turret" or stats.id == "missile_tower"):
 		var tip := Vector2.RIGHT.rotated(turret_angle) * 18.0
@@ -235,7 +262,8 @@ func _draw():
 			draw_circle(tip, 5.5, Color(1.0, 0.88, 0.3, 0.9))
 	if not production_queue.is_empty():
 		var p := Production.current_progress(production_queue)
-		draw_rect(Rect2(-18, 22, 36.0 * p, 4.0), Color(0.2, 1.0, 0.4, 0.9), true)
+		draw_rect(Rect2(-19, 21, 38.0, 6.0), Color(0.05, 0.07, 0.09, 0.8), true)
+		draw_rect(Rect2(-18, 22, 36.0 * p, 4.0), Color(0.2, 1.0, 0.4, 0.95), true)
 	if selected:
 		draw_rect(Rect2(-24, -24, 48, 48), Color(0.25, 0.95, 1.0, 0.9), false, 2.0)
 		var local_rally := rally_point - global_position

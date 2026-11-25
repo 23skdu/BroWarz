@@ -15,11 +15,15 @@ const MAX_SEQ: int = 1000000000
 const MAX_COORD: float = 4096.0
 const MIN_PLAYERS: int = 2
 const MAX_PLAYERS: int = 8
+const MAX_CHAT_LENGTH: int = 160
 const ALLOWED_COMMAND_TYPES: Array[String] = [
-	"move", "hold", "stop", "train", "build", "fortify", "tech", "laser", "nuke", "embark", "disembark",
-	"capture", "demolish", "diplomacy", "sonar_buoy",
+	"move", "hold", "stop", "patrol", "guard", "train", "build", "fortify",
+	"tech", "laser", "nuke", "embark", "disembark",
+	"capture", "demolish", "diplomacy", "sonar_buoy", "chat", "surrender",
 ]
 const ALLOWED_TRANSPORTS: Array[String] = ["enet", "webrtc"]
+const ALLOWED_CHAT_SCOPES: Array[String] = ["all", "team"]
+const ALLOWED_SURRENDER_ACTIONS: Array[String] = ["propose", "accept", "cancel"]
 
 # --- Identity -------------------------------------------------------------
 
@@ -75,6 +79,42 @@ static func is_valid_address(raw: Variant) -> bool:
 	if s.begins_with("-") or s.ends_with("-"):
 		return false
 	return true
+
+## Validate a WebRTC STUN/TURN server URI (fail closed; no whitespace/control chars).
+static func is_valid_ice_url(raw: Variant) -> bool:
+	if not (raw is String):
+		return false
+	var s := (raw as String).strip_edges()
+	if s.is_empty() or s.length() > MAX_ADDRESS_LENGTH:
+		return false
+	var lower := s.to_lower()
+	if not (lower.begins_with("stun:") or lower.begins_with("turn:") or lower.begins_with("turns:")):
+		return false
+	var body := s.substr(s.find(":") + 1)
+	if body.is_empty():
+		return false
+	for i in range(s.length()):
+		var code := s.unicode_at(i)
+		if code <= 32 or code >= 127:
+			return false
+		if code == 34 or code == 39 or code == 92:  # quotes / backslash
+			return false
+	return true
+
+## Strip control characters and clamp length of an in-match chat message.
+static func sanitize_chat(raw: Variant) -> String:
+	if not (raw is String):
+		return ""
+	var s := raw as String
+	var cleaned := ""
+	for i in range(s.length()):
+		var code := s.unicode_at(i)
+		if code >= 32 and code <= 126:
+			cleaned += s[i]
+	cleaned = cleaned.strip_edges()
+	if cleaned.length() > MAX_CHAT_LENGTH:
+		cleaned = cleaned.substr(0, MAX_CHAT_LENGTH)
+	return cleaned
 
 ## Privacy-preserving address for logs (last IPv4 octet / IPv6 tail masked).
 ## Loopback literals are kept verbatim: they carry no host information.
@@ -172,6 +212,14 @@ static func sanitize_settings(raw: Variant) -> Dictionary:
 		var v8 = d["ai_faction"]
 		if (v8 is int) or (v8 is float):
 			out["ai_faction"] = clampi(int(v8), 0, 7)
+	if d.has("stun_url") and is_valid_ice_url(d["stun_url"]):
+		out["stun_url"] = (d["stun_url"] as String).strip_edges()
+	if d.has("turn_url"):
+		var raw_turn = d["turn_url"]
+		if raw_turn is String and (raw_turn as String).strip_edges().is_empty():
+			out["turn_url"] = ""
+		elif is_valid_ice_url(raw_turn):
+			out["turn_url"] = (raw_turn as String).strip_edges()
 	return out
 
 ## Default lobby settings used when nothing has been configured yet.
@@ -238,20 +286,39 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 			return {}
 		out["team"] = team
 	match ctype:
-		"move", "hold", "stop", "embark", "disembark":
+		"move", "hold", "stop", "patrol", "guard", "embark", "disembark":
 			var ids := _sanitize_ids(d.get("unit_ids", null))
 			if ids.is_empty():
 				return {}
 			out["unit_ids"] = ids
-			if ctype == "move":
-				var tx := _opt_float(d, "target_x", NAN)
-				var ty := _opt_float(d, "target_y", NAN)
+			if ctype in ["move", "patrol", "guard"]:
+				var tx := _opt_float(d, "target_x", _opt_float(d, "x", NAN))
+				var ty := _opt_float(d, "target_y", _opt_float(d, "y", NAN))
 				if is_nan(tx) or is_nan(ty):
 					return {}
 				out["target_x"] = clampf(tx, 0.0, MAX_COORD)
 				out["target_y"] = clampf(ty, 0.0, MAX_COORD)
-				var am = d.get("attack_move", true)
-				out["attack_move"] = am if (am is bool) else true
+				if ctype == "move":
+					var am = d.get("attack_move", true)
+					out["attack_move"] = am if (am is bool) else true
+					if d.has("formation"):
+						out["formation"] = clampi(_opt_int(d, "formation", 1), 0, 3)
+		"chat":
+			var msg := sanitize_chat(d.get("text", null))
+			if msg.is_empty():
+				return {}
+			out["text"] = msg
+			var scope_raw = d.get("scope", "all")
+			var scope := (scope_raw as String).to_lower() if scope_raw is String else "all"
+			out["scope"] = scope if scope in ALLOWED_CHAT_SCOPES else "all"
+		"surrender":
+			var act_raw = d.get("action", "propose")
+			if not (act_raw is String):
+				return {}
+			var act := (act_raw as String).to_lower()
+			if not (act in ALLOWED_SURRENDER_ACTIONS):
+				return {}
+			out["action"] = act
 		"train", "build", "fortify":
 			var id = d.get("id", null)
 			if not (id is String) or not _is_id(id as String):

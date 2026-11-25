@@ -5,19 +5,261 @@ extends RefCounted
 # Procedural sprite animation state machine, 48x48 high-detail uniform faction-styled
 # unit-type sprite generator, and high-resolution terrain + foliage helpers.
 
-enum AnimState { IDLE = 0, MOVE = 1, FIRE = 2, HIT = 3, EXPLODE = 4 }
+enum AnimState {IDLE = 0, MOVE = 1, FIRE = 2, HIT = 3, EXPLODE = 4}
 
 const DEFAULT_SPRITE_SIZE: int = 48
 const LOD_ICON_SIZE: int = 24
 const SpatialCellSize: float = 128.0
 
-static var _shared_texture_cache: Dictionary = {}  # "uid:uclass:state:frame:color_hex:size" -> ImageTexture
+static var _shared_texture_cache: Dictionary = {} # "uid:uclass:state:frame:color_hex:size" -> ImageTexture
+static var _canopy_texture_cache: ImageTexture = null
+static var _unit_lod_texture_cache: ImageTexture = null
 
 static func clear_shared_cache() -> void:
 	_shared_texture_cache.clear()
+	_canopy_texture_cache = null
+	_unit_lod_texture_cache = null
 
 static func shared_cache_size() -> int:
 	return _shared_texture_cache.size()
+
+## Render-budget profile keyed by SettingsManager.graphics_quality().
+static func graphics_profile(quality: String) -> Dictionary:
+	match quality.to_lower():
+		"low":
+			return {
+				"terrain_ppt": 4,
+				"shadows": false,
+				"glow_tracers": false,
+				"fog_interval": 0.16,
+				"max_tracers": 64,
+				"max_vfx": 32,
+				"foliage_density": 0.5,
+				"water_shimmer": 0.0,
+				"max_particles": 48,
+			}
+		"medium":
+			return {
+				"terrain_ppt": 6,
+				"shadows": true,
+				"glow_tracers": true,
+				"fog_interval": 0.12,
+				"max_tracers": 120,
+				"max_vfx": 60,
+				"foliage_density": 0.8,
+				"water_shimmer": 0.05,
+				"max_particles": 100,
+			}
+		_:
+			return {
+				"terrain_ppt": 8,
+				"shadows": true,
+				"glow_tracers": true,
+				"fog_interval": 0.10,
+				"max_tracers": 180,
+				"max_vfx": 90,
+				"foliage_density": 1.0,
+				"water_shimmer": 0.08,
+				"max_particles": 160,
+			}
+
+## True when far camera zoom or high unit density should render units via GPU MultiMesh LOD icons.
+static func should_batch_unit_lod(camera_zoom: float = 1.0, active_unit_count: int = 0) -> bool:
+	return camera_zoom < 0.65 or active_unit_count >= 300
+
+## Crisp tactical directional diamond-chevron icon texture shared by `unit_lod_multimesh`.
+## Uses bright neutral shading so MultiMesh per-instance faction colors tint cleanly.
+static func get_unit_lod_texture(size: int = LOD_ICON_SIZE) -> ImageTexture:
+	if _unit_lod_texture_cache != null and _unit_lod_texture_cache.get_width() == size:
+		return _unit_lod_texture_cache
+	var s := maxi(16, size)
+	var bytes := PackedByteArray()
+	bytes.resize(s * s * 4)
+	var half := float(s) * 0.5
+	var inv_r := 1.0 / maxf(1.0, half - 1.5)
+	for py in range(s):
+		for px in range(s):
+			var nx := (float(px) + 0.5 - half) * inv_r
+			var ny := (float(py) + 0.5 - half) * inv_r
+			# Forward-pointing tactical chevron/diamond oriented along +X
+			var diamond := absf(nx) * 0.92 + absf(ny) * 1.12
+			var tail_notch := nx < -0.22 and absf(ny) < 0.30
+			var idx := (py * s + px) * 4
+			if diamond <= 0.98 and not tail_notch:
+				var border := diamond > 0.76
+				var highlight := nx > 0.05 and absf(ny) < 0.35
+				var shade := 0.35 if border else (1.18 if highlight else clampf(0.95 - ny * 0.22 + nx * 0.12, 0.68, 1.08))
+				bytes[idx] = clampi(int(round(235.0 * shade)), 0, 255)
+				bytes[idx + 1] = clampi(int(round(238.0 * shade)), 0, 255)
+				bytes[idx + 2] = clampi(int(round(244.0 * shade)), 0, 255)
+				bytes[idx + 3] = 248
+			else:
+				bytes[idx] = 0
+				bytes[idx + 1] = 0
+				bytes[idx + 2] = 0
+				bytes[idx + 3] = 0
+	var img := Image.create_from_data(s, s, false, Image.FORMAT_RGBA8, bytes)
+	_unit_lod_texture_cache = ImageTexture.create_from_image(img)
+	return _unit_lod_texture_cache
+
+## Lightweight Compatibility/WebGL2-safe terrain shader for subtle animated water shimmer
+## and atmospheric weather tinting. Set u_shimmer_strength = 0.0 on Low or Reduced Motion.
+static func water_shimmer_shader_code() -> String:
+	return """shader_type canvas_item;
+uniform float u_shimmer_strength = 0.08;
+uniform vec3 u_weather_tint = vec3(1.0, 1.0, 1.0);
+void fragment() {
+	vec4 tex = texture(TEXTURE, UV);
+	float water_mask = step(tex.r + 0.10, tex.b) * step(tex.g + 0.03, tex.b);
+	if (u_shimmer_strength > 0.001 && water_mask > 0.5) {
+		float w1 = sin(UV.x * 190.0 + TIME * 1.65 + UV.y * 42.0);
+		float w2 = cos(UV.y * 165.0 - TIME * 1.35 + UV.x * 36.0);
+		float shimmer = (w1 * 0.55 + w2 * 0.45) * u_shimmer_strength;
+		tex.rgb += vec3(shimmer * 0.45, shimmer * 0.78, shimmer);
+	}
+	tex.rgb *= u_weather_tint;
+	COLOR = tex;
+}
+"""
+
+## Visible world-space camera rectangle padded for frustum culling in `_draw()`.
+static func camera_world_rect(
+	cam_pos: Vector2, view_size: Vector2, cam_zoom: Vector2, pad: float = 128.0
+) -> Rect2:
+	var zx := maxf(0.01, cam_zoom.x)
+	var zy := maxf(0.01, cam_zoom.y)
+	var half := Vector2(view_size.x * 0.5 / zx + pad, view_size.y * 0.5 / zy + pad)
+	return Rect2(cam_pos - half, half * 2.0)
+
+## Color-coded health bar tint (green -> amber -> red).
+static func hp_bar_color(ratio: float) -> Color:
+	var r := clampf(ratio, 0.0, 1.0)
+	if r >= 0.6:
+		return Color(0.28, 0.92, 0.40, 1.0)
+	if r >= 0.3:
+		return Color(0.98, 0.76, 0.20, 1.0)
+	return Color(0.96, 0.28, 0.22, 1.0)
+
+## Procedural soft shaded circular canopy texture shared by `forest_multimesh`
+## so all trees and shrubs render as organic shaded crowns in a single GPU call.
+static func get_canopy_texture(size: int = 32) -> ImageTexture:
+	if _canopy_texture_cache != null and _canopy_texture_cache.get_width() == size:
+		return _canopy_texture_cache
+	var s := maxi(16, size)
+	var bytes := PackedByteArray()
+	bytes.resize(s * s * 4)
+	var half := float(s) * 0.5
+	var inv_r := 1.0 / maxf(1.0, half - 2.0)
+	for py in range(s):
+		for px in range(s):
+			var nx := (float(px) + 0.5 - half) * inv_r
+			var ny := (float(py) + 0.5 - half) * inv_r
+			var d := sqrt(nx * nx + ny * ny)
+			# Offset ground drop shadow toward bottom-right
+			var sx := nx - 0.16
+			var sy := ny - 0.18
+			var sd := sqrt(sx * sx + sy * sy)
+			var idx := (py * s + px) * 4
+			# Scalloped organic foliage silhouette via subtle angular wave
+			var ang := atan2(ny, nx)
+			var edge := 0.92 + 0.07 * sin(ang * 5.0) + 0.04 * cos(ang * 3.0)
+			if d <= edge:
+				# Directional NW sunlight shading (multiplied by MultiMesh instance color)
+				var light := clampf(1.08 - (nx * 0.32 + ny * 0.36) - d * 0.28, 0.48, 1.25)
+				var crown_boost := 1.14 if ((nx + 0.24) * (nx + 0.24) + (ny + 0.24) * (ny + 0.24)) < 0.22 else 1.0
+				var shade := clampf(light * crown_boost, 0.45, 1.30)
+				var alpha := clampf((edge - d) * 6.5, 0.0, 1.0)
+				bytes[idx] = clampi(int(round(220.0 * shade)), 0, 255)
+				bytes[idx + 1] = clampi(int(round(238.0 * shade)), 0, 255)
+				bytes[idx + 2] = clampi(int(round(215.0 * shade)), 0, 255)
+				bytes[idx + 3] = clampi(int(round(alpha * 245.0)), 0, 255)
+			elif sd <= 0.94:
+				var sa := clampf((0.94 - sd) * 2.4, 0.0, 0.42)
+				bytes[idx] = 18
+				bytes[idx + 1] = 28
+				bytes[idx + 2] = 18
+				bytes[idx + 3] = clampi(int(round(sa * 255.0)), 0, 255)
+			else:
+				bytes[idx] = 0
+				bytes[idx + 1] = 0
+				bytes[idx + 2] = 0
+				bytes[idx + 3] = 0
+	var img := Image.create_from_data(s, s, false, Image.FORMAT_RGBA8, bytes)
+	_canopy_texture_cache = ImageTexture.create_from_image(img)
+	return _canopy_texture_cache
+
+## Fast PackedByteArray fog buffer writer (avoids 16,384 GDScript set_pixel calls).
+static func fog_rgba_bytes(fog: FogOfWar, out_bytes: PackedByteArray = PackedByteArray()) -> PackedByteArray:
+	if fog == null:
+		return out_bytes
+	var count := fog.width * fog.height
+	if out_bytes.size() != count * 4:
+		out_bytes.resize(count * 4)
+	var vis := fog.visible
+	var exp_arr := fog.explored
+	for i in range(count):
+		var o := i * 4
+		out_bytes[o] = 0
+		out_bytes[o + 1] = 0
+		out_bytes[o + 2] = 0
+		if vis[i] == 1:
+			out_bytes[o + 3] = 0
+		elif exp_arr[i] == 1:
+			out_bytes[o + 3] = 140
+		else:
+			out_bytes[o + 3] = 255
+	return out_bytes
+
+const MINIMAP_TERRAIN_RGB := [
+	[89, 140, 64], # PLAINS
+	[46, 102, 46], # FOREST
+	[76, 89, 51], # SWAMP
+	[51, 102, 191], # RIVER
+	[26, 64, 140], # SEA
+	[128, 128, 128], # MOUNTAIN
+	[115, 102, 89], # URBAN
+	[153, 140, 102], # ROAD
+	[153, 128, 76], # BRIDGE
+	[89, 51, 38], # WASTELAND
+	[194, 166, 97], # DESERT
+	[115, 128, 71], # HILLS
+]
+
+## Fast PackedByteArray minimap terrain+fog compositor (zero per-pixel set_pixel).
+static func minimap_rgba_bytes(
+	map: MapData, fog: FogOfWar, fog_enabled: bool, out_bytes: PackedByteArray = PackedByteArray()
+) -> PackedByteArray:
+	if map == null:
+		return out_bytes
+	var count := map.width * map.height
+	if out_bytes.size() != count * 4:
+		out_bytes.resize(count * 4)
+	var tiles := map.tiles
+	var has_fog := fog != null and fog_enabled and fog.visible.size() == count
+	var vis := fog.visible if has_fog else PackedByteArray()
+	var exp_arr := fog.explored if has_fog else PackedByteArray()
+	for i in range(count):
+		var o := i * 4
+		if has_fog and exp_arr[i] == 0:
+			out_bytes[o] = 8
+			out_bytes[o + 1] = 8
+			out_bytes[o + 2] = 10
+			out_bytes[o + 3] = 255
+			continue
+		var t := clampi(int(tiles[i]), 0, MINIMAP_TERRAIN_RGB.size() - 1)
+		var rgb: Array = MINIMAP_TERRAIN_RGB[t]
+		var r := int(rgb[0])
+		var g := int(rgb[1])
+		var b := int(rgb[2])
+		if has_fog and vis[i] == 0:
+			r = int(float(r) * 0.45)
+			g = int(float(g) * 0.45)
+			b = int(float(b) * 0.45)
+		out_bytes[o] = r
+		out_bytes[o + 1] = g
+		out_bytes[o + 2] = b
+		out_bytes[o + 3] = 255
+	return out_bytes
 
 static func lod_sprite_size(camera_zoom: float = 1.0, active_unit_count: int = 0) -> int:
 	if camera_zoom < 0.65 or active_unit_count >= 500:
@@ -185,40 +427,176 @@ static func terrain_base_color(terrain: int, variation: float = 0.0) -> Color:
 		return c.lightened(clampf(variation * 0.08, 0.0, 0.11))
 	return c.darkened(clampf(-variation * 0.08, 0.0, 0.11))
 
+static func _is_water_tile(t: int) -> bool:
+	return t == MapData.Terrain.SEA or t == MapData.Terrain.RIVER
+
+static func _set_rgba(bytes: PackedByteArray, w: int, x: int, y: int, r: int, g: int, b: int, a: int = 255) -> void:
+	var idx := (y * w + x) * 4
+	bytes[idx] = clampi(r, 0, 255)
+	bytes[idx + 1] = clampi(g, 0, 255)
+	bytes[idx + 2] = clampi(b, 0, 255)
+	bytes[idx + 3] = clampi(a, 0, 255)
+
 static func build_terrain_map_image(map: MapData, px_per_tile: int = 4) -> Image:
 	var ppt := maxi(2, px_per_tile)
-	var img := Image.create(map.width * ppt, map.height * ppt, false, Image.FORMAT_RGBA8)
-	for ty in range(map.height):
-		for tx in range(map.width):
-			var t := map.get_terrain(tx, ty)
-			var h_noise := float(((tx * 73856093) ^ (ty * 19349663)) & 255) / 127.5 - 1.0
+	var mw := map.width
+	var mh := map.height
+	var img_w := mw * ppt
+	var img_h := mh * ppt
+	var bytes := PackedByteArray()
+	bytes.resize(img_w * img_h * 4)
+	var tiles := map.tiles
+
+	for ty in range(mh):
+		var row_off := ty * mw
+		for tx in range(mw):
+			var t := int(tiles[row_off + tx])
+			var hash_v := ((tx * 73856093) ^ (ty * 19349663)) & 255
+			var h_noise := float(hash_v) / 127.5 - 1.0
 			var base_c := terrain_base_color(t, h_noise)
+			var br := int(round(base_c.r * 255.0))
+			var bg := int(round(base_c.g * 255.0))
+			var bb := int(round(base_c.b * 255.0))
 			var bx := tx * ppt
 			var by := ty * ppt
-			_fill_rect(img, bx, by, ppt, ppt, base_c)
-			if t == MapData.Terrain.FOREST and ppt >= 4:
-				var deep_tree := Color(0.09, 0.23, 0.10, 1.0)
-				var canopy_hi := Color(0.24, 0.50, 0.22, 1.0)
-				img.set_pixel(bx + 1, by + 1, canopy_hi)
-				img.set_pixel(bx + 2, by + 1, deep_tree)
-				img.set_pixel(bx + 1, by + 2, deep_tree)
-				if ((tx + ty) & 1) == 0:
-					img.set_pixel(bx + ppt - 1, by + ppt - 1, canopy_hi)
-			elif (t == MapData.Terrain.SEA or t == MapData.Terrain.RIVER) and ((tx + ty) % 3 == 0):
-				img.set_pixel(bx + 1, by + 1, base_c.lightened(0.16))
-			elif t == MapData.Terrain.MOUNTAIN and ppt >= 4:
-				var ridge_c := Color(0.62, 0.61, 0.58, 1.0)
-				img.set_pixel(bx + 1, by + 1, ridge_c)
-				img.set_pixel(bx + 2, by + 2, ridge_c.darkened(0.25))
-			elif t == MapData.Terrain.HILLS and ppt >= 4:
-				var hill_crest := base_c.lightened(0.18)
-				var hill_shadow := base_c.darkened(0.16)
-				img.set_pixel(bx + 1, by + 1, hill_crest)
-				img.set_pixel(bx + 2, by + 1, hill_crest)
-				img.set_pixel(bx + 2, by + 2, hill_shadow)
-			elif t == MapData.Terrain.DESERT and ppt >= 4 and ((tx + ty) % 2 == 0):
-				img.set_pixel(bx + 1, by + 2, base_c.lightened(0.12))
-	return img
+
+			# Fill tile base block with subtle per-subpixel micro-variation.
+			for py in range(ppt):
+				var wy := by + py
+				var line_idx := (wy * img_w + bx) * 4
+				for px in range(ppt):
+					var grain := (((tx * 31 + px * 17) ^ (ty * 47 + py * 29)) & 7) - 3
+					bytes[line_idx] = clampi(br + grain, 0, 255)
+					bytes[line_idx + 1] = clampi(bg + grain, 0, 255)
+					bytes[line_idx + 2] = clampi(bb + grain, 0, 255)
+					bytes[line_idx + 3] = 255
+					line_idx += 4
+
+			if ppt < 4:
+				continue
+
+			# Biome-specific crisp detail + neighbor-aware shorelines & road lines.
+			match t:
+				MapData.Terrain.SEA, MapData.Terrain.RIVER:
+					var land_n := ty > 0 and not _is_water_tile(int(tiles[row_off - mw + tx]))
+					var land_s := ty < mh - 1 and not _is_water_tile(int(tiles[row_off + mw + tx]))
+					var land_w := tx > 0 and not _is_water_tile(int(tiles[row_off + tx - 1]))
+					var land_e := tx < mw - 1 and not _is_water_tile(int(tiles[row_off + tx + 1]))
+					if land_n or land_s or land_w or land_e:
+						# Shallow turquoise shelf + bright coastal surf rim
+						for py in range(ppt):
+							for px in range(ppt):
+								var on_edge := (land_n and py == 0) or (land_s and py == ppt - 1) \
+									or (land_w and px == 0) or (land_e and px == ppt - 1)
+								var near_edge := (land_n and py == 1) or (land_s and py == ppt - 2) \
+									or (land_w and px == 1) or (land_e and px == ppt - 2)
+								if on_edge:
+									_set_rgba(bytes, img_w, bx + px, by + py, 198, 232, 244)
+								elif near_edge:
+									_set_rgba(bytes, img_w, bx + px, by + py, br + 36, bg + 46, bb + 34)
+					elif ((tx + ty) % 3) == 0:
+						var wy_off := 1 + (hash_v % maxi(1, ppt - 2))
+						_set_rgba(bytes, img_w, bx + 1, by + wy_off, br + 38, bg + 46, bb + 52)
+						if ppt >= 6:
+							_set_rgba(bytes, img_w, bx + 2, by + wy_off, br + 46, bg + 54, bb + 60)
+							_set_rgba(bytes, img_w, bx + 3, by + wy_off, br + 28, bg + 36, bb + 44)
+				MapData.Terrain.FOREST:
+					# Dappled moss understory + shaded canopy specks
+					_set_rgba(bytes, img_w, bx + 1, by + 1, 58, 126, 54)
+					_set_rgba(bytes, img_w, bx + 2, by + 1, 22, 58, 25)
+					_set_rgba(bytes, img_w, bx + 1, by + 2, 22, 58, 25)
+					if ppt >= 6:
+						_set_rgba(bytes, img_w, bx + ppt - 2, by + ppt - 2, 20, 52, 22)
+						_set_rgba(bytes, img_w, bx + ppt - 3, by + ppt - 3, 64, 134, 58)
+						if (hash_v & 1) == 0:
+							_set_rgba(bytes, img_w, bx + 3, by + ppt - 2, 46, 108, 44)
+				MapData.Terrain.MOUNTAIN:
+					# NW sunlit rocky crags, snow peak crest & dark SE cliff shadow
+					var mid := ppt >> 1
+					for py in range(ppt):
+						for px in range(ppt):
+							var diag := px + py
+							if diag < ppt - 1:
+								_set_rgba(bytes, img_w, bx + px, by + py, br + 34, bg + 34, bb + 32)
+							elif diag > ppt:
+								_set_rgba(bytes, img_w, bx + px, by + py, br - 36, bg - 36, bb - 34)
+					_set_rgba(bytes, img_w, bx + mid, by + mid - 1, 212, 216, 222)
+					_set_rgba(bytes, img_w, bx + mid - 1, by + mid, 198, 202, 208)
+					if ppt >= 6:
+						_set_rgba(bytes, img_w, bx + mid, by + mid, 226, 230, 236)
+				MapData.Terrain.HILLS:
+					# Rolling elevation highlight (NW) & soft shadow contour (SE)
+					for px in range(1, ppt - 1):
+						_set_rgba(bytes, img_w, bx + px, by + 1, br + 28, bg + 30, bb + 18)
+						_set_rgba(bytes, img_w, bx + px, by + ppt - 2, br - 24, bg - 24, bb - 16)
+					if ppt >= 6:
+						_set_rgba(bytes, img_w, bx + 2, by + 2, br + 34, bg + 36, bb + 22)
+						_set_rgba(bytes, img_w, bx + 3, by + 2, br + 26, bg + 28, bb + 18)
+				MapData.Terrain.URBAN:
+					# Concrete grid avenues + shaded rooftop structures + lit windows
+					for py in range(ppt):
+						_set_rgba(bytes, img_w, bx, by + py, br - 26, bg - 26, bb - 24)
+					for px in range(ppt):
+						_set_rgba(bytes, img_w, bx + px, by, br - 26, bg - 26, bb - 24)
+					for py in range(1, ppt - 1):
+						for px in range(1, ppt - 1):
+							var roof := 24 if (px == 1 or py == 1) else (8 if (px < ppt - 2 and py < ppt - 2) else -18)
+							_set_rgba(bytes, img_w, bx + px, by + py, br + roof, bg + roof, bb + roof + 4)
+					if ppt >= 6 and (hash_v % 3) == 0:
+						_set_rgba(bytes, img_w, bx + 2, by + 2, 228, 240, 250)
+						_set_rgba(bytes, img_w, bx + ppt - 3, by + 2, 244, 214, 130)
+				MapData.Terrain.ROAD:
+					# Asphalt curbs + dashed yellow-white center stripe
+					var mid := ppt >> 1
+					var conn_v := (ty > 0 and int(tiles[row_off - mw + tx]) in [MapData.Terrain.ROAD, MapData.Terrain.BRIDGE]) \
+						or (ty < mh - 1 and int(tiles[row_off + mw + tx]) in [MapData.Terrain.ROAD, MapData.Terrain.BRIDGE])
+					for i in range(ppt):
+						if conn_v:
+							_set_rgba(bytes, img_w, bx, by + i, br - 24, bg - 22, bb - 18)
+							_set_rgba(bytes, img_w, bx + ppt - 1, by + i, br - 24, bg - 22, bb - 18)
+							if (i % 3) != 0:
+								_set_rgba(bytes, img_w, bx + mid, by + i, 214, 200, 146)
+						else:
+							_set_rgba(bytes, img_w, bx + i, by, br - 24, bg - 22, bb - 18)
+							_set_rgba(bytes, img_w, bx + i, by + ppt - 1, br - 24, bg - 22, bb - 18)
+							if (i % 3) != 0:
+								_set_rgba(bytes, img_w, bx + i, by + mid, 214, 200, 146)
+				MapData.Terrain.BRIDGE:
+					# Steel girders on top/bottom + plank seams
+					for px in range(ppt):
+						_set_rgba(bytes, img_w, bx + px, by, 178, 184, 194)
+						_set_rgba(bytes, img_w, bx + px, by + ppt - 1, 120, 126, 136)
+						if (px % 2) == 0:
+							for py in range(1, ppt - 1):
+								_set_rgba(bytes, img_w, bx + px, by + py, br - 16, bg - 14, bb - 12)
+				MapData.Terrain.SWAMP:
+					# Murky bog pools + dark reed tufts
+					_set_rgba(bytes, img_w, bx + 1, by + 2, 34, 68, 56)
+					_set_rgba(bytes, img_w, bx + 2, by + 2, 38, 76, 62)
+					if ppt >= 6:
+						_set_rgba(bytes, img_w, bx + 2, by + 3, 28, 60, 50)
+						_set_rgba(bytes, img_w, bx + ppt - 2, by + 1, 32, 62, 26)
+						_set_rgba(bytes, img_w, bx + ppt - 3, by + 2, 46, 84, 34)
+				MapData.Terrain.DESERT:
+					# Wind-swept sand dune ripples
+					for i in range(1, ppt - 1):
+						if ((tx + ty + i) & 1) == 0:
+							_set_rgba(bytes, img_w, bx + i, by + ((i + 1) % ppt), br + 22, bg + 18, bb + 12)
+							if ppt >= 6:
+								_set_rgba(bytes, img_w, bx + i, by + ((i + 2) % ppt), br - 18, bg - 16, bb - 12)
+				MapData.Terrain.WASTELAND:
+					# Scorched cracked crust + radioactive amber/green fissure
+					var mid := ppt >> 1
+					for i in range(1, ppt - 1):
+						_set_rgba(bytes, img_w, bx + i, by + mid, 36, 26, 20)
+					if (hash_v % 3) == 0:
+						_set_rgba(bytes, img_w, bx + mid, by + mid, 140, 186, 64)
+				_: # PLAINS
+					if (hash_v % 3) == 0:
+						_set_rgba(bytes, img_w, bx + 1, by + 2, br + 16, bg + 22, bb + 10)
+						if ppt >= 6:
+							_set_rgba(bytes, img_w, bx + ppt - 2, by + 1, br - 12, bg - 10, bb - 8)
+	return Image.create_from_data(img_w, img_h, false, Image.FORMAT_RGBA8, bytes)
 
 static func build_unit_frame_image(
 	unit_class: int, state: int, frame: int, team_color: Color,

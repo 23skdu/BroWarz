@@ -108,3 +108,38 @@ func test_sanitize_diplomacy_command():
 	assert_true(NetSecurity.sanitize_command({
 		"type": "diplomacy", "seq": 12, "action": "accept", "target_team": 0,
 	}).has("target_team"))
+
+func test_sanitize_patrol_guard_chat_surrender_and_ice_urls():
+	var patrol := NetSecurity.sanitize_command({
+		"type": "patrol", "seq": 20, "unit_ids": [3, 4], "target_x": 300.0, "target_y": 400.0,
+	})
+	assert_eq(patrol["type"], "patrol")
+	assert_eq(patrol["target_x"], 300.0)
+	var guard := NetSecurity.sanitize_command({
+		"type": "guard", "seq": 21, "unit_ids": [5], "x": 150.0, "y": 250.0,
+	})
+	assert_eq(guard["type"], "guard")
+	assert_eq(guard["target_y"], 250.0)
+	var move_fmt := NetSecurity.sanitize_command({
+		"type": "move", "seq": 22, "unit_ids": [5], "target_x": 100.0, "target_y": 100.0, "formation": 99,
+	})
+	assert_eq(int(move_fmt["formation"]), 3)
+	var chat := NetSecurity.sanitize_command({
+		"type": "chat", "seq": 23, "text": "  Hold the bridge!\n\t ", "scope": "team",
+	})
+	assert_eq(chat["text"], "Hold the bridge!")
+	assert_eq(chat["scope"], "team")
+	assert_true(NetSecurity.sanitize_command({"type": "chat", "seq": 24, "text": "   "}).is_empty())
+	var surr := NetSecurity.sanitize_command({"type": "surrender", "seq": 25, "action": "propose"})
+	assert_eq(surr["action"], "propose")
+	assert_true(NetSecurity.sanitize_command({"type": "surrender", "seq": 26, "action": "nuke_all"}).is_empty())
+	assert_true(NetSecurity.is_valid_ice_url("stun:stun.l.google.com:19302"))
+	assert_true(NetSecurity.is_valid_ice_url("turns:relay.example.com:5349"))
+	assert_false(NetSecurity.is_valid_ice_url("http://evil.invalid"))
+	assert_false(NetSecurity.is_valid_ice_url("stun:bad host/path"))
+	var ice_cfg := NetSecurity.sanitize_settings({
+		"stun_url": "stun:stun.example.org:3478",
+		"turn_url": "http://rejected.invalid",
+	})
+	assert_eq(ice_cfg["stun_url"], "stun:stun.example.org:3478")
+	assert_false(ice_cfg.has("turn_url"))

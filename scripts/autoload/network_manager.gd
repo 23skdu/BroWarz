@@ -21,6 +21,7 @@ signal connection_failed(reason)
 signal server_left(reason)
 signal kicked(reason)
 signal peer_status(peer_id, message)
+signal peer_ai_takeover(team_id, peer_id)
 signal match_starting
 signal state_hash_received(peer_id, value)
 
@@ -458,11 +459,29 @@ func _host_watchdog(now: float) -> void:
 	if lobby.phase == LobbyState.Phase.IN_MATCH:
 		if now - _last_sweep_ms >= SWEEP_INTERVAL_MS:
 			_last_sweep_ms = now
-			var expired := lobby.sweep(now)
-			for pid in expired:
-				peer_status.emit(int(pid), "grace expired — removed")
-			if not expired.is_empty() or lobby.changed.get_connections().size() > 0:
+			var expired_recs := lobby.sweep_detailed(now)
+			handle_expired_peers(expired_recs)
+			if not expired_recs.is_empty() or lobby.changed.get_connections().size() > 0:
 				_schedule_sync()
+
+## Process expired peers after disconnect grace ends; hands empty human teams
+## over to the skirmish AI so the match continues cleanly without stalling.
+func handle_expired_peers(expired_recs: Array) -> Array[int]:
+	var taken_over: Array[int] = []
+	for raw_rec in expired_recs:
+		if not (raw_rec is Dictionary):
+			continue
+		var rec := raw_rec as Dictionary
+		var pid := int(rec.get("peer_id", 0))
+		var tid := int(rec.get("team", -1))
+		peer_status.emit(pid, "grace expired — removed")
+		if bool(rec.get("team_empty", false)) and tid >= 0:
+			var took_over: bool = bool(GameManager.enable_ai_takeover(tid))
+			if took_over:
+				taken_over.append(tid)
+				peer_ai_takeover.emit(tid, pid)
+				peer_status.emit(pid, "AI took over Team %d" % tid)
+	return taken_over
 
 func _attempt_reconnect() -> void:
 	if _now() > _reconnect_deadline_ms:
@@ -870,8 +889,44 @@ func _begin_webrtc_client() -> void:
 	_rtc_add_conn(1)
 	_rtc_deadline_ms = _now() + WEBRTC_TIMEOUT_MS
 
+func webrtc_ice_config() -> Dictionary:
+	var stun := String(lobby.setting("stun_url", ""))
+	if stun.is_empty() and is_instance_valid(SettingsManager):
+		stun = String(SettingsManager.webrtc_stun_url())
+	var turn := String(lobby.setting("turn_url", ""))
+	if turn.is_empty() and is_instance_valid(SettingsManager):
+		turn = String(SettingsManager.webrtc_turn_url())
+	var urls: Array[String] = []
+	if NetSecurity.is_valid_ice_url(stun):
+		urls.append(stun)
+	if NetSecurity.is_valid_ice_url(turn):
+		urls.append(turn)
+	if urls.is_empty():
+		return {}
+	return {"iceServers": [{"urls": urls}]}
+
+func webrtc_diagnostics() -> Dictionary:
+	var stun := String(lobby.setting("stun_url", ""))
+	if stun.is_empty() and is_instance_valid(SettingsManager):
+		stun = String(SettingsManager.webrtc_stun_url())
+	var turn := String(lobby.setting("turn_url", ""))
+	if turn.is_empty() and is_instance_valid(SettingsManager):
+		turn = String(SettingsManager.webrtc_turn_url())
+	return {
+		"transport": String(lobby.setting("transport", "enet")),
+		"stun_url": stun,
+		"turn_url": turn,
+		"signaling": "ENet lobby relay (auto-fallback to ENet on ICE failure)",
+		"promoted": _rtc_promoted,
+		"failed": _rtc_failed,
+		"peers": _rtc_conns.size(),
+	}
+
 func _rtc_add_conn(pid: int) -> void:
 	var conn := WebRTCPeerConnection.new()
+	var cfg := webrtc_ice_config()
+	if not cfg.is_empty():
+		conn.initialize(cfg)
 	conn.session_description_created.connect(_on_rtc_sdp.bind(pid))
 	conn.ice_candidate_created.connect(_on_rtc_ice.bind(pid))
 	_rtc.add_peer(conn, pid)

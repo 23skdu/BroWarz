@@ -24,6 +24,12 @@ const TRANSPORT_NAMES: Dictionary = {"enet": "ENet", "webrtc": "WebRTC"}
 @onready var leave_btn: Button = $VBox/ButtonsHBox/LeaveButton
 @onready var status: Label = $VBox/StatusLabel
 
+var ice_box: VBoxContainer = null
+var stun_edit: LineEdit = null
+var turn_edit: LineEdit = null
+var ice_apply_btn: Button = null
+var ice_diag_label: Label = null
+
 func _ready() -> void:
 	if alliance_btn == null and has_node("VBox/SettingsBox"):
 		var ab := Button.new()
@@ -35,6 +41,7 @@ func _ready() -> void:
 	human_faction_btn = _ensure_button("HumanFactionButton", "Your Corp: AeroDyne")
 	ai_difficulty_btn = _ensure_button("AiDifficultyButton", "AI Difficulty: Normal")
 	ai_faction_btn = _ensure_button("AiFactionButton", "AI Corp: Vanguard")
+	_build_ice_panel()
 	coop_btn.pressed.connect(_on_coop_pressed)
 	human_faction_btn.pressed.connect(_on_human_faction_pressed)
 	ai_difficulty_btn.pressed.connect(_on_ai_difficulty_pressed)
@@ -102,6 +109,24 @@ func _refresh() -> void:
 	fog_btn.text = "Fog: %s" % ("On" if bool(lob.setting("fog_of_war", true)) else "Off")
 	var transport := str(lob.setting("transport", "enet"))
 	transport_btn.text = "Transport: %s" % str(TRANSPORT_NAMES.get(transport, transport))
+	if is_instance_valid(ice_box):
+		ice_box.visible = (transport == "webrtc")
+		var diag: Dictionary = NetworkManager.webrtc_diagnostics()
+		if is_instance_valid(stun_edit) and not stun_edit.has_focus():
+			stun_edit.text = String(diag.get("stun_url", ""))
+			stun_edit.editable = host
+		if is_instance_valid(turn_edit) and not turn_edit.has_focus():
+			turn_edit.text = String(diag.get("turn_url", ""))
+			turn_edit.editable = host
+		if is_instance_valid(ice_apply_btn):
+			ice_apply_btn.visible = host
+		if is_instance_valid(ice_diag_label):
+			var turn_disp := String(diag.get("turn_url", ""))
+			ice_diag_label.text = "ICE: %s | TURN: %s | %s" % [
+				String(diag.get("stun_url", "default")),
+				turn_disp if not turn_disp.is_empty() else "none",
+				String(diag.get("signaling", "")),
+			]
 	passcode_label.text = "Passcode: %s" % ("set" if not NetworkManager.passcode.is_empty() else "open")
 	start_btn.visible = host
 	start_btn.disabled = not host
@@ -184,6 +209,53 @@ func _on_start_pressed() -> void:
 func _on_leave_pressed() -> void:
 	NetworkManager.leave()
 	SceneManager.goto_scene("res://scenes/main_menu.tscn")
+
+func _build_ice_panel() -> void:
+	if not has_node("VBox/SettingsBox"):
+		return
+	ice_box = VBoxContainer.new()
+	ice_box.name = "IceConfigBox"
+	ice_box.visible = false
+	$VBox/SettingsBox.add_child(ice_box)
+	var row := HBoxContainer.new()
+	ice_box.add_child(row)
+	stun_edit = LineEdit.new()
+	stun_edit.name = "StunUrlEdit"
+	stun_edit.placeholder_text = "stun:stun.l.google.com:19302"
+	stun_edit.custom_minimum_size = Vector2(220, 0)
+	row.add_child(stun_edit)
+	turn_edit = LineEdit.new()
+	turn_edit.name = "TurnUrlEdit"
+	turn_edit.placeholder_text = "Optional turn:host:3478"
+	turn_edit.custom_minimum_size = Vector2(200, 0)
+	row.add_child(turn_edit)
+	ice_apply_btn = Button.new()
+	ice_apply_btn.name = "ApplyIceButton"
+	ice_apply_btn.text = "Apply ICE"
+	ice_apply_btn.pressed.connect(_on_apply_ice_pressed)
+	row.add_child(ice_apply_btn)
+	ice_diag_label = Label.new()
+	ice_diag_label.name = "IceDiagnosticsLabel"
+	ice_box.add_child(ice_diag_label)
+
+func _on_apply_ice_pressed() -> void:
+	if not NetworkManager.is_host():
+		return
+	var stun := stun_edit.text.strip_edges() if is_instance_valid(stun_edit) else ""
+	var turn := turn_edit.text.strip_edges() if is_instance_valid(turn_edit) else ""
+	if not stun.is_empty() and not NetSecurity.is_valid_ice_url(stun):
+		status.text = "Invalid STUN URL (must start with stun:, turn:, or turns:)"
+		return
+	if not turn.is_empty() and not NetSecurity.is_valid_ice_url(turn):
+		status.text = "Invalid TURN URL (must start with stun:, turn:, or turns:)"
+		return
+	var payload: Dictionary = {"turn_url": turn}
+	if not stun.is_empty():
+		payload["stun_url"] = stun
+		SettingsManager.set_setting("webrtc_stun_url", stun)
+	SettingsManager.set_setting("webrtc_turn_url", turn)
+	NetworkManager.request_settings(payload)
+	status.text = "Updated WebRTC ICE configuration."
 
 func _ensure_button(node_name: String, text: String) -> Button:
 	var btn := get_node_or_null("VBox/SettingsBox/%s" % node_name) as Button

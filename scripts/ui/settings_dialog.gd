@@ -6,21 +6,31 @@ extends AcceptDialog
 ## (user://settings.cfg). Changes apply live and persist on close.
 
 const KEY_CHOICES := [
-	["W", KEY_W], ["A", KEY_A], ["S", KEY_S], ["D", KEY_D],
+	["A", KEY_A], ["B", KEY_B], ["C", KEY_C], ["D", KEY_D], ["E", KEY_E],
+	["F", KEY_F], ["G", KEY_G], ["H", KEY_H], ["I", KEY_I], ["J", KEY_J],
+	["K", KEY_K], ["L", KEY_L], ["M", KEY_M], ["N", KEY_N], ["O", KEY_O],
+	["P", KEY_P], ["Q", KEY_Q], ["R", KEY_R], ["S", KEY_S], ["T", KEY_T],
+	["U", KEY_U], ["V", KEY_V], ["W", KEY_W], ["X", KEY_X], ["Y", KEY_Y], ["Z", KEY_Z],
 	["Arrow Up", KEY_UP], ["Arrow Down", KEY_DOWN],
 	["Arrow Left", KEY_LEFT], ["Arrow Right", KEY_RIGHT],
 	["Space", KEY_SPACE], ["Shift", KEY_SHIFT], ["Ctrl", KEY_CTRL],
 ]
+const CAMERA_HOTKEYS := ["camera_up", "camera_down", "camera_left", "camera_right"]
 const PALETTE_LABELS := ["None", "Deuteranopia", "Protanopia", "Tritanopia"]
+const QUALITY_LABELS := ["Low (Max FPS)", "Medium", "High (Best Visuals)"]
 
 var _status: Label
 
 func _ready() -> void:
 	title = "Settings — Audio, Accessibility & Controls"
 	get_ok_button().text = "Save & Close"
+	var outer_scroll := ScrollContainer.new()
+	outer_scroll.name = "SettingsScroll"
+	outer_scroll.custom_minimum_size = Vector2(600, 520)
+	add_child(outer_scroll)
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(580, 0)
-	add_child(vbox)
+	vbox.custom_minimum_size = Vector2(568, 0)
+	outer_scroll.add_child(vbox)
 
 	_add_section_title(vbox, "Audio")
 	_add_slider(vbox, "master_volume", "Master volume", 0.0, 1.0, 0.05, 2)
@@ -62,18 +72,67 @@ func _ready() -> void:
 	subs.toggled.connect(func(pressed: bool): SettingsManager.set_setting("subtitles", pressed))
 	vbox.add_child(subs)
 
+	var quality := OptionButton.new()
+	quality.name = "GraphicsQualityOption"
+	for qlabel in QUALITY_LABELS:
+		quality.add_item(str(qlabel))
+	quality.selected = maxi(0, SettingsManager.GRAPHICS_QUALITIES.find(String(SettingsManager.graphics_quality())))
+	quality.item_selected.connect(func(idx: int):
+		SettingsManager.set_setting("graphics_quality", SettingsManager.GRAPHICS_QUALITIES[idx])
+	)
+	var quality_row := _labeled_row(vbox, "Graphics quality")
+	quality_row.add_child(quality)
+
+	var motion := CheckButton.new()
+	motion.name = "ReducedMotionToggle"
+	motion.text = "Reduced motion (calm pulses & rotors)"
+	motion.button_pressed = bool(SettingsManager.reduced_motion())
+	motion.toggled.connect(func(pressed: bool): SettingsManager.set_setting("reduced_motion", pressed))
+	vbox.add_child(motion)
+
 	_add_section_title(vbox, "Hotkey Bindings — Camera")
+	for action in CAMERA_HOTKEYS:
+		_add_hotkey_row(vbox, action)
+
+	_add_section_title(vbox, "Hotkey Bindings — Commands & Build")
+	var cmd_grid := GridContainer.new()
+	cmd_grid.name = "CommandHotkeyGrid"
+	cmd_grid.columns = 2
+	vbox.add_child(cmd_grid)
 	for action in SettingsManager.HOTKEY_ACTIONS:
-		var select := OptionButton.new()
-		var current := SettingsManager.hotkey(action)
-		for choice in KEY_CHOICES:
-			select.add_item(str(choice[0]))
-			if int(choice[1]) == current:
-				select.selected = select.item_count - 1
-		var act: String = action
-		select.item_selected.connect(func(idx: int): SettingsManager.bind_hotkey(act, int(KEY_CHOICES[idx][1])))
-		var row := _labeled_row(vbox, act.capitalize().replace("_", " "))
-		row.add_child(select)
+		if action in CAMERA_HOTKEYS:
+			continue
+		_add_hotkey_row(cmd_grid, action)
+
+	_add_section_title(vbox, "Multiplayer — WebRTC ICE Servers")
+	var stun_row := _labeled_row(vbox, "STUN server URL")
+	var stun_edit := LineEdit.new()
+	stun_edit.name = "SettingsStunEdit"
+	stun_edit.custom_minimum_size = Vector2(320, 0)
+	stun_edit.text = String(SettingsManager.webrtc_stun_url())
+	stun_edit.text_submitted.connect(func(v: String):
+		if NetSecurity.is_valid_ice_url(v):
+			SettingsManager.set_setting("webrtc_stun_url", v.strip_edges())
+	)
+	stun_edit.focus_exited.connect(func():
+		var v := stun_edit.text.strip_edges()
+		if NetSecurity.is_valid_ice_url(v):
+			SettingsManager.set_setting("webrtc_stun_url", v)
+	)
+	stun_row.add_child(stun_edit)
+
+	var turn_row := _labeled_row(vbox, "TURN relay URL")
+	var turn_edit := LineEdit.new()
+	turn_edit.name = "SettingsTurnEdit"
+	turn_edit.placeholder_text = "Optional turn:host:3478"
+	turn_edit.custom_minimum_size = Vector2(320, 0)
+	turn_edit.text = String(SettingsManager.webrtc_turn_url())
+	turn_edit.focus_exited.connect(func():
+		var v := turn_edit.text.strip_edges()
+		if v.is_empty() or NetSecurity.is_valid_ice_url(v):
+			SettingsManager.set_setting("webrtc_turn_url", v)
+	)
+	turn_row.add_child(turn_edit)
 
 	_status = Label.new()
 	_status.text = "Changes apply immediately; saved to user://settings.cfg on close."
@@ -86,6 +145,20 @@ func _ready() -> void:
 
 	confirmed.connect(_save_and_close)
 	close_requested.connect(_save_and_close)
+
+func _add_hotkey_row(parent: Node, action: String) -> void:
+	var select := OptionButton.new()
+	select.name = "Hotkey_" + action
+	var current: int = int(SettingsManager.hotkey(action))
+	for choice in KEY_CHOICES:
+		select.add_item(str(choice[0]))
+		if int(choice[1]) == current:
+			select.selected = select.item_count - 1
+	var act: String = action
+	select.item_selected.connect(func(idx: int): SettingsManager.bind_hotkey(act, int(KEY_CHOICES[idx][1])))
+	var label_text := act.replace("cmd_", "").replace("build_", "Build ").capitalize().replace("_", " ")
+	var row := _labeled_row(parent, label_text)
+	row.add_child(select)
 
 func _add_section_title(parent: Node, text: String) -> void:
 	var label := Label.new()

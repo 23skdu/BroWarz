@@ -47,6 +47,20 @@ func difficulty_for_team(team: int) -> int:
 func is_ai_team(team: int) -> bool:
 	return ai_enabled and ai_teams.has(team)
 
+## Hand a dropped human team over to the skirmish AI during an active match.
+func enable_ai_takeover(team: int, difficulty: int = -1) -> bool:
+	var tid := Alliance.team_id(team)
+	if tid < 0 or not teams.has(tid):
+		return false
+	ai_enabled = true
+	if not ai_teams.has(tid):
+		ai_teams.append(tid)
+	if difficulty >= 0:
+		team_difficulties[tid] = clampi(difficulty, 0, 2)
+	elif not team_difficulties.has(tid):
+		team_difficulties[tid] = clampi(ai_difficulty, 0, 2)
+	return true
+
 func is_allied(a: int, b: int) -> bool:
 	return Alliance.are_allied_teams(alliances, a, b)
 

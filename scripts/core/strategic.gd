@@ -2,6 +2,8 @@
 class_name Strategic
 extends RefCounted
 
+const NUKE_WARNING_SECONDS: float = 5.0
+
 static func nuke_fallout_radius(base_radius: int, yield_mult: float = 1.0) -> int:
 	return int(round(base_radius * yield_mult))
 

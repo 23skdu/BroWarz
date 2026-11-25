@@ -635,7 +635,9 @@ func test_ai_builds_power_plant_extractors_on_deposits_and_executes_combined_arm
 	game.laser_cooldown = 0.0
 	game.elapsed_time = 95.0
 	game._run_skirmish_ai_turn()
-	assert_lt(int(target_hq_proxy.hp), hp_before_laser, "AI should fire strategic strike at dense visible cluster")
+	assert_true(game.pending_nukes.size() > 0 or int(target_hq_proxy.hp) < hp_before_laser, "AI should launch strategic strike at dense visible cluster")
+	game._step_pending_nukes(Strategic.NUKE_WARNING_SECONDS + 0.1)
+	assert_lt(int(target_hq_proxy.hp), hp_before_laser, "AI strategic strike should damage dense visible cluster upon impact")
 	assert_almost_eq(game.laser_cooldown, 0.0, 0.001, "AI laser must not put human player's laser on cooldown")
 
 	# Corvette AI deploys a sonar buoy when enemy submarine is detected/present.

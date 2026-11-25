@@ -221,20 +221,40 @@ func in_grace(peer_id: int, now_ms: float) -> bool:
 	var dropped_at := float(rec["dropped_at"])
 	return now_ms - dropped_at <= float(grace_ms)
 
-## Expire grace windows; returns the peer ids that were dropped for good.
-func sweep(now_ms: float) -> Array:
-	var expired: Array = []
+## Expire grace windows; returns detailed records including whether each dropped
+## peer's team now has zero remaining human peers (triggering AI takeover).
+func sweep_detailed(now_ms: float) -> Array[Dictionary]:
+	var expired_recs: Array[Dictionary] = []
 	for pid in players.keys():
 		var rec: Dictionary = players[pid]
 		if bool(rec["connected"]):
 			continue
 		if now_ms - float(rec["dropped_at"]) > float(grace_ms):
-			expired.append(pid)
-	for pid in expired:
-		players.erase(pid)
+			expired_recs.append({
+				"peer_id": int(pid),
+				"team": int(rec["team"]),
+				"name": String(rec["name"]),
+			})
+	for item in expired_recs:
+		players.erase(int(item["peer_id"]))
 		_refresh_next_host()
-	if not expired.is_empty():
+	for item in expired_recs:
+		var tid := int(item["team"])
+		var has_human := false
+		for remaining_pid in players.keys():
+			if int(players[remaining_pid]["team"]) == tid:
+				has_human = true
+				break
+		item["team_empty"] = not has_human
+	if not expired_recs.is_empty():
 		changed.emit()
+	return expired_recs
+
+## Expire grace windows; returns the peer ids that were dropped for good.
+func sweep(now_ms: float) -> Array:
+	var expired: Array = []
+	for item in sweep_detailed(now_ms):
+		expired.append(int(item["peer_id"]))
 	return expired
 
 ## Successor for host migration: the lowest currently connected peer id.

@@ -94,3 +94,92 @@ func test_npc_unique_unit_sprites_render_distinctly():
 			hashes[key] = str(uid)
 			assert_true(ResourceLoader.exists("res://docs/thumbnails/%s_f%d.png" % [str(uid), fac_id]))
 
+func test_graphics_profiles_canopy_texture_fog_bytes_and_high_res_terrain():
+	var low := UnitVisual.graphics_profile("low")
+	var high := UnitVisual.graphics_profile("high")
+	assert_lt(int(low["terrain_ppt"]), int(high["terrain_ppt"]))
+	assert_false(bool(low["shadows"]))
+	assert_true(bool(high["shadows"]))
+	assert_lt(int(low["max_tracers"]), int(high["max_tracers"]))
+
+	var view := UnitVisual.camera_world_rect(Vector2(500, 400), Vector2(800, 600), Vector2(1.0, 1.0), 100.0)
+	assert_true(view.has_point(Vector2(500, 400)))
+	assert_false(view.has_point(Vector2(1800, 1800)))
+
+	assert_gt(UnitVisual.hp_bar_color(0.8).g, UnitVisual.hp_bar_color(0.2).g)
+	assert_gt(UnitVisual.hp_bar_color(0.2).r, UnitVisual.hp_bar_color(0.8).r)
+
+	UnitVisual.clear_shared_cache()
+	var canopy1 := UnitVisual.get_canopy_texture(32)
+	var canopy2 := UnitVisual.get_canopy_texture(32)
+	assert_not_null(canopy1)
+	assert_eq(canopy1, canopy2)
+	var cimg := canopy1.get_image()
+	assert_gt(cimg.get_pixel(16, 16).a, 0.8)
+	assert_almost_eq(cimg.get_pixel(0, 0).a, 0.0, 0.01)
+
+	# PackedByteArray fog and minimap compositors match visibility states exactly.
+	var fog := FogOfWar.new(8, 8)
+	fog.mark_visible(2, 2, 1)
+	var buf := UnitVisual.fog_rgba_bytes(fog)
+	assert_eq(buf.size(), 8 * 8 * 4)
+	assert_eq(int(buf[(2 * 8 + 2) * 4 + 3]), 0)
+	assert_eq(int(buf[(7 * 8 + 7) * 4 + 3]), 255)
+	fog.reset_visibility()
+	buf = UnitVisual.fog_rgba_bytes(fog, buf)
+	assert_eq(int(buf[(2 * 8 + 2) * 4 + 3]), 140)
+
+	# 8x sub-tile terrain builds shoreline foam where SEA meets PLAINS and renders all biomes.
+	var m := MapData.new(12, 12)
+	for i in range(12):
+		m.set_terrain(i, 0, i % 12)
+	m.set_terrain(5, 5, MapData.Terrain.SEA)
+	m.set_terrain(6, 5, MapData.Terrain.PLAINS)
+	var img8 := UnitVisual.build_terrain_map_image(m, 8)
+	assert_eq(img8.get_width(), 96)
+	assert_eq(img8.get_height(), 96)
+	# Eastern edge pixel of the SEA tile bordering PLAINS has bright coastal foam.
+	var foam := img8.get_pixel(5 * 8 + 7, 5 * 8 + 4)
+	assert_gt(foam.b, 0.85)
+	assert_gt(foam.g, 0.80)
+
+	var mm_bytes := UnitVisual.minimap_rgba_bytes(m, fog, true)
+	assert_eq(mm_bytes.size(), 12 * 12 * 4)
+
+func test_unit_lod_texture_water_shader_and_500_unit_benchmark():
+	assert_false(UnitVisual.should_batch_unit_lod(1.0, 120))
+	assert_true(UnitVisual.should_batch_unit_lod(0.5, 50))
+	assert_true(UnitVisual.should_batch_unit_lod(1.0, 350))
+
+	UnitVisual.clear_shared_cache()
+	var lod1 := UnitVisual.get_unit_lod_texture(24)
+	var lod2 := UnitVisual.get_unit_lod_texture(24)
+	assert_not_null(lod1)
+	assert_eq(lod1, lod2)
+	assert_gt(lod1.get_image().get_pixel(12, 12).a, 0.8)
+
+	var shader_src := UnitVisual.water_shimmer_shader_code()
+	assert_true(shader_src.contains("u_shimmer_strength"))
+	assert_true(shader_src.contains("u_weather_tint"))
+
+	# 500-unit performance regression benchmark: spatial hash + 128x128 fog + 64x64 terrain.
+	var t0 := Time.get_ticks_msec()
+	var positions: Array = []
+	for i in range(500):
+		positions.append(Vector2(float((i % 25) * 40 + 32), float(int(float(i) / 25.0) * 40 + 32)))
+	var grid := UnitVisual.build_spatial_grid(positions, 128.0)
+	var total_hits := 0
+	for q in range(50):
+		total_hits += UnitVisual.query_spatial_radius(grid, positions, positions[q * 10], 110.0, 128.0).size()
+	var big_fog := FogOfWar.new(128, 128)
+	big_fog.mark_visible(64, 64, 10)
+	var fog_buf := UnitVisual.fog_rgba_bytes(big_fog)
+	var bench_map := TerrainGenerator.generate_islands(64, 64, 77)
+	var terrain_img := UnitVisual.build_terrain_map_image(bench_map, 4)
+	var elapsed_ms := Time.get_ticks_msec() - t0
+	assert_gt(total_hits, 50)
+	assert_eq(fog_buf.size(), 128 * 128 * 4)
+	assert_eq(terrain_img.get_width(), 256)
+	assert_lt(elapsed_ms, 3000, "500-unit visual/spatial/fog/terrain benchmark should complete well under 3s (took %dms)" % elapsed_ms)
+	UnitVisual.clear_shared_cache()
+

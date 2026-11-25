@@ -91,3 +91,19 @@ func test_coop_settings_survive_snapshot_roundtrip():
 	assert_eq(l2.setting("human_faction"), 2)
 	assert_eq(l2.setting("ai_difficulty"), 2)
 	assert_eq(l2.setting("ai_faction"), 3)
+
+func test_sweep_detailed_reports_empty_team_for_ai_takeover():
+	var l := _make_lobby()
+	l.mark_disconnected(2, 1000.0)
+	var detailed := l.sweep_detailed(1000.0 + 40000.0)
+	assert_eq(detailed.size(), 1)
+	assert_eq(int(detailed[0]["peer_id"]), 2)
+	assert_eq(int(detailed[0]["team"]), 1)
+	assert_true(bool(detailed[0]["team_empty"]), "solo team 1 should be empty after drop")
+
+	var coop := _make_lobby()
+	assert_true(coop.update_settings(1, {"coop_vs_ai": true}))
+	coop.mark_disconnected(2, 1000.0)
+	var coop_det := coop.sweep_detailed(1000.0 + 40000.0)
+	assert_eq(coop_det.size(), 1)
+	assert_false(bool(coop_det[0]["team_empty"]), "co-op team 0 still has connected host")

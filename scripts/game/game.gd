@@ -8,8 +8,8 @@ const LockstepDialogRef := preload("res://scripts/ui/lockstep_dialog.gd")
 var map_data: MapData
 var selected_units: Array = []
 var selected_building: Node2D = null
-var control_groups: Dictionary = {}  # key 0..9 -> Array of Unit
-var occupied_tiles: Dictionary = {}  # Vector2i -> bool for Placement.can_place_building
+var control_groups: Dictionary = {} # key 0..9 -> Array of Unit
+var occupied_tiles: Dictionary = {} # Vector2i -> bool for Placement.can_place_building
 var pending_build_id: String = ""
 var pending_target_action: String = ""
 var resource_deposits: Array[Dictionary] = []
@@ -42,7 +42,7 @@ var ai_order_until: Dictionary = {}
 # legacy fields above synchronized for existing saves/tests.
 var ai_states: Dictionary = {}
 var ai_command_seq: int = 0
-var replay_log := Replay.new()  # match command record (Step 15)
+var replay_log := Replay.new() # match command record (Step 15)
 var match_duration: float = 0.0
 var drag_selecting: bool = false
 var drag_start: Vector2 = Vector2.ZERO
@@ -65,25 +65,52 @@ var research_dialog: ResearchDialog = null
 var diplomacy_dialog: DiplomacyDialog = null
 var laser_cooldown: float = 0.0
 var nuke_cooldown: float = 0.0
-var laser_cooldowns: Dictionary = {}  # team -> remaining seconds
-var nuke_cooldowns: Dictionary = {}   # team -> remaining seconds
-var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
-var active_tracers: Array = []  # Array of Dictionary {from, to, color, width, timer, duration}
-var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
+var laser_cooldowns: Dictionary = {} # team -> remaining seconds
+var nuke_cooldowns: Dictionary = {} # team -> remaining seconds
+var active_vfx: Array = [] # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
+var active_tracers: Array = [] # Array of Dictionary {from, to, color, width, timer, duration}
+var scorch_marks: Array = [] # Array of Dictionary {pos, radius, alpha}
+var pending_nukes: Array[Dictionary] = [] # {team, pos, timer, duration, radius}
+var particle_pool: Array[Dictionary] = [] # preallocated pooled hit sparks & smoke puffs
+var _particle_cursor: int = 0
+var _smoke_spawn_timer: float = 0.0
+const PARTICLE_POOL_SIZE: int = 160
+var formation_style: int = Formation.Style.WEDGE
+var formation_btn: Button = null
+var chat_panel: Control = null
+var chat_log: RichTextLabel = null
+var chat_input: LineEdit = null
+var chat_scope_btn: Button = null
+var chat_messages: Array[Dictionary] = []
+var chat_team_only: bool = false
+var surrender_votes: Dictionary = {} # team -> bool
+var match_stats: Dictionary = {} # team -> {units_trained, units_lost, buildings_built, buildings_lost, damage_dealt, resources_harvested}
+var _stats_recording: bool = false
+var live_replay: Replay = null
+var live_replay_active: bool = false
+var live_replay_tick: float = 0.0
+var live_replay_index: int = 0
+var live_replay_speed: float = 1.0
 
 var terrain_image: Image
 var terrain_texture: ImageTexture
 var terrain_sprite: Sprite2D
+var terrain_shader_mat: ShaderMaterial = null
+var unit_lod_multimesh: MultiMeshInstance2D = null
+var _unit_lod_batched: bool = false
 var forest_multimesh: MultiMeshInstance2D = null
-var forest_decorations: Array = []  # Array of Dictionary {pos, kind, radius, shade}
+var forest_decorations: Array = [] # Array of Dictionary {pos, kind, radius, shade}
 var wildlife_herd: Array[Dictionary] = []
 
 const TILE_SIZE: float = 16.0
-const TERRAIN_PPT: int = 4
+const TERRAIN_PPT: int = 8
+var terrain_ppt: int = TERRAIN_PPT
 var fog: FogOfWar
 var fog_image: Image
 var fog_texture: ImageTexture
 var fog_sprite: Sprite2D
+var _fog_pixels: PackedByteArray = PackedByteArray()
+var _fog_timer: float = 0.0
 
 @onready var units_container = $Units
 @onready var ui = $UI
@@ -94,21 +121,31 @@ var ai_status_label: Label
 var help_label: Label
 
 func _ready():
+	add_to_group("game_scenes")
 	if GameManager.registry.units.is_empty():
 		GameManager.registry.populate_defaults()
 	map_data = MapData.new(128, 128)
 	_generate_map(GameManager.map_type)
 	replay_log.seed = GameManager.match_seed
 	replay_log.map_name = map_data.name
-	terrain_image = UnitVisual.build_terrain_map_image(map_data, TERRAIN_PPT)
+	terrain_ppt = int(UnitVisual.graphics_profile(String(SettingsManager.graphics_quality())).get("terrain_ppt", TERRAIN_PPT))
+	terrain_image = UnitVisual.build_terrain_map_image(map_data, terrain_ppt)
 	terrain_texture = ImageTexture.create_from_image(terrain_image)
 	terrain_sprite = Sprite2D.new()
 	terrain_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	terrain_sprite.texture = terrain_texture
-	terrain_sprite.scale = Vector2(TILE_SIZE / float(TERRAIN_PPT), TILE_SIZE / float(TERRAIN_PPT))
+	terrain_sprite.scale = Vector2(TILE_SIZE / float(terrain_ppt), TILE_SIZE / float(terrain_ppt))
 	terrain_sprite.centered = false
 	terrain_sprite.z_index = -5
+	var water_shader := Shader.new()
+	water_shader.code = UnitVisual.water_shimmer_shader_code()
+	terrain_shader_mat = ShaderMaterial.new()
+	terrain_shader_mat.shader = water_shader
+	terrain_sprite.material = terrain_shader_mat
+	_apply_terrain_shader_uniforms()
 	add_child(terrain_sprite)
+	_setup_unit_lod_multimesh()
+	_init_particle_pool()
 	_rebuild_forest_decorations()
 	_spawn_resource_deposits()
 	wildlife_herd = WildlifeRef.spawn_ambient_herd(map_data, GameManager.match_seed, 10)
@@ -117,6 +154,7 @@ func _ready():
 	fog_image = Image.create(map_data.width, map_data.height, false, Image.FORMAT_RGBA8)
 	fog_texture = ImageTexture.create_from_image(fog_image)
 	fog_sprite = Sprite2D.new()
+	fog_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	fog_sprite.texture = fog_texture
 	fog_sprite.scale = Vector2(TILE_SIZE, TILE_SIZE)
 	fog_sprite.centered = false
@@ -130,12 +168,18 @@ func _ready():
 	camera.position = _clamp_camera(Vector2(360, 300))
 	_setup_hud()
 	_init_economies()
+	_init_match_stats()
+	_stats_recording = false
 	_spawn_starting_bases()
+	_stats_recording = true
 	_init_team_fogs()
+	_update_fog()
 	GameManager.start_match(map_data)
 	NetworkManager.attach_game(self)
 	if not NetworkManager.state_hash_received.is_connected(_on_remote_state_hash):
 		NetworkManager.state_hash_received.connect(_on_remote_state_hash)
+	if NetworkManager.has_signal("peer_ai_takeover") and not NetworkManager.is_connected("peer_ai_takeover", _on_peer_ai_takeover):
+		NetworkManager.connect("peer_ai_takeover", _on_peer_ai_takeover)
 	AudioManager.reset_bark_cooldowns()
 	if not AudioManager.bark_subtitle.is_connected(_on_bark_subtitle):
 		AudioManager.bark_subtitle.connect(_on_bark_subtitle)
@@ -149,6 +193,8 @@ func _exit_tree() -> void:
 		viewport.size_changed.disconnect(_on_viewport_resized)
 	if NetworkManager.state_hash_received.is_connected(_on_remote_state_hash):
 		NetworkManager.state_hash_received.disconnect(_on_remote_state_hash)
+	if NetworkManager.has_signal("peer_ai_takeover") and NetworkManager.is_connected("peer_ai_takeover", _on_peer_ai_takeover):
+		NetworkManager.disconnect("peer_ai_takeover", _on_peer_ai_takeover)
 	if AudioManager.bark_subtitle.is_connected(_on_bark_subtitle):
 		AudioManager.bark_subtitle.disconnect(_on_bark_subtitle)
 	if NetworkManager.game_node == self:
@@ -157,6 +203,7 @@ func _exit_tree() -> void:
 	UnitVisual.clear_shared_cache()
 	BuildingVisual.clear_cache()
 	team_fogs.clear()
+	_fog_pixels.clear()
 	sonar_buoys.clear()
 	sonar_cooldowns.clear()
 	selected_units.clear()
@@ -178,8 +225,22 @@ func _exit_tree() -> void:
 	active_vfx.clear()
 	active_tracers.clear()
 	scorch_marks.clear()
+	pending_nukes.clear()
+	particle_pool.clear()
+	chat_messages.clear()
+	surrender_votes.clear()
+	match_stats.clear()
+	live_replay = null
+	live_replay_active = false
 	forest_decorations.clear()
 	wildlife_herd.clear()
+	terrain_shader_mat = null
+	unit_lod_multimesh = null
+	formation_btn = null
+	chat_panel = null
+	chat_log = null
+	chat_input = null
+	chat_scope_btn = null
 	if minimap != null and is_instance_valid(minimap):
 		minimap.game = null
 		if minimap.camera_requested.is_connected(_on_minimap_camera):
@@ -221,6 +282,171 @@ func _generate_map(map_type: int = 2) -> void:
 			gen = TerrainGenerator.generate_forest(128, 128, GameManager.match_seed)
 	map_data = gen
 
+func _apply_terrain_shader_uniforms() -> void:
+	if terrain_shader_mat == null:
+		return
+	var profile: Dictionary = UnitVisual.graphics_profile(String(SettingsManager.graphics_quality()))
+	var reduced: bool = bool(SettingsManager.reduced_motion())
+	var shimmer := 0.0 if reduced else float(profile.get("water_shimmer", 0.08))
+	terrain_shader_mat.set_shader_parameter("u_shimmer_strength", shimmer)
+	var cloud_tint := Vector3(0.97, 0.99, 1.02) if not GameManager.active_clouds.is_empty() else Vector3(1.0, 1.0, 1.0)
+	terrain_shader_mat.set_shader_parameter("u_weather_tint", cloud_tint)
+
+func _setup_unit_lod_multimesh() -> void:
+	if unit_lod_multimesh != null:
+		return
+	unit_lod_multimesh = MultiMeshInstance2D.new()
+	unit_lod_multimesh.name = "UnitLodMultiMesh"
+	unit_lod_multimesh.z_index = 2
+	unit_lod_multimesh.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	unit_lod_multimesh.texture = UnitVisual.get_unit_lod_texture(UnitVisual.LOD_ICON_SIZE)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(20.0, 20.0)
+	var mm := MultiMesh.new()
+	mm.mesh = quad
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	mm.use_colors = true
+	mm.instance_count = 0
+	unit_lod_multimesh.multimesh = mm
+	unit_lod_multimesh.visible = false
+	add_child(unit_lod_multimesh)
+
+func _update_unit_lod_multimesh() -> void:
+	if unit_lod_multimesh == null or unit_lod_multimesh.multimesh == null:
+		return
+	var zoom := maxf(0.01, float(camera.zoom.x)) if camera != null else 1.0
+	var use_batch := UnitVisual.should_batch_unit_lod(zoom, spatial_unit_nodes.size())
+	if not use_batch:
+		if _unit_lod_batched:
+			_unit_lod_batched = false
+			unit_lod_multimesh.visible = false
+			for u in units_container.get_children():
+				if is_instance_valid(u) and u.has_method("set_lod_batched"):
+					u.set_lod_batched(false)
+		return
+	_unit_lod_batched = true
+	var mm := unit_lod_multimesh.multimesh
+	var visible_units: Array = []
+	for u in spatial_unit_nodes:
+		if is_instance_valid(u) and not u.is_exploding and u.visible:
+			visible_units.append(u)
+	if mm.instance_count < visible_units.size():
+		mm.instance_count = maxi(visible_units.size(), 64)
+	mm.visible_instance_count = visible_units.size()
+	var palette := SettingsManager.colorblind_palette()
+	for i in range(visible_units.size()):
+		var u: Node2D = visible_units[i]
+		if u.has_method("set_lod_batched"):
+			u.set_lod_batched(true)
+		var uclass := int(u.stats.unit_class) if u.stats != null else 0
+		var s := 1.25 if uclass in [1, 2, 7] else (1.15 if uclass == 3 else 0.92)
+		var xform := Transform2D(float(u.facing_angle), Vector2(s, s), 0.0, u.global_position)
+		mm.set_instance_transform_2d(i, xform)
+		var fac_id := int(u.faction) if int(u.faction) >= 0 else GameManager.faction_for_team(int(u.team))
+		var col := Faction.colorblind_color_of(fac_id, palette, color_variant_for_team(int(u.team)))
+		if u.has_method("is_cloaked") and bool(u.is_cloaked()):
+			col.a = 0.45
+		mm.set_instance_color(i, col)
+	unit_lod_multimesh.visible = visible_units.size() > 0
+
+func _init_particle_pool() -> void:
+	particle_pool.clear()
+	particle_pool.resize(PARTICLE_POOL_SIZE)
+	for i in range(PARTICLE_POOL_SIZE):
+		particle_pool[i] = {
+			"active": false,
+			"kind": "spark",
+			"pos": Vector2.ZERO,
+			"vel": Vector2.ZERO,
+			"color": Color.WHITE,
+			"size": 2.0,
+			"timer": 0.0,
+			"duration": 0.3,
+		}
+	_particle_cursor = 0
+
+func spawn_particle(kind: String, pos: Vector2, vel: Vector2, col: Color, psize: float, dur: float) -> void:
+	if particle_pool.is_empty():
+		return
+	var cap := mini(
+		particle_pool.size(),
+		int(UnitVisual.graphics_profile(String(SettingsManager.graphics_quality())).get("max_particles", PARTICLE_POOL_SIZE))
+	)
+	if cap <= 0:
+		return
+	var slot: Dictionary = particle_pool[_particle_cursor % cap]
+	_particle_cursor = (_particle_cursor + 1) % cap
+	slot["active"] = true
+	slot["kind"] = kind
+	slot["pos"] = pos
+	slot["vel"] = vel
+	slot["color"] = col
+	slot["size"] = psize
+	slot["timer"] = dur
+	slot["duration"] = maxf(0.05, dur)
+
+func _step_particles(delta: float) -> void:
+	for p in particle_pool:
+		if not bool(p["active"]):
+			continue
+		var rem := float(p["timer"]) - delta
+		if rem <= 0.0:
+			p["active"] = false
+			continue
+		p["timer"] = rem
+		var vel: Vector2 = p["vel"]
+		p["pos"] = Vector2(p["pos"]) + vel * delta
+		if String(p["kind"]) == "spark":
+			p["vel"] = vel * maxf(0.0, 1.0 - delta * 3.5)
+	if bool(SettingsManager.reduced_motion()):
+		return
+	_smoke_spawn_timer -= delta
+	if _smoke_spawn_timer > 0.0:
+		return
+	_smoke_spawn_timer = 0.28
+	var has_cull := camera != null and get_viewport_rect().size.x > 0.0
+	var view_rect: Rect2 = UnitVisual.camera_world_rect(camera.position, get_viewport_rect().size, camera.zoom, 96.0) if has_cull else Rect2()
+	var spawned := 0
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if spawned >= 6:
+			break
+		if not is_instance_valid(b) or ("is_exploding" in b and b.is_exploding) or b.stats == null:
+			continue
+		if b.visible and b.hp < int(float(b.stats.hp) * 0.5):
+			if not has_cull or view_rect.has_point(b.global_position):
+				spawn_particle(
+					"smoke", b.global_position + Vector2(0.0, -6.0),
+					Vector2(6.0, -18.0), Color(0.16, 0.16, 0.18, 0.52), 5.0, 0.95
+				)
+				spawned += 1
+	for u in spatial_unit_nodes:
+		if spawned >= 10:
+			break
+		if not is_instance_valid(u) or u.is_exploding or not u.visible or u.stats == null:
+			continue
+		if u.stats.unit_class in [1, 2, 7] and u.hp < int(float(u.effective_max_hp()) * 0.5):
+			if not has_cull or view_rect.has_point(u.global_position):
+				spawn_particle(
+					"smoke", u.global_position + Vector2(0.0, -4.0),
+					Vector2(4.0, -14.0), Color(0.20, 0.20, 0.22, 0.45), 3.8, 0.75
+				)
+				spawned += 1
+
+func refresh_graphics_quality() -> void:
+	var profile: Dictionary = UnitVisual.graphics_profile(String(SettingsManager.graphics_quality()))
+	var next_ppt := int(profile.get("terrain_ppt", TERRAIN_PPT))
+	if next_ppt != terrain_ppt:
+		terrain_ppt = next_ppt
+		_update_terrain_image()
+	else:
+		_rebuild_forest_multimesh()
+	_apply_terrain_shader_uniforms()
+	var tree := get_tree()
+	if tree != null:
+		tree.call_group("units", "queue_redraw")
+		tree.call_group("buildings", "queue_redraw")
+	queue_redraw()
+
 func spawn_combat_tracer(from_pos: Vector2, to_pos: Vector2, dmg_type: int, _team: int) -> void:
 	var col := Color(1.0, 0.92, 0.4, 0.95)
 	var w := 2.2
@@ -242,6 +468,9 @@ func spawn_combat_tracer(from_pos: Vector2, to_pos: Vector2, dmg_type: int, _tea
 			col = Color(1.0, 0.3, 0.1, 0.95)
 			w = 3.6
 			dur = 0.24
+	var max_tracers := int(UnitVisual.graphics_profile(String(SettingsManager.graphics_quality())).get("max_tracers", 180))
+	if active_tracers.size() >= max_tracers:
+		active_tracers.pop_front()
 	active_tracers.append({
 		"from": from_pos,
 		"to": to_pos,
@@ -250,6 +479,11 @@ func spawn_combat_tracer(from_pos: Vector2, to_pos: Vector2, dmg_type: int, _tea
 		"timer": dur,
 		"duration": dur,
 	})
+	var impact_dir := (from_pos - to_pos).normalized()
+	if impact_dir.length_squared() < 0.01:
+		impact_dir = Vector2.UP
+	spawn_particle("spark", to_pos, impact_dir.rotated(0.55) * 48.0, col, 2.2, 0.26)
+	spawn_particle("spark", to_pos, impact_dir.rotated(-0.55) * 42.0, Color(1.0, 0.96, 0.78, 0.95), 1.8, 0.22)
 	_affect_wildlife_from_fire(from_pos, to_pos, 14.0)
 	queue_redraw()
 
@@ -270,6 +504,9 @@ func _affect_wildlife_from_fire(from_pos: Vector2, to_pos: Vector2, dmg: float) 
 			cr["vel"] = away * WildlifeRef.flee_speed(int(cr["kind"]))
 
 func spawn_explosion_vfx(world_pos: Vector2, max_radius: float = 24.0) -> void:
+	var max_vfx := int(UnitVisual.graphics_profile(String(SettingsManager.graphics_quality())).get("max_vfx", 90))
+	if active_vfx.size() >= max_vfx:
+		active_vfx.pop_front()
 	active_vfx.append({
 		"type": "explosion",
 		"pos": world_pos,
@@ -285,6 +522,13 @@ func spawn_explosion_vfx(world_pos: Vector2, max_radius: float = 24.0) -> void:
 	})
 	if scorch_marks.size() > 64:
 		scorch_marks.pop_front()
+	for pi in range(4):
+		var ang := TAU * float(pi) * 0.25 + 0.35
+		spawn_particle(
+			"spark", world_pos, Vector2(cos(ang), sin(ang)) * 55.0,
+			Color(1.0, 0.72, 0.22, 0.92), 2.8, 0.38
+		)
+	spawn_particle("smoke", world_pos, Vector2(4.0, -22.0), Color(0.15, 0.14, 0.14, 0.58), 7.0, 1.0)
 	queue_redraw()
 
 func _setup_hud() -> void:
@@ -303,8 +547,8 @@ func _setup_hud() -> void:
 	help_label.position = Vector2(20, 110)
 	help_label.text = (
 		"[LMB/Drag] Select | [RMB] Move (hold A: Attack) | [1-7] Train | [Ctrl+0-9] Set group | "
-		+ "[Ctrl+Shift+0-9] Recall group | [F/G/M] Fortify | [C] Capture | [Del] Demolish | "
-		+ "[E/U] Embark/Disembark | [B/V/P] Build | [K] Sonar Buoy | [T/R] Tech | [L/N] Orbital/Nuke | [Esc] Pause"
+		+"[Ctrl+Shift+0-9] Recall group | [F/G/M] Fortify | [C] Capture | [Del] Demolish | "
+		+"[E/U] Embark/Disembark | [B/V/P] Build | [K] Sonar Buoy | [T/R] Tech | [L/N] Orbital/Nuke | [Esc] Pause"
 	)
 	ui.add_child(help_label)
 
@@ -334,13 +578,18 @@ func _setup_hud() -> void:
 	_add_cmd_button(btn_bar, "Research [R]", func(): _open_research_dialog())
 	_add_cmd_button(btn_bar, "Orbital Laser [L]", func(): _enter_target_mode("laser"))
 	_add_cmd_button(btn_bar, "Nuclear Strike [N]", func(): _enter_target_mode("nuke"))
+	_add_cmd_button(btn_bar, "Patrol [Y]", func(): _enter_target_mode("patrol"))
+	_add_cmd_button(btn_bar, "Guard [J]", func(): _enter_target_mode("guard"))
+	formation_btn = _add_cmd_button(btn_bar, "Formation: %s [Q]" % Formation.style_name(formation_style), func(): _cycle_formation_style())
 	_add_cmd_button(btn_bar, "Diplomacy", func(): _open_diplomacy_dialog())
+	_add_cmd_button(btn_bar, "Chat [Enter]", func(): toggle_chat_panel())
 	_add_cmd_button(btn_bar, "Save [F5]", func(): quicksave_match())
 	_add_cmd_button(btn_bar, "Load [F9]", func(): quickload_match())
 	_add_cmd_button(btn_bar, "Settings", func(): _open_settings())
 	_add_cmd_button(btn_bar, "Pause [Esc]", func(): toggle_pause())
 
 	_build_full_palette()
+	_build_chat_panel()
 	_build_pause_panel()
 	_build_victory_panel()
 
@@ -445,32 +694,117 @@ func _build_pause_panel() -> void:
 	_add_cmd_button(vbox, "Lockstep Soak Check", func(): _open_lockstep_dialog())
 	_add_cmd_button(vbox, "Save Replay", func(): save_replay())
 	_add_cmd_button(vbox, "Watch Replay", func(): _open_replay_viewer())
+	_add_cmd_button(vbox, "Surrender Match", func():
+		resume_game()
+		submit_player_command({"type": "surrender", "action": "propose"})
+	)
 	_add_cmd_button(vbox, "Main Menu", func():
 		resume_game()
 		SceneManager.goto_scene("res://scenes/main_menu.tscn")
 	)
+
+func _build_chat_panel() -> void:
+	chat_panel = PanelContainer.new()
+	chat_panel.name = "ChatPanel"
+	chat_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	chat_panel.offset_left = 18.0
+	chat_panel.offset_top = -232.0
+	chat_panel.offset_right = 418.0
+	chat_panel.offset_bottom = -18.0
+	chat_panel.visible = false
+	ui.add_child(chat_panel)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	chat_panel.add_child(vbox)
+	var header := HBoxContainer.new()
+	vbox.add_child(header)
+	var lbl := Label.new()
+	lbl.text = "Match Chat & Comms"
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(lbl)
+	chat_scope_btn = _add_cmd_button(header, "Scope: All", func():
+		chat_team_only = not chat_team_only
+		if is_instance_valid(chat_scope_btn):
+			chat_scope_btn.text = "Scope: Team" if chat_team_only else "Scope: All"
+	)
+	_add_cmd_button(header, "Surrender", func():
+		submit_player_command({"type": "surrender", "action": "propose"})
+	)
+	_add_cmd_button(header, "×", func():
+		if is_instance_valid(chat_panel):
+			chat_panel.visible = false
+	)
+	chat_log = RichTextLabel.new()
+	chat_log.name = "ChatLog"
+	chat_log.custom_minimum_size = Vector2(380, 128)
+	chat_log.scroll_following = true
+	chat_log.bbcode_enabled = false
+	vbox.add_child(chat_log)
+	var row := HBoxContainer.new()
+	vbox.add_child(row)
+	chat_input = LineEdit.new()
+	chat_input.name = "ChatInput"
+	chat_input.placeholder_text = "Type tactical message and press Enter..."
+	chat_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chat_input.text_submitted.connect(_on_chat_submitted)
+	row.add_child(chat_input)
+	_add_cmd_button(row, "Send", func():
+		if is_instance_valid(chat_input):
+			_on_chat_submitted(chat_input.text)
+	)
+
+func toggle_chat_panel() -> void:
+	if not is_instance_valid(chat_panel):
+		return
+	chat_panel.visible = not chat_panel.visible
+	if chat_panel.visible and is_instance_valid(chat_input):
+		chat_input.grab_focus()
+
+func _on_chat_submitted(raw_text: String) -> void:
+	var clean := NetSecurity.sanitize_chat(raw_text)
+	if is_instance_valid(chat_input):
+		chat_input.text = ""
+	if clean.is_empty():
+		return
+	submit_player_command({
+		"type": "chat",
+		"text": clean,
+		"scope": "team" if chat_team_only else "all",
+	})
+
+func _cycle_formation_style() -> void:
+	formation_style = (formation_style + 1) % Formation.STYLE_NAMES.size()
+	var fname := Formation.style_name(formation_style)
+	if is_instance_valid(formation_btn):
+		formation_btn.text = "Formation: %s [Q]" % fname
+	if is_instance_valid(status_label):
+		status_label.text = "Formation set to %s" % fname
 
 func _build_victory_panel() -> void:
 	var panel := Control.new()
 	victory_panel = panel
 	panel.name = "MatchEndPanel"
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.offset_left = -300.0
-	panel.offset_top = -140.0
-	panel.offset_right = 300.0
-	panel.offset_bottom = 140.0
+	panel.offset_left = -360.0
+	panel.offset_top = -210.0
+	panel.offset_right = 360.0
+	panel.offset_bottom = 210.0
 	panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	panel.visible = false
 	ui.add_child(panel)
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.02, 0.03, 0.05, 0.92)
+	bg.color = Color(0.02, 0.03, 0.05, 0.94)
 	panel.add_child(bg)
 	var vbox := VBoxContainer.new()
 	vbox.name = "VBoxContainer"
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.offset_left = 18.0
+	vbox.offset_top = 14.0
+	vbox.offset_right = -18.0
+	vbox.offset_bottom = -14.0
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.add_theme_constant_override("separation", 8)
 	panel.add_child(vbox)
 	var title := Label.new()
 	title.name = "ResultLabel"
@@ -481,6 +815,11 @@ func _build_victory_panel() -> void:
 	detail.name = "ScoreLabel"
 	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(detail)
+	var telemetry := Label.new()
+	telemetry.name = "TelemetryLabel"
+	telemetry.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	telemetry.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(telemetry)
 	_add_cmd_button(vbox, "Save Replay", func(): save_replay())
 	_add_cmd_button(vbox, "Watch Replay", func(): _open_replay_viewer())
 	_add_cmd_button(vbox, "Main Menu", func():
@@ -511,7 +850,17 @@ func _open_replay_viewer() -> void:
 		viewer = ReplayViewer.new()
 		viewer.name = "ReplayViewer"
 		ui.add_child(viewer)
-	viewer.popup_centered(Vector2i(720, 560))
+	if viewer.has_signal("live_playback_requested") and not viewer.is_connected("live_playback_requested", _on_live_replay_requested):
+		viewer.connect("live_playback_requested", _on_live_replay_requested)
+	viewer.popup_centered(Vector2i(760, 580))
+
+func _on_live_replay_requested(rep: Replay, speed_mult: float) -> void:
+	start_live_replay(rep, speed_mult)
+
+func _on_peer_ai_takeover(team_id: int, peer_id: int) -> void:
+	if is_instance_valid(status_label):
+		status_label.text = "Peer %d dropped — AI Commander took over Team %d" % [peer_id, team_id]
+	_append_chat_line("[SYSTEM] AI Commander took over Team %d (peer %d timed out)." % [team_id, peer_id])
 
 func _open_research_dialog() -> void:
 	if research_dialog != null and is_instance_valid(research_dialog):
@@ -719,7 +1068,7 @@ func _set_base_rates(pid: int, mult: float) -> void:
 	ResourceManager.set_rate(pid, Economy.Res.GEOTHERMAL, int(round(5.0 * mult)))
 	ResourceManager.set_rate(pid, Economy.Res.FOOD, int(round(8.0 * mult)))
 
-const MIN_SPAWN_SEPARATION: int = 24  # tiles; prevents instant base-to-base contact
+const MIN_SPAWN_SEPARATION: int = 24 # tiles; prevents instant base-to-base contact
 
 func _spawn_starting_bases() -> void:
 	var spawns := _resolve_hq_tiles()
@@ -903,6 +1252,8 @@ func _spawn_unit_by_id(uid: String, pos: Vector2, team: int) -> Node2D:
 		body.color = Faction.colorblind_color_of(uf, SettingsManager.colorblind_palette(), variant)
 	u.global_position = pos
 	units_container.add_child(u)
+	if _stats_recording:
+		record_match_stat(team, "units_trained", 1)
 	return u
 
 func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
@@ -922,6 +1273,8 @@ func _spawn_building_by_id(bid: String, pos: Vector2, team: int) -> Node2D:
 	b.global_position = pos
 	add_child(b)
 	GameManager.register_fort_block(b)
+	if _stats_recording:
+		record_match_stat(team, "buildings_built", 1)
 	return b
 
 func _world_mouse_pos(screen_pos: Vector2) -> Vector2:
@@ -967,7 +1320,7 @@ func _unhandled_input(event):
 			if event.pressed and not pending_target_action.is_empty():
 				var action := pending_target_action
 				var payload := {"type": action, "target_x": world_pos.x, "target_y": world_pos.y}
-				if action == "sonar_buoy":
+				if action in ["sonar_buoy", "patrol", "guard"]:
 					payload["unit_ids"] = _selected_unit_ids()
 				submit_player_command(payload)
 				pending_target_action = ""
@@ -1043,6 +1396,7 @@ func _issue_move_order(target: Vector2, is_attack_move: bool = true) -> void:
 		"type": "move", "team": 0, "unit_ids": ids,
 		"target_x": target.x, "target_y": target.y,
 		"attack_move": is_attack_move,
+		"formation": formation_style,
 	}
 	if submit_player_command(cmd):
 		AudioManager.play_bark(
@@ -1077,6 +1431,11 @@ func _recall_control_group(index: int) -> void:
 		camera.position = _clamp_camera(centroid / float(count))
 
 func _handle_hotkey(event: InputEventKey) -> void:
+	if is_instance_valid(chat_input) and chat_input.has_focus():
+		return
+	if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+		toggle_chat_panel()
+		return
 	if GameManager.is_spectator:
 		return
 	if event.keycode >= KEY_0 and event.keycode <= KEY_9 and Input.is_key_pressed(KEY_CTRL):
@@ -1086,15 +1445,18 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		else:
 			_set_control_group(grp)
 		return
-	match event.keycode:
-		KEY_1: _player_train_unit("riflebot")
-		KEY_2: _player_train_unit("rocketbot")
-		KEY_3: _player_train_unit("stealthbot")
-		KEY_4: _player_train_unit("mbt")
-		KEY_5: _player_train_unit("aa_vehicle")
-		KEY_6: _player_train_unit("fighter_drone")
-		KEY_7: _player_train_unit("hovercraft")
-		KEY_C: _enter_target_mode("capture")
+	var kc := int(event.keycode)
+	match kc:
+		KEY_1: _player_train_unit("riflebot"); return
+		KEY_2: _player_train_unit("rocketbot"); return
+		KEY_3: _player_train_unit("stealthbot"); return
+		KEY_4: _player_train_unit("mbt"); return
+		KEY_5: _player_train_unit("aa_vehicle"); return
+		KEY_6: _player_train_unit("fighter_drone"); return
+		KEY_7: _player_train_unit("hovercraft"); return
+		KEY_X: _cancel_selected_building_queue(); return
+		KEY_F5: quicksave_match(); return
+		KEY_F9: quickload_match(); return
 		KEY_DELETE:
 			if is_instance_valid(selected_building):
 				submit_player_command({
@@ -1102,26 +1464,49 @@ func _handle_hotkey(event: InputEventKey) -> void:
 					"target_x": selected_building.global_position.x,
 					"target_y": selected_building.global_position.y,
 				})
-		KEY_E: _player_embark_selected()
-		KEY_U: _player_disembark_selected()
-		KEY_X: _cancel_selected_building_queue()
-		KEY_B: _enter_build_mode("extractor")
-		KEY_V: _enter_build_mode("turret")
-		KEY_P: _enter_build_mode("power_plant")
-		KEY_F: _enter_build_mode("wall")
-		KEY_G: _enter_build_mode("barbed_wire")
-		KEY_M: _enter_build_mode("missile_tower")
-		KEY_T: _player_upgrade_tech()
-		KEY_R: _open_research_dialog()
-		KEY_K: _enter_target_mode("sonar_buoy")
-		KEY_L: _enter_target_mode("laser")
-		KEY_N: _enter_target_mode("nuke")
-		KEY_F5: quicksave_match()
-		KEY_F9: quickload_match()
-		KEY_H:
-			var ids := _selected_unit_ids()
-			if not ids.is_empty():
-				submit_player_command({"type": "hold", "unit_ids": ids})
+			return
+	if kc == int(SettingsManager.hotkey("cmd_capture")):
+		_enter_target_mode("capture")
+	elif kc == int(SettingsManager.hotkey("cmd_embark")):
+		_player_embark_selected()
+	elif kc == int(SettingsManager.hotkey("cmd_disembark")):
+		_player_disembark_selected()
+	elif kc == int(SettingsManager.hotkey("build_extractor")):
+		_enter_build_mode("extractor")
+	elif kc == int(SettingsManager.hotkey("build_turret")):
+		_enter_build_mode("turret")
+	elif kc == int(SettingsManager.hotkey("build_power")):
+		_enter_build_mode("power_plant")
+	elif kc == int(SettingsManager.hotkey("build_wall")):
+		_enter_build_mode("wall")
+	elif kc == int(SettingsManager.hotkey("build_wire")):
+		_enter_build_mode("barbed_wire")
+	elif kc == int(SettingsManager.hotkey("build_missile_tower")):
+		_enter_build_mode("missile_tower")
+	elif kc == int(SettingsManager.hotkey("cmd_tech")):
+		_player_upgrade_tech()
+	elif kc == int(SettingsManager.hotkey("cmd_research")):
+		_open_research_dialog()
+	elif kc == int(SettingsManager.hotkey("cmd_sonar_buoy")):
+		_enter_target_mode("sonar_buoy")
+	elif kc == int(SettingsManager.hotkey("cmd_laser")):
+		_enter_target_mode("laser")
+	elif kc == int(SettingsManager.hotkey("cmd_nuke")):
+		_enter_target_mode("nuke")
+	elif kc == int(SettingsManager.hotkey("cmd_patrol")):
+		_enter_target_mode("patrol")
+	elif kc == int(SettingsManager.hotkey("cmd_guard")):
+		_enter_target_mode("guard")
+	elif kc == int(SettingsManager.hotkey("cmd_formation")):
+		_cycle_formation_style()
+	elif kc == int(SettingsManager.hotkey("cmd_hold")):
+		var ids := _selected_unit_ids()
+		if not ids.is_empty():
+			submit_player_command({"type": "hold", "unit_ids": ids})
+	elif kc == int(SettingsManager.hotkey("cmd_stop")):
+		var stop_ids := _selected_unit_ids()
+		if not stop_ids.is_empty():
+			submit_player_command({"type": "stop", "unit_ids": stop_ids})
 
 func _wallet_cost(s_cost: Dictionary) -> Dictionary:
 	return {
@@ -1341,10 +1726,43 @@ func apply_command(cmd: Dictionary, internal: bool = false) -> bool:
 			var target := _cmd_world_target(cmd)
 			var am := bool(cmd.get("attack_move", true))
 			var units := _command_units(team, cmd)
-			var offsets := Formation.grid_offsets(units.size(), 28.0)
-			for i in range(units.size()):
-				units[i].move_to(target + offsets[i], am)
+			if not units.is_empty():
+				var centroid := Vector2.ZERO
+				var roles: Array[String] = []
+				for u in units:
+					centroid += (u as Node2D).global_position
+					if u.stats != null:
+						roles.append(AI.unit_role(u.stats.id, u.stats.unit_class, float(u.stats.range_px), bool(u.stats.stealth)))
+					else:
+						roles.append("infantry")
+				centroid /= float(units.size())
+				var style := int(cmd.get("formation", formation_style))
+				var offsets := Formation.tactical_offsets(roles, target - centroid, style, 28.0)
+				for i in range(units.size()):
+					units[i].move_to(target + offsets[i], am)
 			ok = not units.is_empty()
+		"patrol":
+			var p_target := _cmd_world_target(cmd)
+			var p_units := _command_units(team, cmd)
+			if p_target != Vector2.INF and not p_units.is_empty():
+				var p_offsets := Formation.grid_offsets(p_units.size(), 28.0)
+				for i in range(p_units.size()):
+					if p_units[i].has_method("patrol_to"):
+						p_units[i].patrol_to(p_target + p_offsets[i])
+					else:
+						p_units[i].move_to(p_target + p_offsets[i], true)
+				ok = true
+		"guard":
+			var g_target := _cmd_world_target(cmd)
+			var g_units := _command_units(team, cmd)
+			if g_target != Vector2.INF and not g_units.is_empty():
+				var g_offsets := Formation.grid_offsets(g_units.size(), 28.0)
+				for i in range(g_units.size()):
+					if g_units[i].has_method("guard_at"):
+						g_units[i].guard_at(g_target + g_offsets[i])
+					else:
+						g_units[i].move_to(g_target + g_offsets[i], true)
+				ok = true
 		"hold", "stop":
 			for u in _command_units(team, cmd):
 				u.stop_command()
@@ -1360,6 +1778,10 @@ func apply_command(cmd: Dictionary, internal: bool = false) -> bool:
 			ok = _apply_diplomacy(team, String(cmd.get("action", "")), int(cmd.get("target_team", -1)))
 		"sonar_buoy":
 			ok = _deploy_sonar_buoys(team, _command_units(team, cmd), _cmd_world_target(cmd))
+		"chat":
+			ok = _receive_chat_message(team, String(cmd.get("text", "")), String(cmd.get("scope", "all")))
+		"surrender":
+			ok = _apply_surrender(team, String(cmd.get("action", "propose")))
 		"laser", "nuke":
 			# Team ownership is enforced by the host pipeline for relayed input;
 			# local input always carries this client's authoritative team.
@@ -1392,6 +1814,8 @@ func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 		"embark": c.type = Command.Type.EMBARK
 		"disembark": c.type = Command.Type.DISEMBARK
 		"move": c.type = Command.Type.ATTACK_MOVE if bool(cmd.get("attack_move", true)) else Command.Type.MOVE
+		"patrol": c.type = Command.Type.PATROL
+		"guard": c.type = Command.Type.GUARD
 		"hold": c.type = Command.Type.HOLD
 		"stop": c.type = Command.Type.STOP
 		"tech": c.type = Command.Type.TECH
@@ -1401,17 +1825,24 @@ func _record_replay_command(cmd: Dictionary, ctype: String, team: int) -> void:
 		"nuke": c.type = Command.Type.NUKE
 		"diplomacy": c.type = Command.Type.DIPLOMACY
 		"sonar_buoy": c.type = Command.Type.SONAR_BUOY
+		"chat": c.type = Command.Type.CHAT
+		"surrender": c.type = Command.Type.SURRENDER
 	c.tick = int(elapsed_time * 60.0)
 	c.player_id = team
 	c.target_pos = _cmd_world_target(cmd)
 	if c.target_pos == Vector2.INF:
 		c.target_pos = Vector2.ZERO
-	c.build_type = String(cmd.get("id", "")) if ctype != "diplomacy" else String(cmd.get("action", ""))
+	if ctype == "diplomacy" or ctype == "surrender":
+		c.build_type = String(cmd.get("action", ""))
+	elif ctype == "chat":
+		c.build_type = String(cmd.get("text", ""))
+	else:
+		c.build_type = String(cmd.get("id", ""))
 	if ctype == "diplomacy":
 		c.target_id = int(cmd.get("target_team", -1))
 	var ids: Array = cmd.get("unit_ids", [])
 	# Non-unit orders must not inherit whatever happened to be selected.
-	if ids.is_empty() and ctype in ["move", "hold", "stop", "embark", "disembark"]:
+	if ids.is_empty() and ctype in ["move", "patrol", "guard", "hold", "stop", "embark", "disembark"]:
 		for u in selected_units:
 			if is_instance_valid(u):
 				ids.append(u.net_id)
@@ -1573,6 +2004,205 @@ func _rebuild_building_bonuses() -> void:
 
 func on_building_destroyed(b: Node2D) -> void:
 	_apply_building_bonus(b, false)
+	if is_instance_valid(b):
+		record_match_stat(int(b.team), "buildings_lost", 1)
+
+func _init_match_stats() -> void:
+	match_stats.clear()
+	for value in GameManager.teams:
+		var tid := int(value)
+		match_stats[tid] = {
+			"units_trained": 0,
+			"units_lost": 0,
+			"buildings_built": 0,
+			"buildings_lost": 0,
+			"damage_dealt": 0,
+			"resources_harvested": 0,
+		}
+
+func record_match_stat(team: int, key: String, amount: int) -> void:
+	if amount <= 0:
+		return
+	if not match_stats.has(team):
+		match_stats[team] = {
+			"units_trained": 0,
+			"units_lost": 0,
+			"buildings_built": 0,
+			"buildings_lost": 0,
+			"damage_dealt": 0,
+			"resources_harvested": 0,
+		}
+	var bucket: Dictionary = match_stats[team]
+	bucket[key] = int(bucket.get(key, 0)) + amount
+
+func _format_match_telemetry() -> String:
+	var team_ids: Array[int] = []
+	for k in match_stats.keys():
+		team_ids.append(int(k))
+	team_ids.sort()
+	var lines: Array[String] = ["Match Telemetry:"]
+	for tid in team_ids:
+		var st: Dictionary = match_stats[tid]
+		var fname := Faction.name_of(GameManager.faction_for_team(tid))
+		lines.append(
+			"Team %d (%s) — Trained: %d | Lost: %d | Built: %d | Lost Bld: %d | Dmg: %d | Harvested: %d" % [
+				tid, fname,
+				int(st.get("units_trained", 0)), int(st.get("units_lost", 0)),
+				int(st.get("buildings_built", 0)), int(st.get("buildings_lost", 0)),
+				int(st.get("damage_dealt", 0)), int(st.get("resources_harvested", 0)),
+			]
+		)
+	return "\n".join(lines)
+
+func _append_chat_line(line: String) -> void:
+	if is_instance_valid(chat_log):
+		chat_log.text += line + "\n"
+
+func _receive_chat_message(team: int, raw_text: String, scope: String = "all") -> bool:
+	var text := NetSecurity.sanitize_chat(raw_text)
+	if text.is_empty():
+		return false
+	var norm_scope := "team" if scope == "team" else "all"
+	var entry := {"team": team, "scope": norm_scope, "text": text, "time": elapsed_time}
+	chat_messages.append(entry)
+	if chat_messages.size() > 64:
+		chat_messages.pop_front()
+	var can_see := norm_scope == "all" or GameManager.is_spectator or GameManager.is_allied(GameManager.local_team, team)
+	if can_see:
+		var prefix := "[TEAM T%d]" % team if norm_scope == "team" else "[ALL T%d]" % team
+		var line := "%s %s" % [prefix, text]
+		_append_chat_line(line)
+		if is_instance_valid(status_label):
+			status_label.text = line
+	return true
+
+func _apply_surrender(team: int, action: String = "propose") -> bool:
+	if match_over or not GameManager.teams.has(team):
+		return false
+	if action == "cancel":
+		surrender_votes.erase(team)
+		_append_chat_line("[SYSTEM] Team %d cancelled surrender vote." % team)
+		return true
+	if action != "propose" and action != "accept":
+		return false
+	surrender_votes[team] = true
+	var side_key := _alliance_side_key(team)
+	var members := _side_members(side_key)
+	var human_members: Array[int] = []
+	for m in members:
+		if not GameManager.is_ai_team(m):
+			human_members.append(m)
+	var all_agreed := not human_members.is_empty()
+	for m in human_members:
+		if not bool(surrender_votes.get(m, false)):
+			all_agreed = false
+			break
+	if not all_agreed:
+		_append_chat_line("[SYSTEM] Team %d voted to surrender (%d/%d teammates)." % [team, surrender_votes.size(), human_members.size()])
+		return true
+	var winner := -1
+	for t in GameManager.teams:
+		var tid := int(t)
+		if not GameManager.is_allied(team, tid):
+			winner = tid
+			break
+	var local_surrendered := GameManager.is_allied(GameManager.local_team, team)
+	var title := ("DEFEAT — SURRENDERED" if local_surrendered else "VICTORY — OPPONENT SURRENDERED")
+	if GameManager.is_spectator:
+		title = "SPECTATOR — TEAM %d SURRENDERED" % team
+	var detail := "Team %d conceded | Duration %.1fs" % [team, elapsed_time]
+	_show_match_end(title, detail)
+	if not GameManager.is_spectator:
+		AudioManager.play_bark("defeat" if local_surrendered else "victory", GameManager.faction_for_team(GameManager.local_team))
+	match_over = true
+	GameManager.end_match(winner)
+	return true
+
+func start_live_replay(rep: Replay, speed_mult: float = 1.0) -> bool:
+	if rep == null or rep.command_count() <= 0:
+		return false
+	live_replay = rep
+	live_replay_active = true
+	live_replay_tick = 0.0
+	live_replay_index = 0
+	live_replay_speed = clampf(speed_mult, 0.25, 8.0)
+	resume_game()
+	if is_instance_valid(status_label):
+		status_label.text = "Live Replay active (%d commands @ %.1fx)" % [rep.command_count(), live_replay_speed]
+	return true
+
+func stop_live_replay() -> void:
+	live_replay_active = false
+	live_replay = null
+
+func _command_to_dict(c: Command) -> Dictionary:
+	var d: Dictionary = {"team": c.player_id, "unit_ids": Array(c.unit_ids)}
+	if c.target_pos != Vector2.ZERO:
+		d["target_x"] = c.target_pos.x
+		d["target_y"] = c.target_pos.y
+		d["x"] = c.target_pos.x
+		d["y"] = c.target_pos.y
+	match c.type:
+		Command.Type.MOVE:
+			d["type"] = "move"
+			d["attack_move"] = false
+		Command.Type.ATTACK, Command.Type.ATTACK_MOVE:
+			d["type"] = "move"
+			d["attack_move"] = true
+		Command.Type.PATROL: d["type"] = "patrol"
+		Command.Type.GUARD: d["type"] = "guard"
+		Command.Type.HOLD: d["type"] = "hold"
+		Command.Type.STOP: d["type"] = "stop"
+		Command.Type.TRAIN:
+			d["type"] = "train"
+			d["id"] = c.build_type
+		Command.Type.BUILD:
+			d["type"] = "build"
+			d["id"] = c.build_type
+		Command.Type.FORTIFY:
+			d["type"] = "fortify"
+			d["id"] = c.build_type
+		Command.Type.EMBARK: d["type"] = "embark"
+		Command.Type.DISEMBARK: d["type"] = "disembark"
+		Command.Type.TECH:
+			d["type"] = "tech"
+			d["id"] = c.build_type
+		Command.Type.ORBITAL: d["type"] = "laser"
+		Command.Type.NUKE: d["type"] = "nuke"
+		Command.Type.CAPTURE: d["type"] = "capture"
+		Command.Type.DEMOLISH: d["type"] = "demolish"
+		Command.Type.SONAR_BUOY: d["type"] = "sonar_buoy"
+		Command.Type.DIPLOMACY:
+			d["type"] = "diplomacy"
+			d["action"] = c.build_type
+			d["target_team"] = c.target_id
+		Command.Type.CHAT:
+			d["type"] = "chat"
+			d["text"] = c.build_type
+			d["scope"] = "all"
+		Command.Type.SURRENDER:
+			d["type"] = "surrender"
+			d["action"] = c.build_type if not c.build_type.is_empty() else "propose"
+		_:
+			return {}
+	return d
+
+func _step_live_replay(delta: float) -> void:
+	if not live_replay_active or live_replay == null:
+		return
+	live_replay_tick += delta * 60.0 * live_replay_speed
+	while live_replay_index < live_replay.command_count():
+		var c := Command.from_dict(live_replay.commands[live_replay_index])
+		if float(c.tick) > live_replay_tick:
+			break
+		live_replay_index += 1
+		var payload := _command_to_dict(c)
+		if not payload.is_empty():
+			apply_command(payload, true)
+	if live_replay_index >= live_replay.command_count():
+		live_replay_active = false
+		if is_instance_valid(status_label):
+			status_label.text = "Live Replay finished (%d commands)." % live_replay.command_count()
 
 ## Anchor unplaced buildings to the team's own HQ. Fixed corner coordinates
 ## used to drop structures into unrelated terrain, which looked like random
@@ -1798,18 +2428,45 @@ func _player_fire_nuke(world_target: Vector2 = Vector2.INF, team: int = -1) -> b
 		var enemy_hq := _find_team_hq(1 if actor == 0 else 0)
 		if enemy_hq != null:
 			target_pos = enemy_hq.global_position
-	_apply_aoe_damage(target_pos, 180.0, 650.0, actor)
-	if Strategic.creates_fallout("nuke"):
+	var warn_dur := Strategic.NUKE_WARNING_SECONDS
+	pending_nukes.append({
+		"team": actor,
+		"pos": target_pos,
+		"timer": warn_dur,
+		"duration": warn_dur,
+		"radius": 180.0,
+	})
+	AudioManager.play_bark("nuke_warning", GameManager.faction_for_team(actor))
+	if is_instance_valid(status_label):
+		status_label.text = "WARNING: Nuclear launch detected — impact in %.1fs! Scatter forces!" % warn_dur
+	queue_redraw()
+	return true
+
+func _step_pending_nukes(delta: float) -> void:
+	for i in range(pending_nukes.size() - 1, -1, -1):
+		var nk: Dictionary = pending_nukes[i]
+		var rem := float(nk["timer"]) - delta
+		nk["timer"] = rem
+		if rem <= 0.0:
+			pending_nukes.remove_at(i)
+			_detonate_nuke(nk)
+
+func _detonate_nuke(nk: Dictionary) -> void:
+	var actor := int(nk.get("team", 0))
+	var target_pos: Vector2 = nk.get("pos", Vector2.ZERO)
+	var blast_radius := float(nk.get("radius", 180.0))
+	_apply_aoe_damage(target_pos, blast_radius, 650.0, actor)
+	if Strategic.creates_fallout("nuke") and map_data != null:
 		var rad := Strategic.nuke_fallout_radius(4, 1.0)
 		var cx := clampi(int(target_pos.x / 16.0), 0, map_data.width - 1)
 		var cy := clampi(int(target_pos.y / 16.0), 0, map_data.height - 1)
 		for dy in range(-rad, rad + 1):
 			for dx in range(-rad, rad + 1):
 				map_data.set_terrain(cx + dx, cy + dy, MapData.Terrain.WASTELAND)
-	_update_terrain_image()
-	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": 180.0, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0, "duration": 2.0})
-	AudioManager.play_bark("nuke_warning", GameManager.faction_for_team(actor))
-	return true
+		_update_terrain_image()
+	active_vfx.append({"type": "nuke", "pos": target_pos, "radius": blast_radius, "color": Color(1.0, 0.45, 0.1, 0.8), "timer": 2.0, "duration": 2.0})
+	spawn_explosion_vfx(target_pos, blast_radius * 0.45)
+	AudioManager.play_sfx("unit_explode")
 
 func _apply_aoe_damage(center: Vector2, radius: float, dmg: float, attacker_team: int) -> void:
 	for u in get_tree().get_nodes_in_group("units"):
@@ -2093,6 +2750,7 @@ func _harvest_deposits(delta: float) -> void:
 		if not ResourceManager.wallets.has(collector_team):
 			ResourceManager.init_player(collector_team)
 		ResourceManager.wallets[collector_team][dep.type] = int(ResourceManager.wallets[collector_team].get(dep.type, 0)) + amount
+		record_match_stat(collector_team, "resources_harvested", amount)
 		if dep.is_depleted() and is_instance_valid(status_label) and GameManager.is_allied(GameManager.local_team, collector_team):
 			status_label.text = "%s deposit depleted near your extractor" % ["Oil", "Iron", "Geo", "Food"][clampi(dep.type, 0, 3)]
 
@@ -2212,6 +2870,12 @@ func _reset_match_transients() -> void:
 	active_tracers.clear()
 	tactical_pings.clear()
 	scorch_marks.clear()
+	pending_nukes.clear()
+	surrender_votes.clear()
+	live_replay_active = false
+	live_replay = null
+	_init_particle_pool()
+	_init_match_stats()
 	replay_log = Replay.new()
 	if is_instance_valid(victory_panel):
 		victory_panel.hide()
@@ -2446,6 +3110,10 @@ func _process(delta):
 	if nuke_cooldowns.has(local_t):
 		nuke_cooldown = float(nuke_cooldowns[local_t])
 	_cleanup_sonar_buoys()
+	_step_pending_nukes(delta)
+	_step_particles(delta)
+	_update_unit_lod_multimesh()
+	_step_live_replay(delta)
 
 	for i in range(active_vfx.size() - 1, -1, -1):
 		active_vfx[i]["timer"] = float(active_vfx[i]["timer"]) - delta
@@ -2512,7 +3180,11 @@ func _process(delta):
 				if is_instance_valid(status_label):
 					status_label.text = "My Hovercraft is full of eels!"
 				AudioManager.play_bark("eel_hazard", GameManager.faction_for_team(int(u.team)))
-	_update_fog()
+	_fog_timer -= delta
+	if _fog_timer <= 0.0:
+		var fog_int := float(UnitVisual.graphics_profile(String(SettingsManager.graphics_quality())).get("fog_interval", 0.10))
+		_fog_timer = fog_int
+		_update_fog()
 	_update_hud()
 	_check_win()
 	var pan = Vector2.ZERO
@@ -3470,6 +4142,9 @@ func _show_match_end(title: String, detail: String) -> void:
 			(result as Label).text = title
 		if score is Label:
 			(score as Label).text = detail
+		var telemetry := victory_panel.get_node_or_null("VBoxContainer/TelemetryLabel")
+		if telemetry is Label:
+			(telemetry as Label).text = _format_match_telemetry()
 		victory_panel.visible = true
 	if is_instance_valid(status_label):
 		status_label.text = "%s | %s" % [title, detail]
@@ -3521,37 +4196,56 @@ func _check_win():
 		GameManager.end_match(-1)
 
 func _draw():
-	# Minimal forest tree canopies and shrubs
-	for dec in forest_decorations:
-		if String(dec.get("kind", "")) == "tree":
-			continue  # tree canopies are batch-rendered by forest_multimesh
-		var dpos: Vector2 = dec["pos"]
-		var rad := float(dec["radius"])
-		var shade := float(dec["shade"])
-		draw_circle(dpos + Vector2(2, 2), rad, Color(0.04, 0.08, 0.04, 0.42))
-		if dec["kind"] == "tree":
-			draw_circle(dpos, rad, Color(0.12 + shade, 0.34 + shade, 0.14 + shade, 0.92))
-			draw_circle(dpos - Vector2(1.5, 1.5), rad * 0.58, Color(0.22 + shade, 0.48 + shade, 0.22 + shade, 0.95))
-		else:
-			draw_circle(dpos, rad, Color(0.18 + shade, 0.40 + shade, 0.17 + shade, 0.88))
+	var gfx: Dictionary = UnitVisual.graphics_profile(String(SettingsManager.graphics_quality()))
+	var draw_shadows := bool(gfx.get("shadows", true))
+	var glow_tracers := bool(gfx.get("glow_tracers", true))
+	var reduced: bool = bool(SettingsManager.reduced_motion())
+	var has_cull := camera != null and get_viewport_rect().size.x > 0.0
+	var view_rect: Rect2 = UnitVisual.camera_world_rect(camera.position, get_viewport_rect().size, camera.zoom, 160.0) if has_cull else Rect2()
 
-	# On-map finite resource deposits
+	# All trees and shrubs are GPU-batched by `forest_multimesh` with a shaded canopy texture.
+
+	# On-map finite resource deposits (distinct iconic glyphs per resource)
+	var pulse := 0.0 if reduced else sin(elapsed_time * 3.0) * 1.4
 	for rd in resource_deposits:
 		var dep: ResourceDeposit = rd["deposit"]
 		if dep.is_depleted():
 			continue
 		var rpos: Vector2 = rd["pos"]
-		var rcol := Color(0.15, 0.15, 0.15, 0.9)
+		if has_cull and not view_rect.has_point(rpos):
+			continue
 		match dep.type:
-			Economy.Res.IRON: rcol = Color(0.65, 0.72, 0.85, 0.9)
-			Economy.Res.GEOTHERMAL: rcol = Color(1.0, 0.45, 0.15, 0.9)
-			Economy.Res.FOOD: rcol = Color(0.35, 0.85, 0.35, 0.9)
-		draw_circle(rpos, 8.0, rcol)
-		draw_arc(rpos, 10.0, 0, TAU, 16, rcol.lightened(0.3), 1.5)
+			Economy.Res.OIL:
+				draw_circle(rpos + Vector2(1.5, 2.0), 10.5, Color(0.03, 0.04, 0.05, 0.55))
+				draw_circle(rpos, 9.0, Color(0.10, 0.12, 0.16, 0.94))
+				draw_circle(rpos + Vector2(-2.2, -2.0), 4.2, Color(0.24, 0.36, 0.48, 0.65))
+				draw_arc(rpos, 10.5, 0, TAU, 16, Color(0.35, 0.55, 0.72, 0.7), 1.4)
+			Economy.Res.IRON:
+				draw_circle(rpos + Vector2(1.5, 2.0), 9.5, Color(0.05, 0.06, 0.08, 0.45))
+				draw_rect(Rect2(rpos + Vector2(-6.5, -5.5), Vector2(8.0, 9.0)), Color(0.54, 0.62, 0.76, 0.95), true)
+				draw_rect(Rect2(rpos + Vector2(-1.0, -7.5), Vector2(7.5, 11.0)), Color(0.76, 0.84, 0.94, 0.95), true)
+				draw_arc(rpos, 10.5, 0, TAU, 16, Color(0.84, 0.90, 0.98, 0.75), 1.4)
+			Economy.Res.GEOTHERMAL:
+				draw_circle(rpos, 11.0 + pulse, Color(1.0, 0.35, 0.08, 0.28))
+				draw_circle(rpos, 8.2, Color(0.95, 0.42, 0.12, 0.94))
+				draw_circle(rpos, 4.2 + pulse * 0.3, Color(1.0, 0.88, 0.42, 0.95))
+				draw_arc(rpos, 10.5, 0, TAU, 16, Color(1.0, 0.68, 0.25, 0.8), 1.5)
+			_:
+				draw_circle(rpos + Vector2(1.5, 2.0), 9.5, Color(0.04, 0.10, 0.04, 0.45))
+				draw_circle(rpos, 8.5, Color(0.24, 0.74, 0.30, 0.92))
+				draw_circle(rpos + Vector2(-2.0, -2.0), 4.0, Color(0.55, 0.94, 0.42, 0.90))
+				draw_arc(rpos, 10.2, 0, TAU, 16, Color(0.62, 0.96, 0.52, 0.75), 1.4)
 
-	# Scorch marks from blown-up units and buildings
+	# Layered blast craters from blown-up units and buildings
 	for s in scorch_marks:
-		draw_circle(s["pos"], float(s["radius"]), Color(0.1, 0.09, 0.08, float(s["alpha"])))
+		var spos: Vector2 = s["pos"]
+		if has_cull and not view_rect.has_point(spos):
+			continue
+		var srad := float(s["radius"])
+		var salpha := float(s["alpha"])
+		draw_circle(spos, srad * 1.15, Color(0.09, 0.08, 0.07, salpha * 0.55))
+		draw_circle(spos, srad * 0.75, Color(0.05, 0.04, 0.04, salpha * 0.85))
+		draw_arc(spos, srad * 0.80, 0, TAU, 14, Color(0.22, 0.18, 0.14, salpha * 0.45), 1.2)
 
 	# Active sonar buoys: the deploying side sees the sweep; rivals do not.
 	for buoy in sonar_buoys:
@@ -3559,45 +4253,102 @@ func _draw():
 		if not GameManager.is_spectator and not GameManager.is_allied(GameManager.local_team, buoy_owner):
 			continue
 		var bpos: Vector2 = buoy.get("pos", Vector2.ZERO)
+		var brad := float(buoy.get("radius_px", SonarBuoy.RADIUS_PX))
+		if has_cull and not view_rect.grow(brad).has_point(bpos):
+			continue
 		var life := clampf(
 			(float(buoy.get("expires_at", 0.0)) - elapsed_time) / SonarBuoy.LIFETIME_SEC, 0.0, 1.0
 		)
 		var bcol := Faction.colorblind_color_of(
 			GameManager.faction_for_team(buoy_owner), SettingsManager.colorblind_palette()
 		)
-		draw_arc(bpos, float(buoy.get("radius_px", SonarBuoy.RADIUS_PX)), 0, TAU, 48,
+		draw_arc(bpos, brad, 0, TAU, 48,
 			Color(bcol.r, bcol.g, bcol.b, 0.18 + life * 0.35), 2.0)
+		if not reduced:
+			var sweep_r := fmod(elapsed_time * 90.0, brad)
+			draw_arc(bpos, sweep_r, 0, TAU, 28, Color(bcol.r, bcol.g, bcol.b, (1.0 - sweep_r / maxf(1.0, brad)) * 0.35), 1.4)
 		draw_circle(bpos, 5.0, Color(bcol.r, bcol.g, bcol.b, 0.55 + life * 0.45))
 
 	# Ambient non-combatant wildlife (Deer, Dolphins, Squid, Birds)
 	for cr in wildlife_herd:
+		var wpos: Vector2 = cr["pos"]
+		if has_cull and not view_rect.has_point(wpos):
+			continue
 		_draw_wildlife_critter(cr)
 
-	# Weapon projectile tracers & impact sparks
+	# Weapon projectile tracers & dual-core glow sparks
 	for tracer in active_tracers:
+		var from_p: Vector2 = tracer["from"]
+		var to_p: Vector2 = tracer["to"]
+		if has_cull and not view_rect.has_point(from_p) and not view_rect.has_point(to_p):
+			continue
 		var frac := clampf(1.0 - float(tracer["timer"]) / maxf(0.01, float(tracer["duration"])), 0.0, 1.0)
-		var head: Vector2 = tracer["from"].lerp(tracer["to"], minf(1.0, frac * 1.35))
-		var tail: Vector2 = tracer["from"].lerp(tracer["to"], maxf(0.0, frac - 0.35))
-		draw_line(tail, head, tracer["color"], float(tracer["width"]))
-		draw_circle(head, float(tracer["width"]) * 1.15, Color(1.0, 0.98, 0.85, 0.95))
+		var head: Vector2 = from_p.lerp(to_p, minf(1.0, frac * 1.35))
+		var tail: Vector2 = from_p.lerp(to_p, maxf(0.0, frac - 0.35))
+		var tcol: Color = tracer["color"]
+		var tw := float(tracer["width"])
+		if glow_tracers:
+			draw_line(tail, head, Color(tcol.r, tcol.g, tcol.b, tcol.a * 0.32), tw * 2.4)
+			draw_line(tail, head, tcol, tw)
+			draw_line(tail.lerp(head, 0.35), head, Color(1.0, 0.99, 0.92, 0.95), maxf(1.0, tw * 0.45))
+			draw_circle(head, tw * 1.4, Color(tcol.r, tcol.g, tcol.b, 0.42))
+			draw_circle(head, tw * 0.85, Color(1.0, 0.99, 0.90, 0.96))
+		else:
+			draw_line(tail, head, tcol, tw)
+			draw_circle(head, tw * 1.0, Color(1.0, 0.98, 0.85, 0.95))
+
+	# Pooled hit sparks & rising damage smoke puffs
+	for p in particle_pool:
+		if not bool(p["active"]):
+			continue
+		var ppos: Vector2 = p["pos"]
+		if has_cull and not view_rect.has_point(ppos):
+			continue
+		var pfrac := clampf(float(p["timer"]) / maxf(0.05, float(p["duration"])), 0.0, 1.0)
+		var pcol: Color = p["color"]
+		var psz := float(p["size"]) * (1.0 + (1.0 - pfrac) * 0.65 if String(p["kind"]) == "smoke" else pfrac)
+		draw_circle(ppos, maxf(0.8, psz), Color(pcol.r, pcol.g, pcol.b, pcol.a * pfrac))
+
+	# Nuclear launch early-warning target reticles & countdown arcs
+	for nk in pending_nukes:
+		var npos: Vector2 = nk["pos"]
+		var nrad := float(nk.get("radius", 180.0))
+		if has_cull and not view_rect.grow(nrad + 24.0).has_point(npos):
+			continue
+		var ndur := maxf(0.1, float(nk.get("duration", Strategic.NUKE_WARNING_SECONDS)))
+		var nrem := maxf(0.0, float(nk.get("timer", 0.0)))
+		var nprog := clampf(1.0 - nrem / ndur, 0.0, 1.0)
+		var flash := 0.72 if reduced else (0.55 + 0.45 * absf(sin(elapsed_time * 9.0)))
+		draw_arc(npos, nrad, 0.0, TAU, 48, Color(1.0, 0.22, 0.14, 0.85 * flash), 3.0)
+		draw_arc(npos, nrad * (1.0 - nprog), -PI * 0.5, -PI * 0.5 + TAU * nprog, 36, Color(1.0, 0.85, 0.2, 0.92), 3.5)
+		draw_line(npos + Vector2(-24, 0), npos + Vector2(24, 0), Color(1.0, 0.3, 0.2, 0.9), 2.0)
+		draw_line(npos + Vector2(0, -24), npos + Vector2(0, 24), Color(1.0, 0.3, 0.2, 0.9), 2.0)
+		draw_string(ThemeDB.fallback_font, npos + Vector2(-32, -26), "NUKE %.1fs" % nrem, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.92, 0.35, 1.0))
 
 	# Explosions, Orbital Laser Beams, and Nuclear Mushrooms
 	for v in active_vfx:
-		var dur := maxf(0.01, float(v.get("duration", 1.0)))
-		var prog := clampf(1.0 - float(v["timer"]) / dur, 0.0, 1.0)
 		var pos: Vector2 = v["pos"]
 		var rad := float(v["radius"])
+		if has_cull and not view_rect.grow(rad + 48.0).has_point(pos):
+			continue
+		var dur := maxf(0.01, float(v.get("duration", 1.0)))
+		var prog := clampf(1.0 - float(v["timer"]) / dur, 0.0, 1.0)
 		match String(v.get("type", "explosion")):
 			"laser":
-				draw_line(pos - Vector2(0, 600), pos, Color(0.25, 0.95, 1.0, 1.0 - prog), 12.0 * (1.0 - prog * 0.5))
+				draw_line(pos - Vector2(0, 600), pos, Color(0.15, 0.85, 1.0, (1.0 - prog) * 0.42), 24.0 * (1.0 - prog * 0.45))
+				draw_line(pos - Vector2(0, 600), pos, Color(0.45, 0.98, 1.0, 1.0 - prog), 10.0 * (1.0 - prog * 0.5))
+				draw_line(pos - Vector2(0, 600), pos, Color(0.95, 1.0, 1.0, 1.0 - prog), 3.5)
 				draw_circle(pos, rad * sin(prog * PI), v["color"])
+				draw_arc(pos, rad * (0.4 + prog * 0.9), 0, TAU, 28, Color(0.75, 1.0, 1.0, (1.0 - prog) * 0.85), 2.5)
 			"nuke":
-				draw_arc(pos, rad * prog * 1.25, 0, TAU, 36, Color(1.0, 0.85, 0.3, 1.0 - prog), 5.0)
+				draw_arc(pos, rad * prog * 1.35, 0, TAU, 36, Color(1.0, 0.85, 0.3, 1.0 - prog), 5.5)
+				draw_arc(pos, rad * prog * 0.95, 0, TAU, 32, Color(1.0, 0.45, 0.12, (1.0 - prog) * 0.8), 3.0)
 				draw_circle(pos, rad * sin(prog * PI), v["color"])
 				draw_circle(pos, rad * 0.55 * sin(prog * PI), Color(1.0, 0.96, 0.75, 1.0 - prog))
 			_:
-				draw_arc(pos, rad * prog * 1.35, 0, TAU, 24, Color(1.0, 0.8, 0.3, 1.0 - prog), 2.5)
-				draw_circle(pos, rad * sin(prog * PI), Color(1.0, 0.45, 0.1, 0.75 * (1.0 - prog)))
+				draw_arc(pos, rad * prog * 1.40, 0, TAU, 24, Color(1.0, 0.82, 0.35, 1.0 - prog), 2.5)
+				draw_circle(pos, rad * sin(prog * PI), Color(1.0, 0.45, 0.1, 0.72 * (1.0 - prog)))
+				draw_circle(pos, rad * 0.52 * sin(prog * PI), Color(1.0, 0.95, 0.7, 0.85 * (1.0 - prog)))
 
 	if drag_selecting:
 		var r := Rect2(drag_start, drag_current - drag_start).abs()
@@ -3609,19 +4360,24 @@ func _draw():
 	var weather_known := not GameManager.fog_enabled or fog == null
 	for cl in GameManager.active_clouds:
 		var cpos: Vector2 = cl["pos"]
+		var rad := float(cl.get("radius", 90.0))
+		if has_cull and not view_rect.grow(rad + 24.0).has_point(cpos):
+			continue
 		if not weather_known:
 			var cx := int(cpos.x / TILE_SIZE)
 			var cy := int(cpos.y / TILE_SIZE)
 			if not fog.is_visible(cx, cy) and not fog.is_explored(cx, cy):
 				continue
-		var rad := float(cl.get("radius", 90.0))
 		var calpha := float(cl.get("alpha", 0.32))
-		# Soft ground shadow + multi-puff cloud canopy
-		draw_circle(cpos + Vector2(14, 18), rad * 0.85, Color(0.03, 0.05, 0.08, calpha * 0.38))
-		draw_circle(cpos, rad * 0.78, Color(0.94, 0.97, 1.0, calpha))
+		# Soft altitude-offset ground shadow + layered sunlit cloud canopy
+		if draw_shadows:
+			draw_circle(cpos + Vector2(18, 22), rad * 0.84, Color(0.02, 0.04, 0.07, calpha * 0.34))
+			draw_circle(cpos + Vector2(18 - rad * 0.30, 22 + rad * 0.10), rad * 0.54, Color(0.02, 0.04, 0.07, calpha * 0.28))
+		draw_circle(cpos + Vector2(3, 5), rad * 0.78, Color(0.76, 0.82, 0.90, calpha * 0.72))
+		draw_circle(cpos, rad * 0.76, Color(0.94, 0.97, 1.0, calpha))
 		draw_circle(cpos + Vector2(-rad * 0.35, rad * 0.12), rad * 0.56, Color(0.92, 0.96, 1.0, calpha * 0.92))
 		draw_circle(cpos + Vector2(rad * 0.36, -rad * 0.10), rad * 0.58, Color(0.96, 0.98, 1.0, calpha * 0.92))
-		draw_circle(cpos + Vector2(0, -rad * 0.25), rad * 0.52, Color(1.0, 1.0, 1.0, calpha * 0.95))
+		draw_circle(cpos + Vector2(-rad * 0.12, -rad * 0.24), rad * 0.50, Color(1.0, 1.0, 1.0, calpha * 0.96))
 
 	# Interactive placement ghost & tactical cursor/pings
 	if not pending_build_id.is_empty() and map_data != null:
@@ -3635,9 +4391,17 @@ func _draw():
 	if not pending_target_action.is_empty():
 		var tpos := _world_mouse_pos(get_viewport().get_mouse_position())
 		var r_sz := 95.0 if pending_target_action == "laser" else 180.0
+		var ring_col := Color(1.0, 0.3, 0.2, 0.85)
 		if pending_target_action == "sonar_buoy":
 			r_sz = SonarBuoy.RADIUS_PX
-		draw_arc(tpos, r_sz, 0, TAU, 32, Color(1.0, 0.3, 0.2, 0.85), 2.5)
+			ring_col = Color(0.25, 0.85, 1.0, 0.85)
+		elif pending_target_action == "patrol":
+			r_sz = 28.0
+			ring_col = Color(0.35, 0.95, 0.55, 0.85)
+		elif pending_target_action == "guard":
+			r_sz = 240.0
+			ring_col = Color(0.95, 0.82, 0.25, 0.85)
+		draw_arc(tpos, r_sz, 0, TAU, 32, ring_col, 2.5)
 	for ping in tactical_pings:
 		var ppos: Vector2 = ping["pos"]
 		var pt := float(ping["timer"])
@@ -3677,16 +4441,8 @@ func _update_fog() -> void:
 			var range_px := _building_vision_px(b, team)
 			if range_px > 0.0:
 				fog.mark_visible(tx, ty, maxi(1, ceili(range_px / TILE_SIZE)))
-	for y in range(fog.height):
-		for x in range(fog.width):
-			# Unexplored tiles must be fully opaque: a translucent veil still
-			# lets terrain, clouds and structures bleed through the fog.
-			var col := Color(0, 0, 0, 1.0)
-			if fog.is_visible(x, y):
-				col = Color(0, 0, 0, 0.0)
-			elif fog.is_explored(x, y):
-				col = Color(0, 0, 0, 0.55)
-			fog_image.set_pixel(x, y, col)
+	_fog_pixels = UnitVisual.fog_rgba_bytes(fog, _fog_pixels)
+	fog_image.set_data(fog.width, fog.height, false, Image.FORMAT_RGBA8, _fog_pixels)
 	fog_texture.update(fog_image)
 	for u in units_container.get_children():
 		if is_instance_valid(u):
@@ -3714,11 +4470,16 @@ func _terrain_color(t: int) -> Color:
 func _update_terrain_image() -> void:
 	if map_data == null:
 		return
-	terrain_image = UnitVisual.build_terrain_map_image(map_data, TERRAIN_PPT)
-	if terrain_texture:
+	terrain_image = UnitVisual.build_terrain_map_image(map_data, terrain_ppt)
+	if terrain_texture != null and terrain_texture.get_width() == terrain_image.get_width() \
+			and terrain_texture.get_height() == terrain_image.get_height():
+		terrain_texture.update(terrain_image)
+	else:
 		terrain_texture = ImageTexture.create_from_image(terrain_image)
-		if terrain_sprite:
+		if terrain_sprite != null:
 			terrain_sprite.texture = terrain_texture
+	if terrain_sprite != null:
+		terrain_sprite.scale = Vector2(TILE_SIZE / float(terrain_ppt), TILE_SIZE / float(terrain_ppt))
 	_rebuild_forest_decorations()
 
 func _rebuild_forest_decorations() -> void:
@@ -3734,38 +4495,45 @@ func _rebuild_forest_decorations() -> void:
 					forest_decorations.append({
 						"pos": wpos,
 						"kind": "tree" if (h % 2 == 0) else "shrub",
-						"radius": 6.2 if (h % 2 == 0) else 3.8,
+						"radius": 7.6 if (h % 2 == 0) else 4.8,
 						"shade": float(h % 10) * 0.015,
 					})
 	_rebuild_forest_multimesh()
 
-## Batch-render every tree canopy in one draw call instead of hundreds of
-## per-frame `_draw()` circles (Step 20).
+## Batch-render every tree AND shrub canopy in one GPU MultiMesh draw call
+## using a cached shaded circular canopy texture (zero per-shrub _draw loops).
 func _rebuild_forest_multimesh() -> void:
 	if forest_multimesh == null:
 		forest_multimesh = MultiMeshInstance2D.new()
 		forest_multimesh.name = "ForestMultiMesh"
 		forest_multimesh.z_index = -4
+		forest_multimesh.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		add_child(forest_multimesh)
-	var trees: Array = []
-	for dec in forest_decorations:
-		if String(dec.get("kind", "")) == "tree":
-			trees.append(dec)
+	forest_multimesh.texture = UnitVisual.get_canopy_texture(32)
+	var density := clampf(float(UnitVisual.graphics_profile(String(SettingsManager.graphics_quality())).get("foliage_density", 1.0)), 0.25, 1.0)
+	var items: Array = []
+	for i in range(forest_decorations.size()):
+		if density < 1.0 and ((i * 73) % 100) >= int(round(density * 100.0)):
+			continue
+		items.append(forest_decorations[i])
 	var quad := QuadMesh.new()
 	quad.size = Vector2(2.0, 2.0)
 	var mm := MultiMesh.new()
 	mm.mesh = quad
 	mm.transform_format = MultiMesh.TRANSFORM_2D
 	mm.use_colors = true
-	mm.instance_count = trees.size()
-	for i in range(trees.size()):
-		var dec: Dictionary = trees[i]
-		var radius := float(dec.get("radius", 6.2))
+	mm.instance_count = items.size()
+	for i in range(items.size()):
+		var dec: Dictionary = items[i]
+		var radius := float(dec.get("radius", 7.6))
 		var shade := float(dec.get("shade", 0.0))
+		var is_tree := String(dec.get("kind", "tree")) == "tree"
 		var xform := Transform2D().scaled(Vector2(radius, radius))
 		xform.origin = dec["pos"]
 		mm.set_instance_transform_2d(i, xform)
-		mm.set_instance_color(i, Color(0.12 + shade, 0.34 + shade, 0.14 + shade, 0.92))
+		var tint := Color(0.26 + shade, 0.62 + shade, 0.28 + shade, 0.96) if is_tree \
+			else Color(0.34 + shade, 0.72 + shade, 0.32 + shade, 0.90)
+		mm.set_instance_color(i, tint)
 	forest_multimesh.multimesh = mm
 
 func _update_wildlife(delta: float) -> void:
