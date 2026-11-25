@@ -257,13 +257,15 @@ static func sanitize_command(raw: Variant) -> Dictionary:
 			if not (id is String) or not _is_id(id as String):
 				return {}
 			out["id"] = id
+			# Fortifications always target a tile. Buildings may omit a target
+			# (AI auto-placement), but a supplied human placement must survive
+			# sanitization so the host applies it at the chosen location.
 			if ctype == "fortify":
-				var fx := _opt_float(d, "x", NAN)
-				var fy := _opt_float(d, "y", NAN)
-				if is_nan(fx) or is_nan(fy):
+				if not _sanitize_target(d, out):
 					return {}
-				out["x"] = clampf(fx, 0.0, MAX_COORD)
-				out["y"] = clampf(fy, 0.0, MAX_COORD)
+			elif d.has("x") or d.has("target_x"):
+				if not _sanitize_target(d, out):
+					return {}
 		"tech":
 			if d.has("id"):
 				var tech_id = d.get("id", null)

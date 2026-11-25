@@ -176,23 +176,24 @@ func leave() -> void:
 func _has_game() -> bool:
 	return is_instance_valid(game_node)
 
-func send_command(cmd: Dictionary) -> void:
+func send_command(cmd: Dictionary) -> bool:
 	if not _has_game():
-		return
+		return false
 	if not _has_peer():
-		game_node.call("apply_command", cmd)
-		return
+		return bool(game_node.call("apply_command", cmd))
 	if state != State.MATCH:
-		return
+		return false
 	var out := cmd.duplicate()
 	out["seq"] = _outbound_seq.advance(_my_id())
 	# Local input is authoritative too: derive the team from this peer's lobby
 	# seat rather than trusting a UI-supplied value (co-op seats all sit on 0).
 	out["team"] = local_team()
 	if is_host():
-		_host_process(_my_id(), out)
-	else:
-		_cli_cmd.rpc_id(1, out)
+		return _host_process(_my_id(), out)
+	_cli_cmd.rpc_id(1, out)
+	# A relayed verdict arrives asynchronously; the UI may clear optimistic
+	# state, but it must not assume the host accepted the command.
+	return true
 
 ## True while an ENet/WebRTC match session is active.
 func is_network_match() -> bool:
@@ -304,16 +305,17 @@ func sender_is_banned(sender_id: int) -> bool:
 # Server-side lobby operations
 # =====================================================================
 
-func _host_process(sender_id: int, clean: Dictionary) -> void:
+func _host_process(sender_id: int, clean: Dictionary) -> bool:
 	if not _has_game() or clean.is_empty():
-		return
+		return false
 	var applied := bool(game_node.call("apply_command", clean))
 	if not applied:
 		if sender_id != _my_id():
 			_srv_cmd_rejected.rpc_id(sender_id)
-		return
+		return false
 	if _has_peer():
 		_srv_relay.rpc(clean)
+	return true
 
 func _schedule_sync() -> void:
 	if _i_am_server() and _has_peer():

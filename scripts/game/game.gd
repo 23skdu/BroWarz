@@ -426,7 +426,7 @@ func _open_diplomacy_dialog() -> void:
 	diplomacy_dialog.popup_centered(Vector2i(620, 520))
 
 func _on_research_selected(node_id: String) -> void:
-	if not _research_node(GameManager.local_team, node_id):
+	if not submit_player_command({"type": "tech", "id": node_id}):
 		return
 	if is_instance_valid(research_dialog):
 		research_dialog.call_deferred("populate",
@@ -761,12 +761,12 @@ func _unhandled_input(event):
 			if event.pressed and not pending_build_id.is_empty():
 				var bid := pending_build_id
 				var ctype := "fortify" if Fortification.is_fortification(bid) else "build"
-				if apply_command({"type": ctype, "team": 0, "id": bid, "target_x": world_pos.x, "target_y": world_pos.y}):
+				if submit_player_command({"type": ctype, "id": bid, "target_x": world_pos.x, "target_y": world_pos.y}):
 					pending_build_id = ""
 				return
 			if event.pressed and not pending_target_action.is_empty():
 				var action := pending_target_action
-				apply_command({"type": action, "team": 0, "target_x": world_pos.x, "target_y": world_pos.y})
+				submit_player_command({"type": action, "target_x": world_pos.x, "target_y": world_pos.y})
 				pending_target_action = ""
 				return
 			if event.pressed:
@@ -839,7 +839,7 @@ func _issue_move_order(target: Vector2, is_attack_move: bool = true) -> void:
 		"target_x": target.x, "target_y": target.y,
 		"attack_move": is_attack_move,
 	}
-	if apply_command(cmd):
+	if submit_player_command(cmd):
 		AudioManager.play_sfx("order_move")
 
 func _set_control_group(index: int) -> void:
@@ -886,8 +886,8 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		KEY_C: _enter_target_mode("capture")
 		KEY_DELETE:
 			if is_instance_valid(selected_building):
-				apply_command({
-					"type": "demolish", "team": GameManager.local_team,
+				submit_player_command({
+					"type": "demolish",
 					"target_x": selected_building.global_position.x,
 					"target_y": selected_building.global_position.y,
 				})
@@ -907,10 +907,9 @@ func _handle_hotkey(event: InputEventKey) -> void:
 		KEY_F5: quicksave_match()
 		KEY_F9: quickload_match()
 		KEY_H:
-			for u in selected_units:
-				if is_instance_valid(u):
-					u.stop_command()
-					u.hold_position = true
+			var ids := _selected_unit_ids()
+			if not ids.is_empty():
+				submit_player_command({"type": "hold", "unit_ids": ids})
 
 func _wallet_cost(s_cost: Dictionary) -> Dictionary:
 	return {
@@ -921,7 +920,7 @@ func _wallet_cost(s_cost: Dictionary) -> Dictionary:
 	}
 
 func _player_train_unit(uid: String) -> void:
-	apply_command({"type": "train", "team": 0, "id": uid})
+	submit_player_command({"type": "train", "id": uid})
 
 func _selected_unit_ids() -> Array:
 	var ids: Array = []
@@ -931,16 +930,16 @@ func _selected_unit_ids() -> Array:
 	return ids
 
 func _player_embark_selected() -> int:
-	var count := _embark_units_for_team(0, selected_units)
-	if count > 0:
-		_record_replay_command({"type": "embark", "unit_ids": _selected_unit_ids()}, "embark", 0)
-	return count
+	var ids := _selected_unit_ids()
+	if ids.is_empty():
+		return 0
+	return ids.size() if submit_player_command({"type": "embark", "unit_ids": ids}) else 0
 
 func _player_disembark_selected() -> int:
-	var count := _disembark_units_for_team(0, selected_units)
-	if count > 0:
-		_record_replay_command({"type": "disembark", "unit_ids": _selected_unit_ids()}, "disembark", 0)
-	return count
+	var ids := _selected_unit_ids()
+	if ids.is_empty():
+		return 0
+	return ids.size() if submit_player_command({"type": "disembark", "unit_ids": ids}) else 0
 
 func _embark_units_for_team(team: int, candidates: Array) -> int:
 	var transports: Array = []
@@ -1037,6 +1036,31 @@ func _apply_diplomacy(team: int, action: String, target_team: int) -> bool:
 		status_label.text = "Diplomacy %s with Team %d" % [action, target_team]
 	return ok
 
+## Funnel every human command through the secure host pipeline in P2P matches.
+## The team is always derived from this client's lobby seat, and coordinates
+## are mirrored into the `x`/`y` fields expected by `NetSecurity.sanitize_command`.
+## Single-player still applies immediately; a relayed client verdict is async.
+func _prepare_player_command(cmd: Dictionary) -> Dictionary:
+	var full := cmd.duplicate()
+	full["team"] = GameManager.local_team
+	var target := _cmd_world_target(full)
+	if is_finite(target.x) and is_finite(target.y):
+		full["x"] = target.x
+		full["y"] = target.y
+	if String(full.get("type", "")) == "capture" and not full.has("unit_ids"):
+		var workers: Array = []
+		for u in selected_units:
+			if is_instance_valid(u) and u.stats != null and UnitRegistry.is_worker_unit(u.stats.id):
+				workers.append(int(u.net_id))
+		full["unit_ids"] = workers
+	return full
+
+func submit_player_command(cmd: Dictionary) -> bool:
+	var full := _prepare_player_command(cmd)
+	if NetworkManager.is_network_match():
+		return NetworkManager.send_command(full)
+	return apply_command(full)
+
 ## `internal` is reserved for simulation-controlled AI commands: spectators
 ## have no human command authority, but the match still needs AI decisions.
 func apply_command(cmd: Dictionary, internal: bool = false) -> bool:
@@ -1076,15 +1100,14 @@ func apply_command(cmd: Dictionary, internal: bool = false) -> bool:
 		"diplomacy":
 			ok = _apply_diplomacy(team, String(cmd.get("action", "")), int(cmd.get("target_team", -1)))
 		"laser", "nuke":
-			# Strategic weapons are player-controlled only; relay commands from
-			# other teams are rejected rather than silently accepted.
-			if team == GameManager.local_team:
-				if not team_has_tech(team, "strategic_uplinks"):
-					if is_instance_valid(status_label):
-						status_label.text = "Research Strategic Uplinks (Orbital & Nuke) first"
-					return false
-				var target := _cmd_world_target(cmd)
-				ok = _player_fire_orbital_laser(target) if ctype == "laser" else _player_fire_nuke(target)
+			# Team ownership is enforced by the host pipeline for relayed input;
+			# local input always carries this client's authoritative team.
+			if not team_has_tech(team, "strategic_uplinks"):
+				if is_instance_valid(status_label):
+					status_label.text = "Research Strategic Uplinks (Orbital & Nuke) first"
+				return false
+			var target := _cmd_world_target(cmd)
+			ok = _player_fire_orbital_laser(target, team) if ctype == "laser" else _player_fire_nuke(target, team)
 	if ok:
 		_record_replay_command(cmd, ctype, team)
 	return ok
@@ -1372,39 +1395,42 @@ func _player_upgrade_tech() -> void:
 		if is_instance_valid(status_label):
 			status_label.text = "Research tree complete"
 		return
-	_research_node(GameManager.local_team, str(avail[0]))
+	submit_player_command({"type": "tech", "id": str(avail[0])})
 
-func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF) -> bool:
+func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF, team: int = -1) -> bool:
 	if laser_cooldown > 0.0:
 		return false
-	var wallet := ResourceManager.get_wallet(GameManager.local_team)
-	var uplink_mult := 0.75 if team_has_tech(GameManager.local_team, "strategic_uplinks") else 1.0
+	var actor := team if team >= 0 else GameManager.local_team
+	var wallet := ResourceManager.get_wallet(actor)
+	var uplifted := team_has_tech(actor, "strategic_uplinks")
+	var uplink_mult := 0.75 if uplifted else 1.0
 	if not Economy.spend(wallet, {
 		Economy.Res.GEOTHERMAL: int(round(100.0 * uplink_mult)),
 		Economy.Res.OIL: int(round(60.0 * uplink_mult)),
 	}):
 		return false
-	var mods := Faction.modifiers(GameManager.player_faction)
+	var mods := Faction.modifiers(GameManager.faction_for_team(actor))
 	laser_cooldown = 25.0 * float(mods.get("orbital_cooldown", 1.0)) * uplink_mult
 	var target_pos := world_target
 	if target_pos == Vector2.INF:
 		target_pos = Vector2(1060, 860)
-		var enemy := _find_priority_target_for_team(GameManager.local_team)
+		var enemy := _find_priority_target_for_team(actor)
 		if enemy != null:
 			target_pos = enemy.global_position
 	var dmg := Strategic.orbital_laser_damage(180.0, float(wallet.get(Economy.Res.GEOTHERMAL, 0)))
-	if team_has_tech(GameManager.local_team, "strategic_uplinks"):
+	if uplifted:
 		dmg *= 1.2
-	_apply_aoe_damage(target_pos, 95.0, dmg, GameManager.local_team)
+	_apply_aoe_damage(target_pos, 95.0, dmg, actor)
 	active_vfx.append({"type": "laser", "pos": target_pos, "radius": 95.0, "color": Color(0.2, 0.95, 1.0, 0.75), "timer": 1.2, "duration": 1.2})
 	AudioManager.play_sfx("orbital_laser")
 	return true
 
-func _player_fire_nuke(world_target: Vector2 = Vector2.INF) -> bool:
+func _player_fire_nuke(world_target: Vector2 = Vector2.INF, team: int = -1) -> bool:
 	if nuke_cooldown > 0.0:
 		return false
-	var wallet := ResourceManager.get_wallet(GameManager.local_team)
-	var uplink_mult := 0.75 if team_has_tech(GameManager.local_team, "strategic_uplinks") else 1.0
+	var actor := team if team >= 0 else GameManager.local_team
+	var wallet := ResourceManager.get_wallet(actor)
+	var uplink_mult := 0.75 if team_has_tech(actor, "strategic_uplinks") else 1.0
 	if not Economy.spend(wallet, {
 		Economy.Res.GEOTHERMAL: int(round(200.0 * uplink_mult)),
 		Economy.Res.IRON: int(round(300.0 * uplink_mult)),
@@ -1415,10 +1441,10 @@ func _player_fire_nuke(world_target: Vector2 = Vector2.INF) -> bool:
 	var target_pos := world_target
 	if target_pos == Vector2.INF:
 		target_pos = Vector2(1100, 900)
-		var enemy_hq := _find_team_hq(1 if GameManager.local_team == 0 else 0)
+		var enemy_hq := _find_team_hq(1 if actor == 0 else 0)
 		if enemy_hq != null:
 			target_pos = enemy_hq.global_position
-	_apply_aoe_damage(target_pos, 180.0, 650.0, GameManager.local_team)
+	_apply_aoe_damage(target_pos, 180.0, 650.0, actor)
 	if Strategic.creates_fallout("nuke"):
 		var rad := Strategic.nuke_fallout_radius(4, 1.0)
 		var cx := clampi(int(target_pos.x / 16.0), 0, map_data.width - 1)
@@ -1874,7 +1900,7 @@ func quickload_match(path: String = "user://saves/quicksave.bws") -> bool:
 	queue_redraw()
 	var hq := _find_team_hq(GameManager.local_team)
 	if hq != null and camera != null:
-		camera.position = hq.global_position
+		camera.position = _clamp_camera(hq.global_position)
 	if is_instance_valid(status_label):
 		status_label.text = "Loaded save (tick %d, %d units, %d buildings)" % [gs.tick, gs.units.size(), gs.buildings.size()]
 	return true

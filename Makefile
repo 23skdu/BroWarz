@@ -268,6 +268,13 @@ lint-docs:
 		echo "markdownlint not found; skipping Markdown lint."; \
 	fi
 
+lint-workflows:
+	@if command -v actionlint >/dev/null 2>&1; then \
+		actionlint; \
+	else \
+		echo "actionlint not found; skipping workflow lint."; \
+	fi
+
 fmt:
 	@if [ -n "$(GDFORMAT)" ]; then \
 		$(GDFORMAT) scripts tests demo; \
@@ -328,7 +335,7 @@ install-hooks:
 	@chmod +x .git/hooks/pre-commit
 	@echo "Installed git pre-commit hook to .git/hooks/pre-commit"
 
-check: check-godot deps-python lint lint-docs check-layout deadcode check-coverage check-assets test-python test-fuzz test-regression check-orphans
+check: check-godot deps-python lint lint-docs lint-workflows check-layout deadcode check-coverage check-assets test-python test-fuzz test-regression check-orphans
 	@echo "=========================================================="
 	@echo "  BroWarz local verification passed!"
 	@echo "=========================================================="

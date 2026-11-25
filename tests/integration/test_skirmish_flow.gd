@@ -316,3 +316,32 @@ func test_begin_net_session_clears_stale_team_economies():
 	assert_eq(ResourceManager.rates.size(), 0)
 	for key in saved.keys():
 		ResourceManager.set(key, saved[key])
+
+func test_player_commands_are_prepared_for_host_sanitizer():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(16, 16), 0, 1, 2)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	var original_team := GameManager.local_team
+	GameManager.local_team = 2
+	var prepared: Dictionary = game.call("_prepare_player_command", {
+		"type": "build", "team": 0, "id": "extractor",
+		"target_x": 64.0, "target_y": 80.0,
+	})
+	assert_eq(prepared["team"], 2)
+	prepared["seq"] = 0
+	var clean := NetSecurity.sanitize_command(prepared)
+	assert_false(clean.is_empty())
+	assert_eq(clean["team"], 2)
+	assert_almost_eq(float(clean["x"]), 64.0, 0.001)
+	assert_almost_eq(float(clean["y"]), 80.0, 0.001)
+	GameManager.local_team = original_team
+
+func test_player_commands_record_authoritative_local_team():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(16, 16), 0, 1, 2)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	var original_team := GameManager.local_team
+	GameManager.local_team = 1
+	assert_true(game.submit_player_command({"type": "hold", "team": 0, "unit_ids": []}))
+	assert_eq(game.replay_log.commands.back()["player_id"], 1)
+	GameManager.local_team = original_team

@@ -337,7 +337,7 @@ The repository now contains a playable single-player skirmish vertical slice and
   - Custom retro-future corporate dystopia main logo (`assets/logo.png`) and minimalist corporation banners (`assets/banners/*.png`).
 - Gameplay: 128×128 maps (Desert, Island Chain, Forest), 29 base unit roles across infantry/armor/naval/air, 16 buildings & fortifications, economy, tech progression, orbital laser and nuclear strikes, fog of war rendering, tactical skirmish AI (Easy/Normal/Hard) for solo/co-op/spectator matches, multiplayer diplomacy, and map editor.
 - Audio: procedural looping menu/battle beds plus four selectable faction soundtracks (AeroDyne, FerroCore, Pelagic, Vanguard) with main-menu and settings switchers, and an aliased SFX set.
-- Verification: GUT unit/integration/fuzz/regression suites (278 tests across 52 scripts, 0 orphans), the post-run orphan guard, and the `make ci` gate.
+- Verification: GUT unit/integration/fuzz/regression suites (280 tests across 52 scripts, 0 orphans), the post-run orphan guard, and the `make ci` gate.
 
 Outstanding gaps (see `docs/roadmap.md`):
 

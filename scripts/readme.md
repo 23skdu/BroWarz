@@ -8,7 +8,7 @@ This directory contains every runtime, tool, and verification script in the proj
 - `game_manager.gd` — Holds global match state (mode, map, teams, factions, AI, alliances, clouds) and allocates network IDs and fortification movement blocks.
 - `network_manager.gd` — Secure P2P session manager: lobby handshake, host-authoritative command validation and relay, rate limiting, anti-replay, disconnect grace, host migration, WebRTC transport, and checksums.
 - `resource_manager.gd` — Tracks per-player wallets, base/effective resource rates, population caps, and power efficiency; runs economy ticks.
-- `scene_manager.gd` — Thin wrapper that tracks the current scene path and delegates scene changes to `SceneTree.change_scene_to_file()`.
+- `scene_manager.gd` — Thin wrapper that delegates scene changes to `SceneTree.change_scene_to_file()`.
 - `settings_manager.gd` — Loads/saves `user://settings.cfg` and applies audio, soundtrack, UI scale, colorblind palette, and camera hotkey settings live.
 
 ## Core systems (`scripts/core/`)
