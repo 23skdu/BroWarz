@@ -115,5 +115,5 @@ These modifiers apply **only to units owned by that NPC faction** and stack with
 
 - [`units.md`](units.md) — illustrated rosters, including the AI-only units.
 - [`design.md`](design.md) — combat, vision, AI, audio and mode rules.
-- [`roadmap.md`](roadmap.md) — pending v0.1.3 work.
+- [`roadmap.md`](roadmap.md) — v0.1.3 release highlights and roadmap status.
 - [`corporations.md`](corporations.md) — the four human-selectable corporations.

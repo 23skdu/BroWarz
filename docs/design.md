@@ -4,7 +4,7 @@
 **Genre:** Real-time strategy (RTS), peer-to-peer multiplayer
 **Setting:** Year 2030 — rival corporate armies fighting for resource control
 **Map size:** 128 × 128 tiles (configurable, player-created)
-**Status:** Playable v0.1.2 — live multiplayer diplomacy, co-op and spectator options, grouped menu and full-screen map framing; v0.1.3 pending publication
+**Status:** Playable v0.1.3 — 4 AI-only NPC factions, overhauled combined-arms AI tactics, Building Inspector, live lockstep soak & checksum sync, and 24 procedural SFX/voice-bark clips with subtitles
 **License:** Unlicense (public domain)
 
 ---
@@ -267,9 +267,13 @@ Economy rules:
 ## 17. AI (Skirmish)
 
 - Optional AI opponent for solo, co-op and spectator matches; dropped-player replacement remains a future extension.
-- Difficulty levels (Easy/Normal/Hard) via economy/scouting/micro bonuses, stored per team in `GameManager.team_difficulties`.
-- Behavior: expand, counter enemy composition, rally, defend, harass and attack visible enemies. `_run_ai_turn_for_team()` drives each AI side independently, while the legacy team-1 fields stay synchronized for saves and tests.
-- Knowledge is fog-aware: each AI sees through its own visibility, sends scout drones and other scouts sweeping ahead, and briefly remembers the last visible contact (45 s) without gaining live hidden positions. AI-vs-AI spectator matches attack sooner with smaller waves and a shorter rally grace.
+- Difficulty levels (Easy/Normal/Hard) via economy, reaction cadence, tech ceiling, and tactical micro bonuses, stored per team in `GameManager.team_difficulties`.
+- **Combined-arms tactics (`scripts/core/ai.gd` + `game.gd`):**
+  - **Faction doctrines:** Every corporation (IDs 0–3) and AI-only NPC faction (IDs 4–7) has its own tactical profile (retreat HP discipline, attack commit ratio, flank share, tech order, cloud-cover preference, and fortification preference).
+  - **Macro & economy:** Power-aware base building (builds `power_plant` to prevent brownouts), deposit-targeted `extractor` placement, water-aware naval yards, reactive `radar` against stealth (and early radar for Gravebound), producer-filtered counter-production with load-balanced queues, and dual-factory training on Hard.
+  - **Squad roles & micro:** Independent wounded-unit retreats (ground units pull back to friendly sappers for repair; air units duck into drifting clouds for `-25%` incoming damage), terrain-aware rally selection (forest/urban/hill cover for infantry, open high ground for armor, water for naval), anti-air air-hunt detachments, standoff positioning & kiting for artillery/siege mechs/snipers, angled flanking raids by stealth/fast units against enemy economy, naval task forces with corvette sonar buoys, and tactical worker micro (capturing damaged enemy production structures, repairing structures, and fortifying base perimeters).
+  - **Target prioritization & force ratio:** Combat units score visible targets in range using damage-type & unit-role multipliers plus focus-fire finish priority; Normal/Hard AIs compare visible force power before committing, switching to `regroup` or flank `harass` when outgunned, and deploy fog-compliant Orbital Laser / Nuclear strikes on dense visible clusters once `strategic_uplinks` is unlocked (using per-team strategic cooldowns).
+- Knowledge is strictly fog-aware: each AI sees only through its own visibility, sweeps scouts across multi-sector deposit/flank waypoints (pulling damaged scouts back), and briefly remembers the last visible contact (45 s) without gaining live hidden positions. AI-vs-AI spectator matches attack sooner with smaller waves and a shorter rally grace.
 - Faction identity is resolved per team through `GameManager.faction_for_team()`, so mirrored corporations and both spectator sides get readable chess black/white variants.
 - AI faction selectors cover IDs 0–7: NPC factions 4–7 are available only to AI sides (skirmish enemy, co-op AI, spectator); human seats stay 0–3. AI-vs-AI spectator keeps shorter rallies and smaller attack waves regardless of the chosen factions.
 
@@ -359,7 +363,6 @@ The repository now contains a playable single-player skirmish vertical slice and
 
 Outstanding gaps (see `docs/roadmap.md`):
 
-- A fuller voice-bark/SFX set beyond the current alias table.
 - Campaign/mods and dedicated server authority (deferred beyond v1).
 - Additional polish/performance passes.
 

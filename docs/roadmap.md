@@ -2,9 +2,9 @@
 
 ## Status
 
-Every previously tracked milestone and gap-analysis step has been verified against the live code and UI and removed from the checklist. **v0.1.3 is pending publication**; no tag has been moved or created, and the older tags remain where they are.
+Every previously tracked milestone and gap-analysis step has been verified against the live code and UI and removed from the checklist. **v0.1.3 is the current published release.**
 
-Verification gates are `make check` (GUT suite, post-run orphan guard, layout/deadcode checks, and workflow lint via `actionlint` when installed), headless Godot import, and CI. Web export is a separate `make build-web` gate, not part of `make check`. All checks will be run before release.
+Verification gates are `make check` (GUT suite, post-run orphan guard, layout/deadcode checks, and workflow lint via `actionlint` when installed), headless Godot import, and CI. Web export is a separate `make build-web` gate, not part of `make check`. All checks are run before release.
 
 ## Verified milestones (checklist retired)
 
@@ -15,9 +15,9 @@ Verification gates are `make check` (GUT suite, post-run orphan guard, layout/de
 
 Audit corrections applied while retiring the checklist: the registry contains **29 base unit roles / 32 IDs including worker aliases** (not “31 units”); sapper fortifications use footprint ghosts while `L`/`N` use the strike reticle; the victory panel now includes match duration; multiplayer diplomacy is documented as multiplayer-only, not skirmish; stale test counts were removed in favor of the `make check` gate.
 
-## v0.1.3 (pending publication)
+## v0.1.3
 
-Work in the pending release:
+Shipped in `v0.1.3`:
 
 - HQ-only opening: each player starts with one HQ and a small escort including a scout drone; all other buildings must be built or captured.
 - Previously deferred sonar-aware fog/minimap concealment is now implemented: corvette sonar buoys reveal submarines to their owner and allies on a cooldown, and submerged contacts stay hidden until sonar or sight finds them.
@@ -29,6 +29,7 @@ Work in the pending release:
 - Dedicated **Building Inspector Panel** (`scripts/ui/building_inspector.gd`): selecting any friendly structure opens a bottom-left panel showing icon, HP, power delta, powered radar sweep, rally coordinates, live queue progress bar, one-click unit training buttons, queue cancellation (`X`), rally reset, and 25% refund demolition.
 - Live runtime **Lockstep Soak & Checksum Sync** (`scripts/ui/lockstep_dialog.gd` + `game.gd`): exposes the multi-peer deterministic soak harness from both the main menu and pause menu, and broadcasts/compares periodic `GameState` checksums over `NetworkManager` during active P2P matches with live desync alerts.
 - Expanded **Per-Weapon SFX & Robotic Voice Barks** (`scripts/core/voice_bark.gd`, 24 synthesized WAVs in `assets/sfx/`): distinct procedural SFX for all 6 weapon damage types, unit/building explosions, orders, sonar pings, captures, tech completion, and throttled robotic voice barks with an accessible HUD subtitle toast toggled in Settings.
+- Overhauled **Combined-Arms AI Tactics** (`scripts/core/ai.gd`, `scripts/game/game.gd`, `scripts/game/unit.gd`): per-faction tactical doctrines for all 8 factions, power-aware & deposit-targeted base expansion, producer-aware counter-production, force-ratio posture (`rally`/`regroup`/`harass`/`attack`/`defend`), isolated wounded-unit retreats to repair sappers or drifting clouds, terrain-cover rallies, flanking economy raiders, standoff artillery kiting, role-based focus-fire targeting, corvette sonar-buoy deployment, sapper capture/repair/fortification micro, and fog-compliant late-game Orbital Laser / Nuke cluster strikes with per-team cooldowns.
 
 ## Deferred / future ideas
 

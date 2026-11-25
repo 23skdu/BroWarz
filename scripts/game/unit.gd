@@ -514,16 +514,36 @@ func _perform_attack(enemy: Node2D) -> void:
 	AudioManager.play_weapon_sfx(dmg_type)
 
 func _nearest_enemy_in_range() -> Node2D:
+	var rng := stats.range_px if stats else 200.0
+	if is_instance_valid(focus_target) and not ("is_exploding" in focus_target and focus_target.is_exploding):
+		if not GameManager.is_allied(team, int(focus_target.team)):
+			if global_position.distance_to(focus_target.global_position) <= rng:
+				return focus_target
+	else:
+		focus_target = null
 	var e = _nearest_enemy()
-	if e != null and global_position.distance_to(e.global_position) <= (stats.range_px if stats else 200.0):
+	if e != null and global_position.distance_to(e.global_position) <= rng:
 		return e
 	return null
 
 func _nearest_enemy() -> Node2D:
-	var best: Node2D = null
-	var best_d := INF
+	var best_in_range: Node2D = null
+	var best_range_score := 0.0
+	var best_chase: Node2D = null
+	var best_chase_d := INF
 	var sgt := effective_sight()
+	var rng := stats.range_px if stats else 200.0
 	var uid := stats.id if stats else ""
+	var uclass := stats.unit_class if stats else 0
+	var dmg_type: int = stats.damage_type if stats else Damage.DamageType.KINETIC
+	var attacker_role := AI.unit_role(uid, uclass, rng, stats != null and stats.stealth)
+	var attacker_info := {
+		"id": uid,
+		"role": attacker_role,
+		"damage_type": dmg_type,
+		"range_px": rng,
+		"pos": global_position,
+	}
 	var has_radar := Vision.is_radar_unit(uid)
 	var has_sonar := Vision.is_sonar_unit(uid)
 	var unit_candidates: Array = get_tree().get_nodes_in_group("units")
@@ -540,8 +560,6 @@ func _nearest_enemy() -> Node2D:
 			continue
 		if "is_exploding" in u and u.is_exploding:
 			continue
-		if GameManager.is_allied(team, u.team):
-			continue
 		var d := global_position.distance_to(u.global_position)
 		if u.stats and u.stats.armor_class == Damage.ArmorClass.SUBMERGED:
 			var buoy_reveal := game != null and game.has_method("sonar_reveals") \
@@ -552,19 +570,58 @@ func _nearest_enemy() -> Node2D:
 			var stealth_range := maxf(sgt, radar_support)
 			if not Vision.stealth_detected(stealth_range, d, true, has_radar or radar_support > 0.0):
 				continue
-		if d < best_d:
-			best_d = d
-			best = u
+		var target_armor: int = u.stats.armor_class if u.stats else Damage.ArmorClass.LIGHT
+		if Damage.multiplier(dmg_type as Damage.DamageType, target_armor as Damage.ArmorClass) <= 0.0:
+			continue
+		if d <= rng:
+			var max_hp_u: float = float(u.effective_max_hp()) if u.has_method("effective_max_hp") else float(u.stats.hp if u.stats else 100)
+			var threat_u: float = float(u.stats.base_damage) if u.stats else 12.0
+			var sc := AI.score_target(attacker_info, {
+				"id": u.stats.id if u.stats else "",
+				"pos": u.global_position,
+				"hp": float(u.hp),
+				"max_hp": max_hp_u,
+				"armor_class": target_armor,
+				"unit_class": u.stats.unit_class if u.stats else 0,
+				"is_building": false,
+				"threat": threat_u,
+			})
+			if sc > best_range_score:
+				best_range_score = sc
+				best_in_range = u
+		if d < best_chase_d:
+			best_chase_d = d
+			best_chase = u
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b) or GameManager.is_allied(team, b.team):
 			continue
 		if "is_exploding" in b and b.is_exploding:
 			continue
 		var d := global_position.distance_to(b.global_position)
-		if d < best_d:
-			best_d = d
-			best = b
-	return best
+		if d <= rng:
+			var bid: String = b.stats.id if b.stats else ""
+			var b_max_hp: float = float(b.stats.hp if b.stats else 500)
+			var sc := AI.score_target(attacker_info, {
+				"id": bid,
+				"pos": b.global_position,
+				"hp": float(b.hp),
+				"max_hp": b_max_hp,
+				"armor_class": Damage.ArmorClass.STRUCTURE,
+				"unit_class": 0,
+				"is_building": true,
+				"is_hq": b.stats != null and b.stats.is_hq,
+				"is_production": UnitRegistry.is_production_building(bid),
+				"is_economy": bid in AI.ECONOMY_BUILDINGS,
+				"is_defense": bid in AI.DEFENSE_BUILDINGS,
+				"threat": 42.0 if bid in AI.DEFENSE_BUILDINGS else 25.0,
+			})
+			if sc > best_range_score:
+				best_range_score = sc
+				best_in_range = b
+		if d < best_chase_d:
+			best_chase_d = d
+			best_chase = b
+	return best_in_range if best_in_range != null else best_chase
 
 func move_to(pos: Vector2, is_attack_move: bool = false) -> void:
 	if is_exploding:

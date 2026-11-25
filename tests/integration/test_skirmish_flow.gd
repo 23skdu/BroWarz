@@ -557,3 +557,92 @@ func test_research_dialog_repopulate_does_not_leak_tree_nodes():
 	dialog.populate(["reactive_armor"], wallet, true)
 	dialog.populate(["reactive_armor", "railgun_cal"], wallet, true)
 	assert_eq(dialog.get_child_count(), initial_count)
+
+func test_ai_retreat_is_isolated_to_wounded_units_and_does_not_pull_healthy_squad():
+	GameManager.start_single_player(AI.Difficulty.NORMAL, MapData.new(64, 64), 0, 1, 3)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	game.elapsed_time = 90.0
+	var hq1: Node2D = game._find_team_hq(1)
+	assert_not_null(hq1)
+	var enemy_pos := hq1.global_position + Vector2(-420, 0)
+	# Give AI a visible enemy cluster + an attacking squad where only one unit is wounded.
+	game._spawn_unit_by_id("riflebot", enemy_pos, 0)
+	var wounded: Node2D = game._spawn_unit_by_id("mbt", enemy_pos + Vector2(120, 0), 1)
+	wounded.hp = 10
+	var healthy: Array = []
+	for i in range(6):
+		healthy.append(game._spawn_unit_by_id("mbt", enemy_pos + Vector2(140, float(i) * 20.0), 1))
+	game._run_skirmish_ai_turn()
+	assert_eq(String(game._ai_state(1)["tactical_state"]), "attack")
+	# Wounded unit retreats without attack_move; healthy vanguard continues attack_moving forward.
+	assert_false(bool(wounded.attack_move))
+	assert_true(bool(healthy[0].attack_move))
+	assert_lt(healthy[0].target_pos.distance_to(enemy_pos), wounded.target_pos.distance_to(enemy_pos))
+
+func test_ai_builds_power_plant_extractors_on_deposits_and_executes_combined_arms_tactics():
+	var custom := MapData.new(64, 64)
+	custom.set_hq_spawn(0, 8, 8)
+	custom.set_hq_spawn(1, 52, 52)
+	for t in range(4):
+		custom.add_deposit(t, 12 + t * 2, 10, 1500, 10.0)
+		custom.add_deposit(t, 46 - t * 2, 50, 1500, 10.0)
+	GameManager.start_single_player(AI.Difficulty.HARD, custom, 0, 1, 3)
+	var game: Node2D = preload("res://scenes/game.tscn").instantiate()
+	add_child_autofree(game)
+	NetworkManager.attach_game(null)
+	var wallet: Dictionary = ResourceManager.get_wallet(1)
+	wallet[Economy.Res.OIL] = 4000
+	wallet[Economy.Res.IRON] = 4000
+	wallet[Economy.Res.GEOTHERMAL] = 2000
+	wallet[Economy.Res.FOOD] = 1000
+	var hq1: Node2D = game._find_team_hq(1)
+	# Force brownout with factories, then verify AI builds a power_plant.
+	game._spawn_building_by_id("barracks", hq1.global_position + Vector2(-80, 0), 1)
+	game._spawn_building_by_id("factory", hq1.global_position + Vector2(-140, 0), 1)
+	game._tick_power()
+	game.elapsed_time = 20.0
+	game._run_skirmish_ai_turn()
+	assert_gt(game._count_team_buildings(1, "power_plant"), 0)
+
+	# Next build (extractor) should land within harvest radius (112 px) of a deposit.
+	game._tick_power()
+	game.elapsed_time = 40.0
+	game._run_skirmish_ai_turn()
+	var extractor_near_deposit := false
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and int(b.team) == 1 and b.stats != null and b.stats.id == "extractor":
+			if game._near_resource_deposit(b.global_position):
+				extractor_near_deposit = true
+				break
+	assert_true(extractor_near_deposit, "AI extractor must be placed within deposit harvest radius")
+
+	# Anti-air unit prefers aircraft in range over a closer riflebot.
+	var aa: Node2D = game._spawn_unit_by_id("aa_vehicle", Vector2(500, 500), 1)
+	var close_inf: Node2D = game._spawn_unit_by_id("riflebot", Vector2(580, 500), 0)
+	var bomber: Node2D = game._spawn_unit_by_id("bomber_drone", Vector2(680, 500), 0)
+	assert_eq(aa._nearest_enemy(), bomber)
+	assert_ne(aa._nearest_enemy(), close_inf)
+
+	# Hard AI with strategic_uplinks fires Orbital Laser at dense visible enemy cluster
+	# without locking out the human player's laser_cooldown.
+	game.team_unlocked_tech[1] = ["reactive_armor", "railgun_cal", "super_heavy", "strategic_uplinks"]
+	var cluster_pos := hq1.global_position + Vector2(-180, -120)
+	var target_hq_proxy: Node2D = game._spawn_building_by_id("factory", cluster_pos, 0)
+	game._spawn_building_by_id("barracks", cluster_pos + Vector2(32, 0), 0)
+	var hp_before_laser: int = int(target_hq_proxy.hp)
+	game.laser_cooldown = 0.0
+	game.elapsed_time = 95.0
+	game._run_skirmish_ai_turn()
+	assert_lt(int(target_hq_proxy.hp), hp_before_laser, "AI should fire strategic strike at dense visible cluster")
+	assert_almost_eq(game.laser_cooldown, 0.0, 0.001, "AI laser must not put human player's laser on cooldown")
+
+	# Corvette AI deploys a sonar buoy when enemy submarine is detected/present.
+	var corvette: Node2D = game._spawn_unit_by_id("corvette", Vector2(300, 300), 1)
+	game._spawn_unit_by_id("attack_sub", Vector2(400, 300), 0)
+	var buoys_before: int = int(game.sonar_buoys.size())
+	game.elapsed_time = 110.0
+	game._run_skirmish_ai_turn()
+	assert_gt(game.sonar_buoys.size(), buoys_before)
+	assert_true(is_instance_valid(corvette))

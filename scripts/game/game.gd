@@ -65,6 +65,8 @@ var research_dialog: ResearchDialog = null
 var diplomacy_dialog: DiplomacyDialog = null
 var laser_cooldown: float = 0.0
 var nuke_cooldown: float = 0.0
+var laser_cooldowns: Dictionary = {}  # team -> remaining seconds
+var nuke_cooldowns: Dictionary = {}   # team -> remaining seconds
 var active_vfx: Array = []      # Array of Dictionary {type, pos, radius, max_radius, color, timer, duration}
 var active_tracers: Array = []  # Array of Dictionary {from, to, color, width, timer, duration}
 var scorch_marks: Array = []    # Array of Dictionary {pos, radius, alpha}
@@ -168,6 +170,8 @@ func _exit_tree() -> void:
 	ai_retreat_until.clear()
 	ai_order_until.clear()
 	ai_states.clear()
+	laser_cooldowns.clear()
+	nuke_cooldowns.clear()
 	spatial_unit_positions.clear()
 	spatial_unit_nodes.clear()
 	spatial_unit_grid.clear()
@@ -1444,11 +1448,14 @@ func _train_unit_for_team(team: int, uid: String) -> bool:
 	# fixed coordinates when the required factory is missing.
 	var valid_producers := UnitRegistry.producer_ids_for_unit(uid, s.unit_class)
 	var producer: Node2D = null
+	var best_q_len := 999999
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and not b.is_exploding and b.team == team and b.stats != null:
 			if String(b.stats.id) in valid_producers and b.has_method("enqueue_unit"):
-				producer = b
-				break
+				var q_len: int = b.production_queue.size() if "production_queue" in b else 0
+				if q_len < best_q_len:
+					best_q_len = q_len
+					producer = b
 	if producer == null:
 		if team == GameManager.local_team and is_instance_valid(status_label):
 			status_label.text = "%s requires: %s" % [uid, ", ".join(PackedStringArray(valid_producers))]
@@ -1587,12 +1594,18 @@ func _building_anchor(team: int) -> Vector2:
 ## Deterministic ring search around a base. Every candidate must satisfy the
 ## same placement rules as a human click, so auto-placed AI structures never
 ## land on water, mountains or tiles occupied by another building.
-func _find_free_build_tile(team: int, bid: String, footprint: Vector2i, anchor: Vector2) -> Vector2i:
+func _find_free_build_tile(
+	team: int, bid: String, footprint: Vector2i, anchor: Vector2,
+	min_ring: int = 3, max_ring: int = -1
+) -> Vector2i:
 	if map_data == null:
 		return Vector2i(-1, -1)
 	var base := Vector2i(int(anchor.x / TILE_SIZE), int(anchor.y / TILE_SIZE))
 	var start := wrapi(team * 5 + _count_team_buildings(team, bid) * 3, 0, 16)
-	for ring in range(3, mini(map_data.width, map_data.height)):
+	var limit := mini(map_data.width, map_data.height)
+	if max_ring > 0:
+		limit = mini(limit, max_ring + 1)
+	for ring in range(maxi(1, min_ring), limit):
 		for step in range(16):
 			var angle := TAU * float((step + start) % 16) / 16.0
 			var tile := base + Vector2i(
@@ -1722,10 +1735,20 @@ func _player_upgrade_tech() -> void:
 		return
 	submit_player_command({"type": "tech", "id": str(avail[0])})
 
+func _team_laser_cooldown(team: int) -> float:
+	if laser_cooldowns.has(team):
+		return float(laser_cooldowns[team])
+	return laser_cooldown if team == maxi(0, GameManager.local_team) else 0.0
+
+func _team_nuke_cooldown(team: int) -> float:
+	if nuke_cooldowns.has(team):
+		return float(nuke_cooldowns[team])
+	return nuke_cooldown if team == maxi(0, GameManager.local_team) else 0.0
+
 func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF, team: int = -1) -> bool:
-	if laser_cooldown > 0.0:
-		return false
 	var actor := team if team >= 0 else GameManager.local_team
+	if _team_laser_cooldown(actor) > 0.0:
+		return false
 	var wallet := ResourceManager.get_wallet(actor)
 	var uplifted := team_has_tech(actor, "strategic_uplinks")
 	var uplink_mult := 0.75 if uplifted else 1.0
@@ -1735,7 +1758,10 @@ func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF, team: int =
 	}):
 		return false
 	var mods := Faction.modifiers(GameManager.faction_for_team(actor))
-	laser_cooldown = 25.0 * float(mods.get("orbital_cooldown", 1.0)) * uplink_mult
+	var cd := 25.0 * float(mods.get("orbital_cooldown", 1.0)) * uplink_mult
+	laser_cooldowns[actor] = cd
+	if actor == maxi(0, GameManager.local_team):
+		laser_cooldown = cd
 	var target_pos := world_target
 	if target_pos == Vector2.INF:
 		target_pos = Vector2(1060, 860)
@@ -1751,9 +1777,9 @@ func _player_fire_orbital_laser(world_target: Vector2 = Vector2.INF, team: int =
 	return true
 
 func _player_fire_nuke(world_target: Vector2 = Vector2.INF, team: int = -1) -> bool:
-	if nuke_cooldown > 0.0:
-		return false
 	var actor := team if team >= 0 else GameManager.local_team
+	if _team_nuke_cooldown(actor) > 0.0:
+		return false
 	var wallet := ResourceManager.get_wallet(actor)
 	var uplink_mult := 0.75 if team_has_tech(actor, "strategic_uplinks") else 1.0
 	if not Economy.spend(wallet, {
@@ -1762,7 +1788,10 @@ func _player_fire_nuke(world_target: Vector2 = Vector2.INF, team: int = -1) -> b
 		Economy.Res.OIL: int(round(180.0 * uplink_mult)),
 	}):
 		return false
-	nuke_cooldown = 45.0 * uplink_mult
+	var cd := 45.0 * uplink_mult
+	nuke_cooldowns[actor] = cd
+	if actor == maxi(0, GameManager.local_team):
+		nuke_cooldown = cd
 	var target_pos := world_target
 	if target_pos == Vector2.INF:
 		target_pos = Vector2(1100, 900)
@@ -2165,6 +2194,8 @@ func _reset_match_transients() -> void:
 	drag_selecting = false
 	laser_cooldown = 0.0
 	nuke_cooldown = 0.0
+	laser_cooldowns.clear()
+	nuke_cooldowns.clear()
 	economy_timer = 0.0
 	ai_timer = 0.0
 	ai_tactical_state = "rally"
@@ -2397,6 +2428,23 @@ func _process(delta):
 	_rebuild_spatial_grid()
 	laser_cooldown = maxf(0.0, laser_cooldown - delta)
 	nuke_cooldown = maxf(0.0, nuke_cooldown - delta)
+	for tid in laser_cooldowns.keys():
+		var rem: float = float(laser_cooldowns[tid]) - delta
+		if rem <= 0.0:
+			laser_cooldowns.erase(tid)
+		else:
+			laser_cooldowns[tid] = rem
+	for tid in nuke_cooldowns.keys():
+		var rem_n: float = float(nuke_cooldowns[tid]) - delta
+		if rem_n <= 0.0:
+			nuke_cooldowns.erase(tid)
+		else:
+			nuke_cooldowns[tid] = rem_n
+	var local_t := maxi(0, GameManager.local_team)
+	if laser_cooldowns.has(local_t):
+		laser_cooldown = float(laser_cooldowns[local_t])
+	if nuke_cooldowns.has(local_t):
+		nuke_cooldown = float(nuke_cooldowns[local_t])
 	_cleanup_sonar_buoys()
 
 	for i in range(active_vfx.size() - 1, -1, -1):
@@ -2483,6 +2531,278 @@ func _run_skirmish_ai_turn() -> void:
 		if GameManager.is_ai_team(team):
 			_run_ai_turn_for_team(team)
 
+func _visible_enemy_buildings(team: int) -> Array:
+	var knowledge_fog: FogOfWar = fog
+	if GameManager.is_ai_team(team):
+		knowledge_fog = _refresh_team_fog(team)
+	var out: Array = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b) or ("is_exploding" in b and b.is_exploding):
+			continue
+		if int(b.team) == team or GameManager.is_allied(team, int(b.team)):
+			continue
+		if _node_visible_to_team(team, b, knowledge_fog):
+			out.append(b)
+	return out
+
+func _team_available_producers(team: int) -> Array:
+	var out: Array = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and int(b.team) == team and b.stats != null:
+			if b.has_method("enqueue_unit") and not out.has(String(b.stats.id)):
+				out.append(String(b.stats.id))
+	return out
+
+func _map_has_water_near(anchor: Vector2, radius_tiles: int = 28) -> bool:
+	if map_data == null:
+		return false
+	var cx := clampi(int(anchor.x / TILE_SIZE), 0, map_data.width - 1)
+	var cy := clampi(int(anchor.y / TILE_SIZE), 0, map_data.height - 1)
+	var min_x := maxi(0, cx - radius_tiles)
+	var max_x := mini(map_data.width - 1, cx + radius_tiles)
+	var min_y := maxi(0, cy - radius_tiles)
+	var max_y := mini(map_data.height - 1, cy + radius_tiles)
+	for ty in range(min_y, max_y + 1, 2):
+		for tx in range(min_x, max_x + 1, 2):
+			var t := map_data.get_terrain(tx, ty)
+			if t == MapData.Terrain.SEA or t == MapData.Terrain.RIVER:
+				return true
+	return false
+
+func _find_unclaimed_deposit_pos(_team: int, anchor: Vector2, visible_enemies: Array) -> Vector2:
+	var best_pos := Vector2.INF
+	var best_dist := INF
+	for rd in resource_deposits:
+		var dep: ResourceDeposit = rd.get("deposit", null)
+		if dep == null or dep.is_depleted():
+			continue
+		var pos: Vector2 = rd.get("pos", Vector2.INF)
+		if pos == Vector2.INF:
+			continue
+		# Skip deposits already harvested by any extractor.
+		var claimed := false
+		for b in get_tree().get_nodes_in_group("buildings"):
+			if is_instance_valid(b) and not b.is_exploding and b.stats != null and b.stats.id == "extractor":
+				if b.global_position.distance_to(pos) <= 112.0:
+					claimed = true
+					break
+		if claimed:
+			continue
+		# Avoid walking into an actively contested deposit with visible hostiles on it.
+		var contested := false
+		for eu in visible_enemies:
+			if is_instance_valid(eu) and eu.global_position.distance_to(pos) <= 180.0:
+				contested = true
+				break
+		if contested:
+			continue
+		var d := anchor.distance_to(pos)
+		if d < best_dist:
+			best_dist = d
+			best_pos = pos
+	return best_pos
+
+func _build_ai_structure(ai_team: int, bid: String, ai_base_pos: Vector2, enemy_units: Array) -> bool:
+	if bid == "extractor":
+		var bs := GameManager.registry.get_building("extractor")
+		var dep_pos := _find_unclaimed_deposit_pos(ai_team, ai_base_pos, enemy_units)
+		if bs != null and dep_pos != Vector2.INF:
+			var tile := _find_free_build_tile(ai_team, "extractor", bs.footprint, dep_pos, 1, 6)
+			if tile.x >= 0 and tile.y >= 0:
+				var world_pos := Vector2(
+					float(tile.x) + float(bs.footprint.x) * 0.5,
+					float(tile.y) + float(bs.footprint.y) * 0.5
+				) * TILE_SIZE
+				if _issue_ai_command(ai_team, {
+					"type": "build", "id": "extractor",
+					"x": clampf(world_pos.x, 0.0, NetSecurity.MAX_COORD),
+					"y": clampf(world_pos.y, 0.0, NetSecurity.MAX_COORD),
+				}):
+					return true
+	return _issue_ai_command(ai_team, {"type": "build", "id": bid})
+
+func _build_target_entries(enemy_units: Array, enemy_buildings: Array) -> Array:
+	var entries: Array = []
+	for eu in enemy_units:
+		if not is_instance_valid(eu) or eu.is_exploding or eu.stats == null:
+			continue
+		var max_hp: float = float(eu.effective_max_hp()) if eu.has_method("effective_max_hp") else float(eu.stats.hp)
+		var threat: float = AI.unit_combat_power(max_hp, float(eu.stats.base_damage), float(eu.stats.range_px), int(eu.stats.unit_class))
+		entries.append({
+			"node": eu,
+			"id": String(eu.stats.id),
+			"pos": eu.global_position,
+			"hp": float(eu.hp),
+			"max_hp": max_hp,
+			"armor_class": int(eu.stats.armor_class),
+			"unit_class": int(eu.stats.unit_class),
+			"is_building": false,
+			"is_hq": false,
+			"is_production": false,
+			"is_economy": false,
+			"is_defense": false,
+			"threat": threat,
+		})
+	for eb in enemy_buildings:
+		if not is_instance_valid(eb) or eb.is_exploding or eb.stats == null:
+			continue
+		var bid := String(eb.stats.id)
+		var b_threat := 65.0 if bid in AI.DEFENSE_BUILDINGS else (55.0 if eb.stats.is_hq else 30.0)
+		entries.append({
+			"node": eb,
+			"id": bid,
+			"pos": eb.global_position,
+			"hp": float(eb.hp),
+			"max_hp": float(eb.stats.hp),
+			"armor_class": Damage.ArmorClass.STRUCTURE,
+			"unit_class": 0,
+			"is_building": true,
+			"is_hq": bool(eb.stats.is_hq),
+			"is_production": UnitRegistry.is_production_building(bid),
+			"is_economy": bid in AI.ECONOMY_BUILDINGS,
+			"is_defense": bid in AI.DEFENSE_BUILDINGS,
+			"threat": b_threat,
+		})
+	return entries
+
+func _issue_ai_move(ai_team: int, unit_ids: Array, target: Vector2, attack_move: bool) -> bool:
+	if unit_ids.is_empty():
+		return false
+	return _issue_ai_command(ai_team, {
+		"type": "move", "unit_ids": unit_ids,
+		"target_x": clampf(target.x, 0.0, NetSecurity.MAX_COORD),
+		"target_y": clampf(target.y, 0.0, NetSecurity.MAX_COORD),
+		"attack_move": attack_move,
+	})
+
+func _collect_ready_ids(units: Array, state: Dictionary, difficulty: int, force: bool) -> Array:
+	var ids: Array = []
+	var order_until: Dictionary = state["order_until"]
+	for u in units:
+		var key := int(u.get_instance_id())
+		if not force and elapsed_time < float(order_until.get(key, 0.0)):
+			continue
+		ids.append(int(u.net_id))
+		order_until[key] = elapsed_time + AI.order_interval(difficulty)
+	return ids
+
+func _group_centroid(units: Array, fallback: Vector2) -> Vector2:
+	if units.is_empty():
+		return fallback
+	var sum := Vector2.ZERO
+	for u in units:
+		sum += u.global_position
+	return sum / float(units.size())
+
+func _run_ai_worker_tactics(
+	ai_team: int, workers: Array, ai_base_pos: Vector2, enemy_hint_pos: Vector2,
+	enemy_buildings: Array, enemy_units: Array, enemy_comp: Dictionary,
+	b_counts: Dictionary, ai_fac: int, difficulty: int, state: Dictionary
+) -> void:
+	if workers.is_empty() or difficulty < AI.Difficulty.NORMAL:
+		return
+	var order_until: Dictionary = state["order_until"]
+	# 1. Opportunistically capture visible damaged enemy production buildings.
+	for eb in enemy_buildings:
+		if not is_instance_valid(eb) or eb.is_exploding or eb.stats == null:
+			continue
+		if not UnitRegistry.is_production_building(String(eb.stats.id)):
+			continue
+		if eb.hp > int(float(eb.stats.hp) * 0.5):
+			continue
+		var best_w: Node2D = null
+		var best_d := 560.0
+		for w in workers:
+			var d: float = w.global_position.distance_to(eb.global_position)
+			if d < best_d:
+				best_d = d
+				best_w = w
+		if best_w != null:
+			var wkey := int(best_w.get_instance_id())
+			if elapsed_time >= float(order_until.get(wkey, 0.0)):
+				if _issue_ai_command(ai_team, {
+					"type": "capture", "unit_ids": [int(best_w.net_id)],
+					"target_x": clampf(eb.global_position.x, 0.0, NetSecurity.MAX_COORD),
+					"target_y": clampf(eb.global_position.y, 0.0, NetSecurity.MAX_COORD),
+				}):
+					order_until[wkey] = elapsed_time + AI.order_interval(difficulty) * 1.5
+				return
+
+	# 2. Repair damaged friendly structures near base.
+	var repair_target: Node2D = null
+	var lowest_ratio := 0.90
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b) or b.is_exploding or int(b.team) != ai_team or b.stats == null:
+			continue
+		var ratio := float(b.hp) / maxf(1.0, float(b.stats.hp))
+		if ratio < lowest_ratio:
+			lowest_ratio = ratio
+			repair_target = b
+	if repair_target != null:
+		var w_ids := _collect_ready_ids(workers, state, difficulty, false)
+		_issue_ai_move(ai_team, w_ids, repair_target.global_position + Vector2(28, 0), false)
+		return
+
+	# 3. Construct forward perimeter fortifications (Hard, or FerroCore on Normal).
+	var wants_fort := difficulty >= AI.Difficulty.HARD or ai_fac == Faction.Id.FERROCORE
+	if wants_fort and elapsed_time >= 40.0 and enemy_units.is_empty():
+		var fort_id := "missile_tower" if int(enemy_comp.get("air", 0)) >= 1 else str(AI.doctrine(ai_fac).get("fortify_pref", "missile_tower"))
+		var existing_forts := int(b_counts.get("missile_tower", 0)) + int(b_counts.get("wall", 0))
+		if existing_forts < 2:
+			var site := AI.choose_fortification_site(map_data, ai_base_pos, enemy_hint_pos, occupied_tiles, fort_id)
+			if site != Vector2.INF:
+				var sapper: Node2D = workers[0]
+				if sapper.global_position.distance_to(site) <= 92.0:
+					_issue_ai_command(ai_team, {
+						"type": "fortify", "id": fort_id,
+						"target_x": clampf(site.x, 0.0, NetSecurity.MAX_COORD),
+						"target_y": clampf(site.y, 0.0, NetSecurity.MAX_COORD),
+					})
+				else:
+					var w_ids := _collect_ready_ids([sapper], state, difficulty, false)
+					_issue_ai_move(ai_team, w_ids, site, false)
+
+func _run_ai_strategic_weapons(
+	ai_team: int, difficulty: int, enemy_units: Array, enemy_buildings: Array, state: Dictionary
+) -> void:
+	if difficulty < AI.Difficulty.NORMAL or not team_has_tech(ai_team, "strategic_uplinks"):
+		return
+	if elapsed_time < float(state.get("next_strategic_time", 0.0)):
+		return
+	var strike_entries: Array = []
+	for eu in enemy_units:
+		if not is_instance_valid(eu) or eu.is_exploding or eu.stats == null:
+			continue
+		var val := AI.unit_combat_power(float(eu.hp), float(eu.stats.base_damage), float(eu.stats.range_px), int(eu.stats.unit_class))
+		strike_entries.append({"pos": eu.global_position, "value": val})
+	for eb in enemy_buildings:
+		if not is_instance_valid(eb) or eb.is_exploding or eb.stats == null:
+			continue
+		var bid := String(eb.stats.id)
+		var val := 500.0 if eb.stats.is_hq else (260.0 if UnitRegistry.is_production_building(bid) else (180.0 if bid in AI.DEFENSE_BUILDINGS else 140.0))
+		strike_entries.append({"pos": eb.global_position, "value": val})
+	if strike_entries.is_empty():
+		return
+	if difficulty >= AI.Difficulty.HARD and _team_nuke_cooldown(ai_team) <= 0.0:
+		var nuke_pos := AI.choose_strategic_strike_target(strike_entries, 180.0, 480.0)
+		if nuke_pos != Vector2.INF:
+			if _issue_ai_command(ai_team, {
+				"type": "nuke",
+				"x": clampf(nuke_pos.x, 0.0, NetSecurity.MAX_COORD),
+				"y": clampf(nuke_pos.y, 0.0, NetSecurity.MAX_COORD),
+			}):
+				state["next_strategic_time"] = elapsed_time + 12.0
+				return
+	if _team_laser_cooldown(ai_team) <= 0.0:
+		var laser_pos := AI.choose_strategic_strike_target(strike_entries, 95.0, 240.0)
+		if laser_pos != Vector2.INF:
+			if _issue_ai_command(ai_team, {
+				"type": "laser",
+				"x": clampf(laser_pos.x, 0.0, NetSecurity.MAX_COORD),
+				"y": clampf(laser_pos.y, 0.0, NetSecurity.MAX_COORD),
+			}):
+				state["next_strategic_time"] = elapsed_time + 10.0
+
 func _run_ai_turn_for_team(ai_team: int) -> void:
 	var state := _ai_state(ai_team)
 	var difficulty := GameManager.difficulty_for_team(ai_team)
@@ -2490,69 +2810,153 @@ func _run_ai_turn_for_team(ai_team: int) -> void:
 	var ai_wallet := ResourceManager.get_wallet(ai_team)
 	var b_counts := _get_team_building_counts(ai_team)
 	var ai_units := _get_team_units(ai_team)
-	# Enemy knowledge comes from this side's own fog, never the spectator view.
+	# Enemy knowledge comes strictly from this side's own fog, never spectator vision.
 	var enemy_units := _visible_enemy_units(ai_team)
+	var enemy_buildings := _visible_enemy_buildings(ai_team)
 	var pop_cap := int(ResourceManager.caps.get(ai_team, 20))
-
-	# 1. Economy & base expansion, issued as host-relayed commands.
 	var ai_fac := GameManager.faction_for_team(ai_team)
-	var next_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap, ai_fac)
-	if elapsed_time >= float(state["next_build_time"]) \
-			and AI.should_expand(float(ResourceManager.rates[ai_team].get(Economy.Res.IRON, 0)), 10.0):
-		var built := _issue_ai_command(ai_team, {"type": "build", "id": next_bld})
-		if not built and Faction.is_npc(ai_fac):
-			var fallback_bld := AI.select_next_building(b_counts, ai_units.size(), pop_cap, -1)
-			if fallback_bld != next_bld:
-				built = _issue_ai_command(ai_team, {"type": "build", "id": fallback_bld})
-		if built:
-			state["next_build_time"] = elapsed_time + AI.build_interval(difficulty)
+	var doctrine_cfg := AI.doctrine(ai_fac)
+	var world_size := _map_world_size()
 
-	# 2. Tech progression through the same validated research command peers use.
-	var unlocked: Array = team_unlocked_tech.get(ai_team, [])
-	var available := Tech.available_nodes(unlocked)
-	if int(state["tech_tier"]) < 3 and elapsed_time > 25.0 * float(state["tech_tier"]) and not available.is_empty():
-		if _issue_ai_command(ai_team, {"type": "tech", "id": str(available[0])}):
-			state["tech_tier"] = mini(4, int(state["tech_tier"]) + 1)
-
-	# 3. Counter-production against every enemy side this AI has actually seen.
-	var enemy_comp := _classify_units(enemy_units)
-	for enemy_team in _enemy_teams(ai_team):
-		enemy_comp["fortifications"] = int(enemy_comp.get("fortifications", 0)) + _count_team_buildings(enemy_team, "turret")
-	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]), ai_fac)
-	if elapsed_time >= float(state["next_train_time"]):
-		var trained := _issue_ai_command(ai_team, {"type": "train", "id": chosen_uid})
-		if not trained and Faction.is_npc(ai_fac):
-			var fallback_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]), -1)
-			if fallback_uid != chosen_uid:
-				trained = _issue_ai_command(ai_team, {"type": "train", "id": fallback_uid})
-		if trained:
-			state["next_train_time"] = elapsed_time + AI.train_interval(difficulty)
-
-	# 4. Tactical squad coordination. Scouts sweep ahead of the main squad
-	# under fog; the combat group remembers the last contact it discovered.
 	var ai_hq := _find_team_hq(ai_team)
 	var fallback_base := Vector2(1100, 900) if ai_team == 1 else Vector2(160, 160)
 	var ai_base_pos := ai_hq.global_position if ai_hq != null else fallback_base
+	var has_water := _map_has_water_near(ai_base_pos)
+
+	var enemy_comp := _classify_units(enemy_units)
+	var visible_forts := 0
+	for eb in enemy_buildings:
+		if is_instance_valid(eb) and eb.stats != null and (String(eb.stats.id) in AI.DEFENSE_BUILDINGS or String(eb.stats.id) == "wall"):
+			visible_forts += 1
+	enemy_comp["fortifications"] = visible_forts
+
+	# 1. Power-aware, deposit-targeted, threat-reactive base expansion.
+	var power_bal := float(get_team_power_summary(ai_team).get("balance", 0.0))
+	var next_bld := AI.select_next_building(
+		b_counts, ai_units.size(), pop_cap, ai_fac, power_bal, enemy_comp, has_water, int(state["tech_tier"])
+	)
+	if elapsed_time >= float(state["next_build_time"]) \
+			and AI.should_expand(float(ResourceManager.rates[ai_team].get(Economy.Res.IRON, 0)), 10.0):
+		var built := _build_ai_structure(ai_team, next_bld, ai_base_pos, enemy_units)
+		if not built:
+			var fallback_bld := AI.select_next_building(
+				b_counts, ai_units.size(), pop_cap, -1, power_bal, enemy_comp, false, int(state["tech_tier"])
+			)
+			if fallback_bld != next_bld:
+				built = _build_ai_structure(ai_team, fallback_bld, ai_base_pos, enemy_units)
+		if built:
+			state["next_build_time"] = elapsed_time + AI.build_interval(difficulty)
+
+	# 2. Doctrine-guided tech progression (Easy caps at T2; Normal/Hard climb to T4).
+	var unlocked: Array = team_unlocked_tech.get(ai_team, [])
+	var available := Tech.available_nodes(unlocked)
+	var max_tier := 2 if difficulty == AI.Difficulty.EASY else 4
+	var tier_pace := 18.0 if difficulty == AI.Difficulty.HARD else 24.0
+	if int(state["tech_tier"]) < max_tier and elapsed_time > tier_pace * float(state["tech_tier"]) and not available.is_empty():
+		var tech_id := AI.choose_tech_node(available, ai_fac, enemy_comp)
+		if not tech_id.is_empty() and _issue_ai_command(ai_team, {"type": "tech", "id": tech_id}):
+			state["tech_tier"] = mini(4, int(state["tech_tier"]) + 1)
+
+	# 3. Producer-aware counter-production (with dual-queue macro on Hard).
+	var own_comp := _classify_units(ai_units)
+	var producers := _team_available_producers(ai_team)
+	var chosen_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]), ai_fac, own_comp, producers)
+	if elapsed_time >= float(state["next_train_time"]):
+		var trained := _issue_ai_command(ai_team, {"type": "train", "id": chosen_uid})
+		if not trained:
+			var fallback_uid := AI.choose_production_unit(ai_wallet, enemy_comp, int(state["tech_tier"]), -1, own_comp, producers)
+			if fallback_uid != chosen_uid:
+				trained = _issue_ai_command(ai_team, {"type": "train", "id": fallback_uid})
+		if trained:
+			# Hard AI leverages parallel production across distinct factories when wealthy.
+			if difficulty >= AI.Difficulty.HARD and producers.size() >= 2 \
+					and int(ai_wallet.get(Economy.Res.IRON, 0)) >= 280:
+				var used_prods := UnitRegistry.producer_ids_for_unit(chosen_uid, Faction.unit_class_for_id(chosen_uid))
+				var alt_producers: Array = []
+				for pid in producers:
+					if not used_prods.has(pid):
+						alt_producers.append(pid)
+				if not alt_producers.is_empty():
+					var second_uid := AI.choose_production_unit(
+						ai_wallet, enemy_comp, int(state["tech_tier"]), ai_fac, own_comp, alt_producers
+					)
+					_issue_ai_command(ai_team, {"type": "train", "id": second_uid})
+			state["next_train_time"] = elapsed_time + AI.train_interval(difficulty)
+
+	# 4. Base & perimeter threat scan (protects HQ and all friendly structures).
+	var friendly_buildings: Array = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and not b.is_exploding and int(b.team) == ai_team:
+			friendly_buildings.append(b)
+
 	var enemy_near_base := 0
 	var closest_intruder: Node2D = null
+	var best_intruder_score := -INF
+	var hq_under_attack := false
 	for eu in enemy_units:
-		if eu.global_position.distance_to(ai_base_pos) <= 320.0:
+		var d_hq: float = eu.global_position.distance_to(ai_base_pos)
+		var threatens := d_hq <= 340.0
+		if d_hq <= 240.0:
+			hq_under_attack = true
+		if not threatens:
+			for fb in friendly_buildings:
+				if eu.global_position.distance_to(fb.global_position) <= 240.0:
+					threatens = true
+					break
+		if threatens:
 			enemy_near_base += 1
-			closest_intruder = eu
+			var threat_val: float = float(eu.stats.base_damage if eu.stats else 12) * 4.0 - d_hq * 0.25
+			if threat_val > best_intruder_score:
+				best_intruder_score = threat_val
+				closest_intruder = eu
 
+	# 5. Partition friendly units by combined-arms role.
+	var workers: Array = []
 	var scouts: Array = []
 	var combat_units: Array = []
+	var naval_units: Array = []
+	var anti_air_units: Array = []
+	var standoff_units: Array = []
+	var raider_units: Array = []
+	var vanguard_units: Array = []
+	var repair_positions: Array = []
+	var own_power := 0.0
+
 	for u in ai_units:
-		if u.stats == null or u.stats.id == "sapperbot":
+		if u.stats == null:
 			continue
-		if UnitRegistry.is_scout_unit(u.stats.id):
-			scouts.append(u)
-		else:
-			combat_units.append(u)
+		var role := AI.unit_role(String(u.stats.id), int(u.stats.unit_class), float(u.stats.range_px), bool(u.stats.stealth))
+		match role:
+			"worker":
+				workers.append(u)
+				repair_positions.append(u.global_position)
+			"scout":
+				scouts.append(u)
+			_:
+				combat_units.append(u)
+				own_power += AI.unit_combat_power(
+					float(u.hp), float(u.stats.base_damage), float(u.stats.range_px), int(u.stats.unit_class)
+				)
+				match role:
+					"naval": naval_units.append(u)
+					"anti_air": anti_air_units.append(u)
+					"standoff": standoff_units.append(u)
+					"raider": raider_units.append(u)
+					_: vanguard_units.append(u)
+
+	var enemy_power := 0.0
+	for eu in enemy_units:
+		if is_instance_valid(eu) and eu.stats != null:
+			enemy_power += AI.unit_combat_power(
+				float(eu.hp), float(eu.stats.base_damage), float(eu.stats.range_px), int(eu.stats.unit_class)
+			)
+	for eb in enemy_buildings:
+		if is_instance_valid(eb) and eb.stats != null and String(eb.stats.id) in AI.DEFENSE_BUILDINGS:
+			enemy_power += 140.0
 
 	# Drop stale cooldown keys for units that died since the previous tick.
 	var live_keys: Dictionary = {}
-	for u in combat_units:
+	for u in ai_units:
 		live_keys[int(u.get_instance_id())] = true
 	for key in (state["retreat_until"] as Dictionary).keys():
 		if not live_keys.has(key):
@@ -2561,35 +2965,17 @@ func _run_ai_turn_for_team(ai_team: int) -> void:
 		if not live_keys.has(key):
 			(state["order_until"] as Dictionary).erase(key)
 
-	var wave_size := AI.attack_wave_threshold(difficulty, elapsed_time / 60.0, spectator)
+	var wave_size := AI.attack_wave_threshold(difficulty, elapsed_time / 60.0, spectator, ai_fac)
 	if enemy_near_base == 0 and elapsed_time < AI.rally_grace(difficulty, spectator):
 		state["tactical_state"] = "rally"
 	else:
-		state["tactical_state"] = AI.choose_tactical_state(combat_units.size(), enemy_near_base, wave_size)
+		state["tactical_state"] = AI.choose_tactical_state(
+			combat_units.size(), enemy_near_base, wave_size, own_power, enemy_power, ai_fac, difficulty
+		)
 
-	if not scouts.is_empty() and elapsed_time >= float(state["scout_order_until"]):
-		var route: Array = AI.scout_route(ai_base_pos, _map_world_size())
-		var waypoint: Vector2 = route[int(elapsed_time / 25.0) % route.size()]
-		var scout_ids: Array = []
-		for scout in scouts:
-			scout_ids.append(int(scout.net_id))
-		if _issue_ai_command(ai_team, {
-			"type": "move", "unit_ids": scout_ids,
-			"target_x": clampf(waypoint.x, 0.0, NetSecurity.MAX_COORD),
-			"target_y": clampf(waypoint.y, 0.0, NetSecurity.MAX_COORD),
-			"attack_move": false,
-		}):
-			state["scout_order_until"] = elapsed_time + AI.order_interval(difficulty) * 2.0
-
-	var rally_offset := Vector2(-220, -180) if ai_team == 1 else Vector2(220, 180)
-	var rally_pos := ai_base_pos + rally_offset
-	var squad_pos := ai_base_pos
-	if not combat_units.is_empty():
-		squad_pos = Vector2.ZERO
-		for u in combat_units:
-			squad_pos += u.global_position
-		squad_pos /= float(combat_units.size())
-	var target := _find_nearest_visible_enemy(ai_team, squad_pos, 900.0)
+	# Maintain fog-compliant last-known enemy contact memory (45 s TTL).
+	var squad_pos := _group_centroid(combat_units, ai_base_pos)
+	var target := _find_nearest_visible_enemy(ai_team, squad_pos, 1100.0)
 	var memory: Dictionary = state["last_known_enemy"]
 	if target != null:
 		memory["x"] = target.global_position.x
@@ -2597,51 +2983,250 @@ func _run_ai_turn_for_team(ai_team: int) -> void:
 		memory["expires_at"] = elapsed_time + 45.0
 	elif not memory.is_empty() and elapsed_time >= float(memory.get("expires_at", 0.0)):
 		memory.clear()
-	var primary_target_pos := rally_pos
+
+	var known_enemy_pos := Vector2.INF
 	if target != null:
-		primary_target_pos = target.global_position
+		known_enemy_pos = target.global_position
 	elif not memory.is_empty():
-		# Remembered positions expire; they never grant live enemy knowledge.
-		primary_target_pos = Vector2(float(memory["x"]), float(memory["y"]))
+		known_enemy_pos = Vector2(float(memory["x"]), float(memory["y"]))
+	var default_far := Vector2(
+		world_size.x * (0.8 if ai_base_pos.x < world_size.x * 0.5 else 0.2),
+		world_size.y * (0.8 if ai_base_pos.y < world_size.y * 0.5 else 0.2),
+	)
+	var enemy_hint_pos := known_enemy_pos if known_enemy_pos != Vector2.INF else default_far
 
-	var order_ids: Array = []
-	var retreating := false
-	for u in combat_units:
-		var max_hp := float(u.effective_max_hp()) if u.has_method("effective_max_hp") else float(u.stats.hp if u.stats else 100)
-		var hp_ratio := float(u.hp) / maxf(1.0, max_hp)
-		var retreat_key: int = int(u.get_instance_id())
-		var retreat_until := float((state["retreat_until"] as Dictionary).get(retreat_key, 0.0))
-		if AI.retreat_threshold(hp_ratio, 0.28):
-			if elapsed_time >= retreat_until:
-				order_ids.append(int(u.net_id))
-				(state["retreat_until"] as Dictionary)[retreat_key] = elapsed_time + 8.0
-				retreating = true
-			continue
-		(state["retreat_until"] as Dictionary).erase(retreat_key)
-		var may_order := elapsed_time >= float((state["order_until"] as Dictionary).get(retreat_key, 0.0))
-		if not may_order and str(state["tactical_state"]) != "defend":
-			continue
-		order_ids.append(int(u.net_id))
-		(state["order_until"] as Dictionary)[retreat_key] = elapsed_time + AI.order_interval(difficulty)
+	# 6. Multi-sector scouting (with damaged-scout preservation).
+	if not scouts.is_empty() and elapsed_time >= float(state["scout_order_until"]):
+		var deposit_positions: Array = []
+		for rd in resource_deposits:
+			var dep: ResourceDeposit = rd.get("deposit", null)
+			if dep != null and not dep.is_depleted():
+				deposit_positions.append(Vector2(rd.get("pos", Vector2.ZERO)))
+		var waypoints := AI.scout_waypoints(ai_base_pos, world_size, deposit_positions, known_enemy_pos)
+		var active_scouts: Array = []
+		var hurt_scouts: Array = []
+		for scout in scouts:
+			var smax := float(scout.effective_max_hp()) if scout.has_method("effective_max_hp") else float(scout.stats.hp)
+			if float(scout.hp) / maxf(1.0, smax) < 0.40:
+				hurt_scouts.append(int(scout.net_id))
+			else:
+				active_scouts.append(int(scout.net_id))
+		var sent := false
+		if not active_scouts.is_empty():
+			var wp_idx := int(elapsed_time / 20.0) % waypoints.size()
+			sent = _issue_ai_move(ai_team, active_scouts, waypoints[wp_idx], false)
+		if not hurt_scouts.is_empty():
+			var retreat_pt := AI.choose_retreat_point(
+				ai_base_pos, ai_base_pos, 3, repair_positions, GameManager.active_clouds, world_size
+			)
+			sent = _issue_ai_move(ai_team, hurt_scouts, retreat_pt, false) or sent
+		if sent:
+			state["scout_order_until"] = elapsed_time + AI.order_interval(difficulty) * 2.0
 
-	var move_target := rally_pos
-	var attack_move := true
-	match str(state["tactical_state"]):
-		"defend":
-			move_target = closest_intruder.global_position if closest_intruder != null else ai_base_pos
-		"attack", "harass":
-			move_target = primary_target_pos
-		_:
-			attack_move = false
-	if retreating:
-		move_target = ai_base_pos + (Vector2(-40, -40) if ai_team == 1 else Vector2(40, 40))
-	if not order_ids.is_empty():
-		_issue_ai_command(ai_team, {
-			"type": "move", "unit_ids": order_ids,
-			"target_x": clampf(move_target.x, 0.0, NetSecurity.MAX_COORD),
-			"target_y": clampf(move_target.y, 0.0, NetSecurity.MAX_COORD),
-			"attack_move": attack_move,
-		})
+	# 7. Worker tactics: capture damaged enemy factories, repair allies, fortify perimeter.
+	_run_ai_worker_tactics(
+		ai_team, workers, ai_base_pos, enemy_hint_pos, enemy_buildings, enemy_units,
+		enemy_comp, b_counts, ai_fac, difficulty, state
+	)
+
+	# 8. Separate wounded units for independent retreat (never overwrites healthy squads!).
+	var retreat_ratio := float(doctrine_cfg.get("retreat_hp", 0.28)) if difficulty >= AI.Difficulty.NORMAL else 0.25
+	var retreat_until: Dictionary = state["retreat_until"]
+	var healthy_vanguard: Array = []
+	var healthy_raiders: Array = []
+	var healthy_standoff: Array = []
+	var healthy_aa: Array = []
+	var healthy_naval: Array = []
+	var retreat_ground_ids: Array = []
+	var retreat_air_ids: Array = []
+	var retreat_air_anchor := ai_base_pos
+	var retreat_ground_anchor := ai_base_pos
+
+	for role_pair in [
+		[vanguard_units, healthy_vanguard],
+		[raider_units, healthy_raiders],
+		[standoff_units, healthy_standoff],
+		[anti_air_units, healthy_aa],
+		[naval_units, healthy_naval],
+	]:
+		var src: Array = role_pair[0]
+		var dst: Array = role_pair[1]
+		for u in src:
+			var max_hp := float(u.effective_max_hp()) if u.has_method("effective_max_hp") else float(u.stats.hp)
+			var hp_ratio := float(u.hp) / maxf(1.0, max_hp)
+			var rkey := int(u.get_instance_id())
+			var allow_retreat := not hq_under_attack
+			if allow_retreat and AI.retreat_threshold(hp_ratio, retreat_ratio):
+				if elapsed_time >= float(retreat_until.get(rkey, 0.0)):
+					retreat_until[rkey] = elapsed_time + 8.0
+					if int(u.stats.unit_class) == 3:
+						retreat_air_ids.append(int(u.net_id))
+						retreat_air_anchor = u.global_position
+					else:
+						retreat_ground_ids.append(int(u.net_id))
+						retreat_ground_anchor = u.global_position
+				continue
+			retreat_until.erase(rkey)
+			dst.append(u)
+
+	if not retreat_ground_ids.is_empty():
+		var g_retreat := AI.choose_retreat_point(
+			retreat_ground_anchor, ai_base_pos, 0, repair_positions, [], world_size
+		)
+		_issue_ai_move(ai_team, retreat_ground_ids, g_retreat, false)
+	if not retreat_air_ids.is_empty():
+		var clouds_for_retreat: Array = GameManager.active_clouds if (difficulty >= AI.Difficulty.NORMAL or bool(doctrine_cfg.get("prefer_clouds", false))) else []
+		var a_retreat := AI.choose_retreat_point(
+			retreat_air_anchor, ai_base_pos, 3, repair_positions, clouds_for_retreat, world_size
+		)
+		_issue_ai_move(ai_team, retreat_air_ids, a_retreat, false)
+
+	# 9. Role-coordinated squad maneuvers (terrain rally, flanking, standoff, AA, naval).
+	var tactical := str(state["tactical_state"])
+	var target_entries := _build_target_entries(enemy_units, enemy_buildings)
+	var rally_inf := AI.choose_tactical_rally(map_data, ai_base_pos, enemy_hint_pos, 0, world_size)
+	var rally_veh := AI.choose_tactical_rally(map_data, ai_base_pos, enemy_hint_pos, 1, world_size)
+	var rally_naval := AI.choose_tactical_rally(map_data, ai_base_pos, enemy_hint_pos, 2, world_size)
+	var primary_target_pos := known_enemy_pos if known_enemy_pos != Vector2.INF else rally_inf
+	var force_order := tactical == "defend"
+
+	# 9a. Naval task force & corvette sonar buoys.
+	if not healthy_naval.is_empty():
+		var naval_center := _group_centroid(healthy_naval, ai_base_pos)
+		var naval_goal := rally_naval
+		var naval_am := true
+		if tactical == "defend" and closest_intruder != null:
+			naval_goal = closest_intruder.global_position
+		elif tactical in ["attack", "harass"]:
+			var best_naval := AI.choose_best_target({
+				"id": "corvette", "role": "naval",
+				"damage_type": Damage.DamageType.EXPLOSIVE, "range_px": 320.0, "pos": naval_center,
+			}, target_entries)
+			if not best_naval.is_empty():
+				naval_goal = Vector2(best_naval["pos"])
+			elif known_enemy_pos != Vector2.INF:
+				naval_goal = known_enemy_pos
+		else:
+			naval_am = false
+		var naval_ids := _collect_ready_ids(healthy_naval, state, difficulty, force_order)
+		_issue_ai_move(ai_team, naval_ids, naval_goal, naval_am)
+		if difficulty >= AI.Difficulty.NORMAL:
+			for ship in healthy_naval:
+				if ship.stats != null and UnitRegistry.can_deploy_sonar_buoy(String(ship.stats.id)):
+					var buoy_pos := AI.should_deploy_sonar(
+						ship.global_position, enemy_hint_pos, sonar_buoys, ai_team, enemy_comp
+					)
+					if buoy_pos != Vector2.INF:
+						_issue_ai_command(ai_team, {
+							"type": "sonar_buoy", "unit_ids": [int(ship.net_id)],
+							"target_x": clampf(buoy_pos.x, 0.0, NetSecurity.MAX_COORD),
+							"target_y": clampf(buoy_pos.y, 0.0, NetSecurity.MAX_COORD),
+						})
+						break
+
+	# 9b. Anti-air detachment prioritizes enemy air wings, otherwise escorts vanguard.
+	if not healthy_aa.is_empty():
+		var aa_center := _group_centroid(healthy_aa, ai_base_pos)
+		var aa_goal := rally_veh
+		var aa_am := true
+		var best_aa := AI.choose_best_target({
+			"id": "aa_vehicle", "role": "anti_air",
+			"damage_type": Damage.DamageType.KINETIC, "range_px": 300.0, "pos": aa_center,
+		}, target_entries)
+		if not best_aa.is_empty() and (int(best_aa.get("unit_class", 0)) == 3 or tactical in ["defend", "attack", "harass"]):
+			aa_goal = Vector2(best_aa["pos"])
+		elif tactical == "defend" and closest_intruder != null:
+			aa_goal = closest_intruder.global_position
+		elif tactical == "attack":
+			aa_goal = primary_target_pos
+		else:
+			aa_am = false
+		var aa_ids := _collect_ready_ids(healthy_aa, state, difficulty, force_order)
+		_issue_ai_move(ai_team, aa_ids, aa_goal, aa_am)
+
+	# 9c. Long-range standoff support (artillery, siege mechs, snipers) keeps range & kites.
+	if not healthy_standoff.is_empty():
+		var st_center := _group_centroid(healthy_standoff, ai_base_pos)
+		var st_goal := rally_inf
+		var st_am := true
+		var best_st := AI.choose_best_target({
+			"id": "artillery", "role": "standoff",
+			"damage_type": Damage.DamageType.EXPLOSIVE, "range_px": 400.0, "pos": st_center,
+		}, target_entries)
+		if tactical == "defend" and closest_intruder != null:
+			st_goal = AI.standoff_position(st_center, closest_intruder.global_position, 360.0, world_size)
+		elif tactical in ["attack", "harass"] and not best_st.is_empty():
+			var st_target_pos := Vector2(best_st["pos"])
+			var avg_rng := 380.0
+			if difficulty >= AI.Difficulty.NORMAL:
+				st_goal = AI.standoff_position(st_center, st_target_pos, avg_rng, world_size)
+				# Kite backward without stopping to fire if enemies closed inside half range.
+				st_am = st_center.distance_to(st_target_pos) >= avg_rng * 0.55
+			else:
+				st_goal = st_target_pos
+		elif tactical == "attack":
+			st_goal = primary_target_pos
+		else:
+			st_am = false
+		var st_ids := _collect_ready_ids(healthy_standoff, state, difficulty, force_order)
+		_issue_ai_move(ai_team, st_ids, st_goal, st_am)
+
+	# 9d. Fast raiders / stealth infiltrators / strike bombers execute flanking economy raids.
+	if not healthy_raiders.is_empty():
+		var r_center := _group_centroid(healthy_raiders, ai_base_pos)
+		var r_goal := rally_inf
+		var r_am := true
+		match tactical:
+			"defend":
+				r_goal = closest_intruder.global_position if closest_intruder != null else ai_base_pos
+			"attack", "harass":
+				var best_raid := AI.choose_best_target({
+					"id": "stealthbot", "role": "raider",
+					"damage_type": Damage.DamageType.ENERGY, "range_px": 220.0, "pos": r_center,
+				}, target_entries)
+				var raid_target := Vector2(best_raid["pos"]) if not best_raid.is_empty() else primary_target_pos
+				if difficulty >= AI.Difficulty.NORMAL and r_center.distance_to(raid_target) > 320.0:
+					var flank_side := 1 if (int(elapsed_time / 35.0) + ai_team) % 2 == 0 else -1
+					r_goal = AI.flank_waypoint(r_center, raid_target, world_size, flank_side, 240.0)
+				else:
+					r_goal = raid_target
+			_:
+				r_am = false
+		var r_ids := _collect_ready_ids(healthy_raiders, state, difficulty, force_order)
+		_issue_ai_move(ai_team, r_ids, r_goal, r_am)
+
+	# 9e. Main vanguard pushes prioritized primary target or holds cover-rich rally.
+	if not healthy_vanguard.is_empty():
+		var v_center := _group_centroid(healthy_vanguard, ai_base_pos)
+		var v_goal := rally_inf
+		var v_am := true
+		match tactical:
+			"defend":
+				v_goal = closest_intruder.global_position if closest_intruder != null else ai_base_pos
+			"attack":
+				var best_v := AI.choose_best_target({
+					"id": "mbt", "role": "vanguard",
+					"damage_type": Damage.DamageType.EXPLOSIVE, "range_px": 220.0, "pos": v_center,
+				}, target_entries)
+				v_goal = Vector2(best_v["pos"]) if not best_v.is_empty() else primary_target_pos
+			"harass":
+				# During harass, if raiders exist let raiders probe while vanguard pressures forward;
+				# if no dedicated raiders exist, vanguard itself probes the contact point.
+				if healthy_raiders.is_empty():
+					v_goal = primary_target_pos
+				else:
+					v_goal = rally_inf.lerp(primary_target_pos, 0.45)
+			"regroup":
+				v_goal = rally_veh if own_comp.get("vehicle", 0) > own_comp.get("infantry", 0) else rally_inf
+				v_am = false
+			_:
+				v_goal = rally_veh if own_comp.get("vehicle", 0) > own_comp.get("infantry", 0) else rally_inf
+				v_am = false
+		var v_ids := _collect_ready_ids(healthy_vanguard, state, difficulty, force_order)
+		_issue_ai_move(ai_team, v_ids, v_goal, v_am)
+
+	# 10. Late-game fog-compliant Orbital Laser / Nuclear strikes on high-value clusters.
+	_run_ai_strategic_weapons(ai_team, difficulty, enemy_units, enemy_buildings, state)
 	_sync_legacy_ai_state(ai_team, state)
 
 ## AI decisions always leave the host through the normal command pipeline so
@@ -2667,6 +3252,7 @@ func _ai_state(team: int) -> Dictionary:
 		"retreat_until": {},
 		"next_build_time": 0.0,
 		"next_train_time": 0.0,
+		"next_strategic_time": 0.0,
 		"order_until": {},
 		"scout_order_until": 0.0,
 		"last_known_enemy": {},
@@ -2714,16 +3300,37 @@ func _get_team_units(team: int) -> Array:
 	return res
 
 func _classify_units(unit_list: Array) -> Dictionary:
-	var counts := {"infantry": 0, "vehicle": 0, "naval": 0, "air": 0}
+	var counts := {
+		"infantry": 0, "vehicle": 0, "naval": 0, "air": 0,
+		"stealth": 0, "submerged": 0, "worker": 0, "scout": 0,
+		"anti_air": 0, "siege": 0, "total": 0,
+	}
 	for u in unit_list:
 		if not is_instance_valid(u) or u.stats == null:
 			counts["infantry"] += 1
+			counts["total"] += 1
 			continue
-		match u.stats.unit_class:
-			1: counts["vehicle"] += 1
-			2: counts["naval"] += 1
+		counts["total"] += 1
+		var uid := String(u.stats.id)
+		var uclass := int(u.stats.unit_class)
+		match uclass:
+			1, 7: counts["vehicle"] += 1
+			2, 4: counts["naval"] += 1
 			3: counts["air"] += 1
 			_: counts["infantry"] += 1
+		if bool(u.stats.stealth):
+			counts["stealth"] += 1
+		if int(u.stats.armor_class) == Damage.ArmorClass.SUBMERGED:
+			counts["submerged"] += 1
+		var role := AI.unit_role(uid, uclass, float(u.stats.range_px), bool(u.stats.stealth))
+		if role == "worker":
+			counts["worker"] += 1
+		elif role == "scout":
+			counts["scout"] += 1
+		elif role == "anti_air":
+			counts["anti_air"] += 1
+		elif role == "standoff":
+			counts["siege"] += 1
 	return counts
 
 func _get_team_building_counts(team: int) -> Dictionary:
